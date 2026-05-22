@@ -9,6 +9,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
@@ -171,6 +172,32 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   transition:var(--transition);letter-spacing:0.3px;
 }
 .admin-link button:hover{color:var(--text2);background:var(--bg3)}
+
+/* Admin email/password form */
+.admin-login-box{
+  width:100%;max-width:300px;
+  animation:fadeSlideUp 0.3s ease both;
+}
+.admin-login-box .pin-back{margin-bottom:16px}
+.admin-field{margin-bottom:12px}
+.admin-field label{display:block;font-size:11px;font-weight:600;color:var(--text3);
+  text-transform:uppercase;letter-spacing:0.4px;margin-bottom:5px}
+.admin-field input{
+  width:100%;background:var(--bg3);border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:11px 14px;color:var(--text);
+  font-family:var(--font);font-size:14px;outline:none;transition:var(--transition);
+}
+.admin-field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(232,197,71,0.1)}
+.admin-field input::placeholder{color:var(--text3)}
+.btn-admin-login{
+  width:100%;padding:12px;background:var(--accent);color:#0a0b0f;
+  border:none;border-radius:var(--radius-sm);font-family:var(--font);
+  font-size:14px;font-weight:700;cursor:pointer;transition:var(--transition);
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.btn-admin-login:hover{background:var(--accent2);transform:translateY(-1px)}
+.btn-admin-login:active{transform:scale(0.98)}
+.btn-admin-login:disabled{opacity:0.6;cursor:not-allowed;transform:none}
 
 /* ── PIN PAD ── */
 .pin-container{
@@ -560,7 +587,34 @@ textarea{resize:vertical;min-height:80px}
   <!-- User selection -->
   <div id="login-select" style="width:100%;max-width:340px">
     <div class="user-grid" id="user-grid"></div>
-    <div class="admin-link"><button onclick="selectUser('admin')" id="admin-btn">⚙ Administrator</button></div>
+    <div class="admin-link"><button onclick="showAdminLogin()" id="admin-btn">⚙ Administrator</button></div>
+  </div>
+
+  <!-- Admin email+password login -->
+  <div id="login-admin" class="admin-login-box" style="display:none">
+    <button class="pin-back" onclick="backToSelect()">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+      Înapoi
+    </button>
+    <div class="pin-user-info" style="margin-bottom:20px">
+      <div class="pin-avatar" style="background:rgba(232,197,71,0.15);color:#e8c547;width:52px;height:52px;border-radius:14px;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-bottom:8px">A</div>
+      <div class="pin-username">Administrator</div>
+      <div class="pin-hint" id="admin-hint" style="font-size:12px;color:var(--text3);margin-top:4px">Conectare cu cont Hermes</div>
+    </div>
+    <div class="admin-field">
+      <label>Email</label>
+      <input type="email" id="admin-email" placeholder="email@exemplu.com" autocomplete="email"
+        onkeydown="if(event.key==='Enter')document.getElementById('admin-pass').focus()"/>
+    </div>
+    <div class="admin-field">
+      <label>Parolă</label>
+      <input type="password" id="admin-pass" placeholder="••••••••" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter')adminLogin()"/>
+    </div>
+    <button class="btn-admin-login" id="admin-login-btn" onclick="adminLogin()">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/></svg>
+      Conectare
+    </button>
   </div>
 
   <!-- PIN pad -->
@@ -858,12 +912,48 @@ function buildUserGrid() {
   `).join('');
 }
 
+// ── Admin email/password login ──
+function showAdminLogin() {
+  document.getElementById('login-select').style.display = 'none';
+  document.getElementById('login-admin').style.display = 'block';
+  document.getElementById('login-pin').style.display = 'none';
+  setTimeout(() => document.getElementById('admin-email').focus(), 100);
+}
+
+async function adminLogin() {
+  const email = document.getElementById('admin-email').value.trim();
+  const pass = document.getElementById('admin-pass').value;
+  if (!email || !pass) { toast('Completează email și parola', 'error'); return; }
+
+  const btn = document.getElementById('admin-login-btn');
+  const hint = document.getElementById('admin-hint');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-color:#0a0b0f33;border-top-color:#0a0b0f"></div> Se conectează...';
+  hint.textContent = 'Verificare credențiale...';
+
+  try {
+    await firebase.auth().signInWithEmailAndPassword(email, pass);
+    currentUser = USERS.find(u => u.id === 'admin');
+    toast('Bun venit, Administrator!');
+    enterApp();
+  } catch(e) {
+    let msg = 'Email sau parolă incorecte';
+    if (e.code === 'auth/network-request-failed') msg = 'Eroare de rețea';
+    if (e.code === 'auth/too-many-requests') msg = 'Prea multe încercări. Încearcă mai târziu.';
+    toast(msg, 'error');
+    hint.textContent = 'Conectare cu cont Hermes';
+    btn.disabled = false;
+    btn.innerHTML = '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/></svg> Conectare';
+  }
+}
+
+// ── PIN users ──
 async function selectUser(userId) {
   const user = getUserById(userId);
   if (!user) return;
 
-  // Show PIN pad immediately — don't wait for Firestore
   document.getElementById('login-select').style.display = 'none';
+  document.getElementById('login-admin').style.display = 'none';
   document.getElementById('login-pin').style.display = 'block';
 
   const av = document.getElementById('pin-avatar');
@@ -879,20 +969,12 @@ async function selectUser(userId) {
   tempPin = '';
   updateDots();
 
-  // Now check Firestore for PIN status
   try {
     const snap = await db.collection('users').doc(userId).get();
     const hasPin = snap.exists && snap.data().pinHash;
-    if (!hasPin) {
-      pinMode = 'setup1';
-      document.getElementById('pin-hint').textContent = 'Setează un PIN de 4 cifre';
-    } else {
-      pinMode = 'login';
-      document.getElementById('pin-hint').textContent = 'Introdu PIN-ul tău';
-    }
+    pinMode = hasPin ? 'login' : 'setup1';
+    document.getElementById('pin-hint').textContent = hasPin ? 'Introdu PIN-ul tău' : 'Setează un PIN de 4 cifre';
   } catch(e) {
-    // Firebase not configured yet or offline
-    console.warn('Firestore error:', e.message);
     pinMode = 'setup1';
     document.getElementById('pin-hint').textContent = 'Setează un PIN de 4 cifre';
   }
@@ -901,6 +983,7 @@ async function selectUser(userId) {
 
 function backToSelect() {
   document.getElementById('login-select').style.display = 'block';
+  document.getElementById('login-admin').style.display = 'none';
   document.getElementById('login-pin').style.display = 'none';
   currentUser = null; pinBuffer = '';
 }
@@ -912,6 +995,15 @@ function updateDots() {
     else d.classList.remove('filled');
   }
 }
+
+// ── Keyboard support for PIN ──
+document.addEventListener('keydown', (e) => {
+  // Only active when PIN pad is visible
+  const pinVisible = document.getElementById('login-pin')?.style.display !== 'none';
+  if (!pinVisible) return;
+  if (e.key >= '0' && e.key <= '9') { e.preventDefault(); pinKey(e.key); }
+  if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); pinKey('del'); }
+});
 
 async function pinKey(k) {
   if (k === 'del') { pinBuffer = pinBuffer.slice(0,-1); updateDots(); return; }
@@ -993,9 +1085,12 @@ function enterApp() {
 function logout() {
   if (reclamatiUnsubscribe) reclamatiUnsubscribe();
   currentUser = null; allReclamatii = []; allSoferi = [];
+  // Sign out from Firebase Auth (for admin)
+  try { firebase.auth().signOut(); } catch(e) {}
   document.getElementById('screen-app').classList.remove('active');
   document.getElementById('screen-login').classList.add('active');
   document.getElementById('login-select').style.display='block';
+  document.getElementById('login-admin').style.display='none';
   document.getElementById('login-pin').style.display='none';
   pinBuffer='';
 }
