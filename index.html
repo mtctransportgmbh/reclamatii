@@ -1759,150 +1759,99 @@ if (typeof pdfjsLib !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
-// ── Parsează text extras din PDF Hermes ──
+// ── Parsează PDF Hermes — fiecare celulă e pe linie separată ──
 function parseHermesPDF(fullText) {
-  const result = {
-    belegNr: null,
-    dataEmitere: null,
-    suma: null,
-    pozitii: []
-  };
+  const result = { belegNr: null, dataEmitere: null, suma: null, pozitii: [] };
 
-  // Beleg-Nr. (numărul facturii)
-  const belegMatch = fullText.match(/Beleg-Nr[.\s]+(\d+)/i);
+  // Beleg-Nr.
+  const belegMatch = fullText.match(/Beleg-Nr\.\s*(\d+)/i);
   if (belegMatch) result.belegNr = belegMatch[1];
 
-  // Data emiterii — "Hamburg, den DD.MM.YYYY" sau "Stand DD. Month YYYY"
-  const dataMatch = fullText.match(/Hamburg,\s+den\s+(\d{2}\.\d{2}\.\d{4})/i)
-    || fullText.match(/Stand\s+(\d{2}\.\s*\w+\s+\d{4})/i);
+  // Data emiterii
+  const dataMatch = fullText.match(/Hamburg,\s*den\s*(\d{2}\.\d{2}\.\d{4})/i);
   if (dataMatch) result.dataEmitere = dataMatch[1];
 
   // Suma totală
-  const sumaMatch = fullText.match(/Forderung\s+gesamt[^€\d]*([\d.,]+)/i)
-    || fullText.match(/Forderung gesamt\*?\s*€?\s*([\d.,]+)/i);
+  const sumaMatch = fullText.match(/Forderung\s+gesamt\*?\s*€?\s*([\d.]+,[\d]+)/i);
   if (sumaMatch) result.suma = sumaMatch[1].replace('.','').replace(',','.');
 
-  // Pozițiile din tabel — parsare linie cu linie
-  // Hermes format: Identnummer ATG Schadenart Kst. Tour Name Strasse PLZ Wohnort Übernahmedatum Forderung
+  // PDF.js returnează fiecare celulă ca linie separată
+  // Structura per pozitie: Identnummer → ATG(multiline) → Totalverlust → 6258 → Tour → Nume → Strada → PLZ → Ort → Data → Suma
   const lines = fullText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
-  // Găsim liniile cu date (au un număr de tour de 3 cifre și o sumă la sfârșit)
-  // Pattern: ...6258 [TOUR 3 cifre] [Prenume Nume] [Strada] [PLZ 5 cifre] [Ort] [Data DD.MM.YYYY] [Sumă]
-  const tourPattern = /\b6258\s+(\d{3,4})\s+(.+?)\s{2,}(.+?)\s{2,}(\d{5})\s+(.+?)\s+(\d{2}\.\d{2}\.\d{4})\s+([\d.,]+)\s*$/;
-  
-  // Abordare alternativă: căutăm după "Totalverlust" sau "Transportschaden"
-  // și extragem datele din context
-  
-  // Construim un text concatenat fără newlines pentru pattern matching mai ușor
-  const flatText = fullText.replace(/\n/g, ' ').replace(/\s+/g, ' ');
-  
-  // Pattern pentru fiecare pozitie din Hermes Anlage
-  // Identnummer (lung) + ATG + Schadenart + Kst(6258) + Tour + Name + Strasse + PLZ + Ort + Datum + Forderung
-  const posPattern = /(\d{11,20}[A-Z]?)\s+[\d\s]+(?:BONPRIX|LIMANGO|OTTO|ZAL|FEDEX|GIORDANO|WALBUSCH|PAGEN|[A-Z\s,]+?)\s*(?:Totalverlust|Transportschaden|Sonstige)\s+6258\s+(\d{3,4})\s+([\w\s\-\.äöüÄÖÜß]+?)\s{2,}([\w\s\-\.äöüÄÖÜß]+?\d+[a-z]?)\s+(\d{5})\s+([\w\s\-äöüÄÖÜß]+?)\s+(\d{2}\.\d{2}\.\d{4})\s+([\d.,]+)/gi;
+  // Găsim toate aparițiile de "Totalverlust" și reconstruim pozițiile
+  // Ancorăm pe "6258" (Kst fix în toate rechnungurile Hermes) urmat de numărul turei
+  let i = 0;
+  while (i < lines.length) {
+    // Căutăm "6258" urmat de un număr de tură (3-4 cifre) pe linia următoare
+    if (lines[i] === '6258' && i + 1 < lines.length && /^\d{3,4}$/.test(lines[i+1])) {
+      const pos = { tour: '', name: '', strasse: '', plz: '', ort: '', datum: '', forderung: 0 };
+      pos.tour = lines[i+1];
+      let j = i + 2;
 
-  let match;
-  while ((match = posPattern.exec(flatText)) !== null) {
-    result.pozitii.push({
-      identnummer: match[1],
-      tour: match[2],
-      name: match[3].trim(),
-      strasse: match[4].trim(),
-      plz: match[5],
-      ort: match[6].trim(),
-      datum: match[7],
-      forderung: parseFloat(match[8].replace('.','').replace(',','.'))
-    });
-  }
+      // Nume: 1-2 linii fără cifre, fără cuvinte de stradă
+      let nameParts = [];
+      while (j < lines.length && nameParts.length < 2) {
+        const l = lines[j];
+        if (/^\d{5}$/.test(l)) break;               // PLZ
+        if (/^\d{2}\.\d{2}\.\d{4}$/.test(l)) break; // data
+        if (/\d/.test(l) && l.length > 4) break;     // strada (are cifre)
+        if (/str\.|weg|gasse|platz|allee|ring|garten|sonnenhang|kapellenweg/i.test(l)) break; // cuvant de strada
+        nameParts.push(l);
+        j++;
+      }
+      pos.name = nameParts.join(' ').trim();
 
-  // Fallback: parsare linie cu linie din textul original
-  if (result.pozitii.length === 0) {
-    parseLinesHermes(lines, result);
+      // Strada: linia cu cifre (nr. casa) sau cuvinte tipice stradă
+      let strasseParts = [];
+      while (j < lines.length && !/^\d{5}$/.test(lines[j]) && !/^\d{2}\.\d{2}\.\d{4}$/.test(lines[j])) {
+        const l = lines[j];
+        if (/^[\d.,]+$/.test(l) && l.length <= 3) { j++; continue; } // skip Kst leftovers
+        strasseParts.push(l); j++;
+        // Numărul de stradă pe linia următoare (ex: "16a", "32", "2")
+        if (j < lines.length && /^\d+[a-z]?$/i.test(lines[j]) && !/^\d{5}$/.test(lines[j])) {
+          strasseParts.push(lines[j]); j++;
+        }
+        break;
+      }
+      pos.strasse = strasseParts.join(' ').trim();
+
+      // PLZ: exact 5 cifre
+      if (j < lines.length && /^\d{5}$/.test(lines[j])) {
+        pos.plz = lines[j]; j++;
+      }
+
+      // Ort: poate fi pe mai multe linii
+      let ortParts = [];
+      while (j < lines.length && !/^\d{2}\.\d{2}\.\d{4}$/.test(lines[j]) && !/^[\d.,]+$/.test(lines[j])) {
+        const l = lines[j];
+        if (/^\d{2}\.\d{2}\.\d{4}/.test(l)) break;
+        if (/^[\d]+[,.]/.test(l)) break; // e suma
+        ortParts.push(l); j++;
+        if (ortParts.length >= 3) break;
+      }
+      pos.ort = ortParts.join(' ').trim();
+
+      // Data: DD.MM.YYYY
+      if (j < lines.length && /^\d{2}\.\d{2}\.\d{4}$/.test(lines[j])) {
+        pos.datum = lines[j]; j++;
+      }
+
+      // Suma: format "34,02" sau "1.322,84"
+      if (j < lines.length && /^[\d.]+,[\d]{2}$/.test(lines[j])) {
+        pos.forderung = parseFloat(lines[j].replace('.','').replace(',','.')); j++;
+      }
+
+      if (pos.tour && pos.name) {
+        result.pozitii.push(pos);
+      }
+      i = j;
+    } else {
+      i++;
+    }
   }
 
   return result;
-}
-
-function parseLinesHermes(lines, result) {
-  // Găsim header-ul tabelului
-  let tableStart = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].includes('Identnummer') && lines[i].includes('Tour')) {
-      tableStart = i + 1;
-      break;
-    }
-  }
-  if (tableStart === -1) {
-    // Căutăm după "Totalverlust" direct
-    tableStart = 0;
-  }
-
-  // Colectăm blocuri de date - fiecare pozitie poate fi pe mai multe linii
-  // Identificăm liniile care conțin Tour (număr 3 cifre după 6258)
-  const tourLinePattern = /6258\s+(\d{3,4})\s+([\wäöüÄÖÜß\s\-\.]+)/;
-  const dateAmountPattern = /(\d{2}\.\d{2}\.\d{4})\s+([\d.,]+)\s*$/;
-  
-  let currentPos = null;
-  
-  for (let i = tableStart; i < lines.length; i++) {
-    const line = lines[i];
-    
-    // Linie care conține tour
-    const tourMatch = line.match(tourLinePattern);
-    if (tourMatch) {
-      if (currentPos) result.pozitii.push(currentPos);
-      currentPos = {
-        tour: tourMatch[1],
-        name: tourMatch[2].trim(),
-        strasse: '',
-        plz: '',
-        ort: '',
-        datum: '',
-        forderung: 0
-      };
-      
-      // Poate conține și data/suma pe aceeași linie
-      const dateMatch = line.match(dateAmountPattern);
-      if (dateMatch) {
-        currentPos.datum = dateMatch[1];
-        currentPos.forderung = parseFloat(dateMatch[2].replace('.','').replace(',','.'));
-      }
-      
-      // Extrage PLZ si Ort dacă sunt pe aceeași linie
-      const plzMatch = line.match(/(\d{5})\s+([\wäöüÄÖÜß\s\-]+?)(?:\s+\d{2}\.|$)/);
-      if (plzMatch) {
-        currentPos.plz = plzMatch[1];
-        currentPos.ort = plzMatch[2].trim();
-      }
-      continue;
-    }
-    
-    if (currentPos) {
-      // Completăm datele poziției curente
-      const plzMatch = line.match(/^(\d{5})\s+([\wäöüÄÖÜß\s\-]+)/);
-      if (plzMatch && !currentPos.plz) {
-        currentPos.plz = plzMatch[1];
-        currentPos.ort = plzMatch[2].trim();
-      }
-      
-      const dateMatch = line.match(dateAmountPattern);
-      if (dateMatch && !currentPos.datum) {
-        currentPos.datum = dateMatch[1];
-        currentPos.forderung = parseFloat(dateMatch[2].replace('.','').replace(',','.'));
-      }
-      
-      // Strada
-      if (!currentPos.strasse && line.match(/\d/) && !line.match(/^\d{5}/) && !line.match(/\d{2}\.\d{2}\.\d{4}/)) {
-        currentPos.strasse = line;
-      }
-      
-      // Stop la linia de total
-      if (line.includes('Forderung gesamt') || line.includes('Transportschäden') || line.includes('Verluste (Anzahl')) {
-        if (currentPos) { result.pozitii.push(currentPos); currentPos = null; }
-        break;
-      }
-    }
-  }
-  if (currentPos) result.pozitii.push(currentPos);
 }
 
 // ── Extrage text din PDF folosind PDF.js ──
