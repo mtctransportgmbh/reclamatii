@@ -1759,102 +1759,107 @@ if (typeof pdfjsLib !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
-// ── Parsează PDF Hermes — fiecare celulă e pe linie separată ──
-function parseHermesPDF(fullText) {
+// ── Parsează PDF Hermes — usa coordonate X/Y ──
+function parseHermesPDF(pdfData) {
+  // pdfData poate fi string (fallback) sau obiect {pages, fullText}
+  const fullText = typeof pdfData === 'string' ? pdfData : pdfData.fullText;
+  const pages = typeof pdfData === 'object' ? pdfData.pages : null;
+
   const result = { belegNr: null, dataEmitere: null, suma: null, pozitii: [] };
 
-  // Beleg-Nr.
+  // Beleg-Nr. din text simplu
   const belegMatch = fullText.match(/Beleg-Nr\.\s*(\d+)/i);
   if (belegMatch) result.belegNr = belegMatch[1];
 
-  // Data emiterii
   const dataMatch = fullText.match(/Hamburg,\s*den\s*(\d{2}\.\d{2}\.\d{4})/i);
   if (dataMatch) result.dataEmitere = dataMatch[1];
 
-  // Suma totală
   const sumaMatch = fullText.match(/Forderung\s+gesamt\*?\s*€?\s*([\d.]+,[\d]+)/i);
   if (sumaMatch) result.suma = sumaMatch[1].replace('.','').replace(',','.');
 
-  // PDF.js returnează fiecare celulă ca linie separată
-  // Structura per pozitie: Identnummer → ATG(multiline) → Totalverlust → 6258 → Tour → Nume → Strada → PLZ → Ort → Data → Suma
-  const lines = fullText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  // ── Parsare cu coordonate (metoda principala) ──
+  if (pages) {
+    // Coloane Hermes (X aproximativ):
+    // Identnummer ~57, ATG ~135, Schadenart ~234, Kst ~312, Tour ~347, Name ~376, Strasse ~467, PLZ ~560, Ort ~594, Datum ~688, Forderung ~744
+    const COL = { TOUR: 347, NAME: 376, STRASSE: 467, PLZ: 560, ORT: 594, DATUM: 688, FORDERUNG: 744 };
+    const TOLERANCE = 25; // px tolerance pentru coloana
 
-  // Găsim toate aparițiile de "Totalverlust" și reconstruim pozițiile
-  // Ancorăm pe "6258" (Kst fix în toate rechnungurile Hermes) urmat de numărul turei
-  let i = 0;
-  while (i < lines.length) {
-    // Căutăm "6258" urmat de un număr de tură (3-4 cifre) pe linia următoare
-    if (lines[i] === '6258' && i + 1 < lines.length && /^\d{3,4}$/.test(lines[i+1])) {
-      const pos = { tour: '', name: '', strasse: '', plz: '', ort: '', datum: '', forderung: 0 };
-      pos.tour = lines[i+1];
-      let j = i + 2;
+    const inCol = (x, col) => Math.abs(x - col) < TOLERANCE;
 
-      // Nume: 1-2 linii fără cifre, fără cuvinte de stradă
-      let nameParts = [];
-      while (j < lines.length && nameParts.length < 2) {
-        const l = lines[j];
-        if (/^\d{5}$/.test(l)) break;               // PLZ
-        if (/^\d{2}\.\d{2}\.\d{4}$/.test(l)) break; // data
-        if (/\d/.test(l) && l.length > 4) break;     // strada (are cifre)
-        if (/str\.|weg|gasse|platz|allee|ring|garten|sonnenhang|kapellenweg/i.test(l)) break; // cuvant de strada
-        nameParts.push(l);
-        j++;
+    for (const page of pages) {
+      // Grupam items pe randuri (acelasi Y ± 5px)
+      const rows = {};
+      for (const item of page.items) {
+        const rowKey = Math.round(item.y / 5) * 5; // group by 5px bands
+        if (!rows[rowKey]) rows[rowKey] = [];
+        rows[rowKey].push(item);
       }
-      pos.name = nameParts.join(' ').trim();
 
-      // Strada: linia cu cifre (nr. casa) sau cuvinte tipice stradă
-      let strasseParts = [];
-      while (j < lines.length && !/^\d{5}$/.test(lines[j]) && !/^\d{2}\.\d{2}\.\d{4}$/.test(lines[j])) {
-        const l = lines[j];
-        if (/^[\d.,]+$/.test(l) && l.length <= 3) { j++; continue; } // skip Kst leftovers
-        strasseParts.push(l); j++;
-        // Numărul de stradă pe linia următoare (ex: "16a", "32", "2")
-        if (j < lines.length && /^\d+[a-z]?$/i.test(lines[j]) && !/^\d{5}$/.test(lines[j])) {
-          strasseParts.push(lines[j]); j++;
+      // Procesam fiecare rand care contine '6258' (Kst)
+      for (const [yKey, rowItems] of Object.entries(rows)) {
+        const hasKst = rowItems.some(it => it.text === '6258');
+        if (!hasKst) continue;
+
+        const getCol = (col) => {
+          const items = rowItems.filter(it => inCol(it.x, col));
+          return items.map(it => it.text).join(' ').trim();
+        };
+
+        const tour = getCol(COL.TOUR);
+        if (!tour || !/^\d{3,4}$/.test(tour)) continue;
+
+        const name = getCol(COL.NAME);
+        const strasse = getCol(COL.STRASSE);
+        const plz = getCol(COL.PLZ);
+        const ort = getCol(COL.ORT);
+        const datum = getCol(COL.DATUM);
+        const forderungStr = getCol(COL.FORDERUNG);
+
+        // Unele randuri sunt continuare (ex: a doua linie de nume sau ort)
+        // Le ignoram daca nu au Tour
+        if (!name && !strasse) continue;
+
+        const pos = {
+          tour,
+          name: name || '',
+          strasse: strasse || '',
+          plz: plz || '',
+          ort: ort || '',
+          datum: datum || '',
+          forderung: forderungStr ? parseFloat(forderungStr.replace('.','').replace(',','.')) : 0
+        };
+
+        // Verifica daca e o continuare a randului precedent (name lipseste, ort continua)
+        const lastPos = result.pozitii[result.pozitii.length - 1];
+        if (lastPos && !pos.name && !pos.datum && pos.ort) {
+          lastPos.ort += ' ' + pos.ort;
+          if (pos.strasse && !lastPos.strasse) lastPos.strasse = pos.strasse;
+        } else if (lastPos && !pos.datum && pos.name && !pos.strasse) {
+          // Continuare nume (ex: Simone / Permetinger)
+          lastPos.name += ' ' + pos.name;
+          if (pos.strasse) lastPos.strasse = pos.strasse;
+          if (pos.ort) lastPos.ort = pos.ort;
+          if (pos.datum) lastPos.datum = pos.datum;
+          if (pos.forderung) lastPos.forderung = pos.forderung;
+        } else {
+          result.pozitii.push(pos);
         }
-        break;
       }
-      pos.strasse = strasseParts.join(' ').trim();
-
-      // PLZ: exact 5 cifre
-      if (j < lines.length && /^\d{5}$/.test(lines[j])) {
-        pos.plz = lines[j]; j++;
-      }
-
-      // Ort: poate fi pe mai multe linii
-      let ortParts = [];
-      while (j < lines.length && !/^\d{2}\.\d{2}\.\d{4}$/.test(lines[j]) && !/^[\d.,]+$/.test(lines[j])) {
-        const l = lines[j];
-        if (/^\d{2}\.\d{2}\.\d{4}/.test(l)) break;
-        if (/^[\d]+[,.]/.test(l)) break; // e suma
-        ortParts.push(l); j++;
-        if (ortParts.length >= 3) break;
-      }
-      pos.ort = ortParts.join(' ').trim();
-
-      // Data: DD.MM.YYYY
-      if (j < lines.length && /^\d{2}\.\d{2}\.\d{4}$/.test(lines[j])) {
-        pos.datum = lines[j]; j++;
-      }
-
-      // Suma: format "34,02" sau "1.322,84"
-      if (j < lines.length && /^[\d.]+,[\d]{2}$/.test(lines[j])) {
-        pos.forderung = parseFloat(lines[j].replace('.','').replace(',','.')); j++;
-      }
-
-      if (pos.tour && pos.name) {
-        result.pozitii.push(pos);
-      }
-      i = j;
-    } else {
-      i++;
     }
+
+    // Sorteaza dupa datum descrescator
+    result.pozitii.sort((a,b) => {
+      if (!a.datum || !b.datum) return 0;
+      const [da,ma,ya] = a.datum.split('.').map(Number);
+      const [db,mb,yb] = b.datum.split('.').map(Number);
+      return new Date(yb,mb-1,db) - new Date(ya,ma-1,da);
+    });
   }
 
   return result;
 }
 
-// ── Extrage text din PDF folosind PDF.js ──
+// ── Extrage text din PDF cu coordonate X/Y (PDF.js) ──
 async function extractPDFText(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1862,20 +1867,23 @@ async function extractPDFText(file) {
       try {
         const typedArray = new Uint8Array(e.target.result);
         const pdf = await pdfjsLib.getDocument(typedArray).promise;
-        let fullText = '';
+        // Return structured items per page with coordinates
+        const pages = [];
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          // Reconstituim textul cu poziții pentru a păstra ordinea tabelului
-          const items = content.items.sort((a, b) => {
-            const yDiff = Math.round(b.transform[5]) - Math.round(a.transform[5]);
-            if (Math.abs(yDiff) > 3) return yDiff;
-            return a.transform[4] - b.transform[4];
-          });
-          const pageText = items.map(item => item.str).join(' ');
-          fullText += '\n--- Pagina ' + i + ' ---\n' + pageText;
+          const textContent = await page.getTextContent();
+          const items = textContent.items
+            .filter(item => item.str && item.str.trim())
+            .map(item => ({
+              text: item.str.trim(),
+              x: Math.round(item.transform[4]),
+              y: Math.round(item.transform[5])
+            }));
+          // Also build plain text for header parsing
+          const sorted = [...items].sort((a,b) => b.y - a.y || a.x - b.x);
+          pages.push({ items, sorted, plainText: sorted.map(i=>i.text).join('\n') });
         }
-        resolve(fullText);
+        resolve({ pages, fullText: pages.map(p=>p.plainText).join('\n') });
       } catch(err) { reject(err); }
     };
     reader.readAsArrayBuffer(file);
@@ -2083,8 +2091,8 @@ async function handleRechnFile(file) {
   dropzone.innerHTML = `<div class="spinner" style="margin:0 auto 8px"></div><div style="font-size:13px;color:var(--text2)">Se parsează PDF-ul...</div>`;
 
   try {
-    const text = await extractPDFText(file);
-    const parsed = parseHermesPDF(text);
+    const pdfData = await extractPDFText(file);
+    const parsed = parseHermesPDF(pdfData);
     parsed._file = file;
     parsedRechnData = parsed;
 
