@@ -770,8 +770,9 @@ textarea{resize:vertical;min-height:80px}
             <div class="page-title">Șoferi & Ture</div>
             <div class="page-sub" id="soferi-count"></div>
           </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-ghost" onclick="togglePacheteForm()">📦 Pachete livrate</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost" onclick="togglePacheteForm()">📦 Pachete</button>
+            <button class="btn btn-ghost" onclick="seedSoferi()" id="btn-seed" style="display:none">⬆ Import listă</button>
             <button class="btn btn-primary" onclick="toggleSoferForm()">
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
               Șofer nou
@@ -780,6 +781,12 @@ textarea{resize:vertical;min-height:80px}
         </div>
         <div id="sofer-form" style="display:none"></div>
         <div id="pachete-form" style="display:none"></div>
+        <div id="soferi-search" style="margin-bottom:12px;display:none">
+          <div class="search-wrap">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+            <input type="text" placeholder="Caută șofer..." id="soferi-search-input" oninput="renderSoferi()" style="max-width:300px"/>
+          </div>
+        </div>
         <div id="soferi-list"></div>
       </div>
 
@@ -2260,109 +2267,216 @@ async function saveRechn() {
   }
 }
 
-// SOFERI
 // ════════════════════════════════════════════════════════
-let editSoferId = null;
-async function renderSoferi() {
-  const snap = await db.collection('soferi').orderBy('tura').get();
-  allSoferi = snap.docs.map(d=>({id:d.id,...d.data()}));
-  const pachSnap = await db.collection('pachete_livrate').get();
-  const pachete = pachSnap.docs.map(d=>({id:d.id,...d.data()}));
-  const ptot = {};
-  pachete.forEach(p=>{ptot[p.turaSofer]=(ptot[p.turaSofer]||0)+(p.pachete||0);});
+// SOFERI — lista pre-populata
+// ════════════════════════════════════════════════════════
 
-  document.getElementById('soferi-count').textContent = allSoferi.length+' șoferi configurați';
+const SOFERI_INITIALI = [
+  {numeSofer:'Badea Madalin',     locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Bainoczi Razvan',   locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Bejenaru Ioan',     locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Birliba Mihaela',   locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Bisoc Ionut',       locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Bitiusca Gabriel',  locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Buciu Petre',       locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Burlacu Andrei',    locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Cazan Ionut',       locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Ciobotaru Adrian',  locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Ciobotaru Iulian',  locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Ciobotaru Larisa',  locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Crainic Adrian',    locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Deleu Daniel',      locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Dobinda Dumitru',   locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Dutescu Daniel',    locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Farkas Rudolf',     locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Feraru Razvan',     locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Ferent Simon',      locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Ghebu Andreas',     locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Iacob Mihai',       locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Macarie Paul',      locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Maies Antonio',     locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Margau Rafael',     locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Maricosu Adelin',   locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Mereacre Mihail',   locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Mihai Adrian',      locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Moise Alexandru',   locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Morosanu Lucian',   locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Musteata Ion',      locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Plesca Mihaita',    locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Pop Marcel',        locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Raghinaru Marian',  locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Rimoczi Florin',    locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Rudareanu Vladut',  locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Serban Florin',     locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Sparios Eduard',    locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Stan Ionel',        locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Stanciu Dumitru',   locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Stinga Valeriu',    locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Tuca Valentin',     locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Zestrea Mihail',    locatie:'Ruhstorf',  tura:''},
+  {numeSofer:'Aremia Aurel',      locatie:'Eiselfing', tura:''},
+  {numeSofer:'Asmarandei Andrei', locatie:'Eiselfing', tura:''},
+  {numeSofer:'Bruma Alexandru',   locatie:'Eiselfing', tura:''},
+  {numeSofer:'Gruia Raul',        locatie:'Eiselfing', tura:''},
+  {numeSofer:'Movila Andrei',     locatie:'Eiselfing', tura:''},
+  {numeSofer:'Pana Alexandru',    locatie:'Eiselfing', tura:''},
+  {numeSofer:'Paul Petre',        locatie:'Eiselfing', tura:''},
+  {numeSofer:'Rus Denisa',        locatie:'Eiselfing', tura:''},
+  {numeSofer:'Stranici Cristian', locatie:'Eiselfing', tura:''},
+  {numeSofer:'Tufisi Rares',      locatie:'Eiselfing', tura:''},
+  {numeSofer:'Vancea Cosmin',     locatie:'Eiselfing', tura:''},
+];
+
+let editSoferId = null;
+
+async function seedSoferi() {
+  if (!confirm(`Importi ${SOFERI_INITIALI.length} soferi in baza de date? Se face o singura data.`)) return;
+  const btn = document.getElementById('btn-seed');
+  btn.textContent = 'Se importa...'; btn.disabled = true;
+  try {
+    const batch = db.batch();
+    SOFERI_INITIALI.forEach(s => {
+      batch.set(db.collection('soferi').doc(), { ...s, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    });
+    await batch.commit();
+    toast('✓ ' + SOFERI_INITIALI.length + ' soferi importati!');
+    btn.style.display = 'none';
+    renderSoferi();
+  } catch(e) { toast('Eroare: ' + e.message, 'error'); btn.textContent = '⬆ Import lista'; btn.disabled = false; }
+}
+
+async function renderSoferi() {
+  const snap = await db.collection('soferi').orderBy('numeSofer').get();
+  allSoferi = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  const pachSnap = await db.collection('pachete_livrate').get();
+  const ptot = {};
+  pachSnap.docs.forEach(d => { const p = d.data(); ptot[p.turaSofer] = (ptot[p.turaSofer]||0) + (p.pachete||0); });
+
+  const search = (document.getElementById('soferi-search-input')?.value || '').toLowerCase();
+  const filtered = allSoferi.filter(s => !search || s.numeSofer.toLowerCase().includes(search) || (s.tura||'').includes(search));
+
+  document.getElementById('soferi-count').textContent =
+    allSoferi.length + ' soferi · ' + allSoferi.filter(s=>s.tura).length + ' cu tura atribuita';
+
+  const seedBtn = document.getElementById('btn-seed');
+  if (seedBtn) seedBtn.style.display = allSoferi.length === 0 ? 'flex' : 'none';
+  const searchBar = document.getElementById('soferi-search');
+  if (searchBar) searchBar.style.display = allSoferi.length > 0 ? 'block' : 'none';
+
   const el = document.getElementById('soferi-list');
-  if (allSoferi.length===0) {
-    el.innerHTML=`<div class="empty"><div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0z"/></svg></div><div class="empty-title">Niciun șofer</div><div class="empty-sub">Adaugă primul șofer</div></div>`;
+  if (allSoferi.length === 0) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0z"/></svg></div><div class="empty-title">Niciun sofer</div><div class="empty-sub">Apasa Import lista pentru a adauga toti soferii</div></div>';
     return;
   }
-  el.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">${allSoferi.map(s=>`
-    <div class="card card-sm" style="display:flex;align-items:center;gap:12px">
-      <div style="width:44px;height:44px;background:var(--bg3);border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent);flex-shrink:0">${s.tura}</div>
-      <div style="flex:1">
-        <div style="font-weight:600;font-size:14px">${s.numeSofer}</div>
-        <div style="font-size:12px;color:var(--text3)">Tura ${s.tura} · ${s.locatie} · ${(ptot[s.tura]||0).toLocaleString()} pachete</div>
+
+  const soferCard = s => `
+    <div class="card card-sm" style="display:flex;align-items:center;gap:10px;padding:10px 12px">
+      <div style="width:38px;height:38px;background:${s.tura?'var(--accent-bg)':'var(--bg3)'};border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;color:${s.tura?'var(--accent)':'var(--text3)'};flex-shrink:0;border:1px solid ${s.tura?'var(--accent-border)':'var(--border)'}">${s.tura||'—'}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.numeSofer}</div>
+        <div style="font-size:11px;color:var(--text3)">${s.tura ? 'Tura '+s.tura : '<span style="color:var(--accent);font-size:10px">Seteaza tura</span>'}${ptot[s.tura]?' · '+ptot[s.tura].toLocaleString()+' pachete':''}</div>
       </div>
-      <div style="display:flex;gap:4px">
-        <button class="icon-btn" onclick="editSofer('${s.id}')" title="Editează"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg></button>
-        <button class="icon-btn red" onclick="deleteSofer('${s.id}','${s.tura}')" title="Șterge"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg></button>
+      <div style="display:flex;gap:3px">
+        <button class="icon-btn" onclick="editSofer('${s.id}')" title="Editeaza"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg></button>
+        <button class="icon-btn red" onclick="deleteSofer('${s.id}','${s.numeSofer}')" title="Sterge"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg></button>
       </div>
-    </div>`).join('')}</div>`;
+    </div>`;
+
+  const groupHTML = (title, color, list) => !list.length ? '' : `
+    <div style="margin-bottom:20px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:${color};margin-bottom:8px;display:flex;align-items:center;gap:6px">
+        <span style="width:6px;height:6px;background:${color};border-radius:50%;display:inline-block"></span>
+        ${title} · ${list.length} soferi
+        ${list.filter(s=>!s.tura).length > 0 ? '<span style="color:var(--accent);font-weight:400;font-size:10px">('+list.filter(s=>!s.tura).length+' fara tura)</span>' : ''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px">
+        ${list.map(soferCard).join('')}
+      </div>
+    </div>`;
+
+  el.innerHTML =
+    groupHTML('Ruhstorf', '#34d399', filtered.filter(s=>s.locatie==='Ruhstorf')) +
+    groupHTML('Eiselfing', '#a78bfa', filtered.filter(s=>s.locatie==='Eiselfing'));
 }
 
 function toggleSoferForm(data) {
   const el = document.getElementById('sofer-form');
-  if (el.style.display==='block'&&!data){el.style.display='none';editSoferId=null;return;}
-  editSoferId = data?.id||null;
-  el.style.display='block';
-  el.innerHTML=`
+  if (el.style.display==='block' && !data) { el.style.display='none'; editSoferId=null; return; }
+  editSoferId = data?.id || null;
+  el.style.display = 'block';
+  el.innerHTML = `
     <div class="form-panel" style="margin-bottom:16px">
-      <div class="form-panel-title">${editSoferId?'Editează șofer':'Șofer nou'}</div>
+      <div class="form-panel-title">${editSoferId ? 'Editeaza sofer' : 'Sofer nou'}</div>
       <div class="form-grid">
-        <div class="form-group"><label>Număr tură<span class="req">*</span></label><input id="sf-tura" value="${data?.tura||''}" placeholder="ex: 42"/></div>
-        <div class="form-group"><label>Nume șofer<span class="req">*</span></label><input id="sf-name" value="${data?.numeSofer||''}" placeholder="Nume complet"/></div>
-        <div class="form-group"><label>Locație</label><select id="sf-loc"><option value="Ruhstorf" ${(data?.locatie||'Ruhstorf')==='Ruhstorf'?'selected':''}>Ruhstorf</option><option value="Eiselfing" ${data?.locatie==='Eiselfing'?'selected':''}>Eiselfing</option></select></div>
+        <div class="form-group"><label>Numar tura</label><input id="sf-tura" value="${data?.tura||''}" placeholder="ex: 532 (completezi dupa)"/></div>
+        <div class="form-group"><label>Nume si prenume<span class="req">*</span></label><input id="sf-name" value="${data?.numeSofer||''}" placeholder="Nume Prenume"/></div>
+        <div class="form-group"><label>Locatie<span class="req">*</span></label>
+          <select id="sf-loc">
+            <option value="Ruhstorf" ${(data?.locatie||'Ruhstorf')==='Ruhstorf'?'selected':''}>Ruhstorf</option>
+            <option value="Eiselfing" ${data?.locatie==='Eiselfing'?'selected':''}>Eiselfing</option>
+          </select>
+        </div>
       </div>
       <div style="display:flex;gap:8px;margin-top:16px">
-        <button class="btn btn-primary" onclick="saveSofer()">${editSoferId?'Salvează':'Adaugă'}</button>
-        <button class="btn btn-ghost" onclick="toggleSoferForm()">Anulează</button>
+        <button class="btn btn-primary" onclick="saveSofer()">${editSoferId?'Salveaza':'Adauga'}</button>
+        <button class="btn btn-ghost" onclick="toggleSoferForm()">Anuleaza</button>
       </div>
-    </div>
-  `;
+    </div>`;
+  el.scrollIntoView({ behavior:'smooth', block:'nearest' });
 }
 
 async function saveSofer() {
-  const tura = document.getElementById('sf-tura').value.trim();
   const name = document.getElementById('sf-name').value.trim();
-  if (!tura||!name){toast('Completează tura și numele','error');return;}
-  const payload={tura,numeSofer:name,locatie:document.getElementById('sf-loc').value};
+  if (!name) { toast('Completeaza numele', 'error'); return; }
+  const payload = { tura: document.getElementById('sf-tura').value.trim(), numeSofer: name, locatie: document.getElementById('sf-loc').value };
   try {
-    if (editSoferId) await db.collection('soferi').doc(editSoferId).update(payload);
-    else { payload.createdAt=firebase.firestore.FieldValue.serverTimestamp(); await db.collection('soferi').add(payload); }
-    toast(editSoferId?'Șofer actualizat':'Șofer adăugat');
-    toggleSoferForm(); editSoferId=null; renderSoferi();
-  } catch(e){toast('Eroare: '+e.message,'error');}
+    if (editSoferId) { await db.collection('soferi').doc(editSoferId).update(payload); toast('Sofer actualizat'); }
+    else { payload.createdAt = firebase.firestore.FieldValue.serverTimestamp(); await db.collection('soferi').add(payload); toast('Sofer adaugat'); }
+    toggleSoferForm(); editSoferId = null; renderSoferi();
+  } catch(e) { toast('Eroare: '+e.message,'error'); }
 }
 
-function editSofer(id){const s=allSoferi.find(x=>x.id===id);if(s)toggleSoferForm(s);}
-async function deleteSofer(id,tura){if(!confirm(`Ștergi tura ${tura}?`))return;await db.collection('soferi').doc(id).delete();toast('Șofer șters');renderSoferi();}
+function editSofer(id) { const s = allSoferi.find(x=>x.id===id); if(s) toggleSoferForm(s); }
 
-function togglePacheteForm(){
-  const el=document.getElementById('pachete-form');
-  if(el.style.display==='block'){el.style.display='none';return;}
-  const soferOpts=allSoferi.map(s=>`<option value="${s.tura}">Tura ${s.tura} — ${s.numeSofer}</option>`).join('');
-  el.style.display='block';
-  el.innerHTML=`
+async function deleteSofer(id, nume) {
+  if (!confirm('Stergi soferul ' + nume + '?')) return;
+  try { await db.collection('soferi').doc(id).delete(); toast('Sofer sters'); renderSoferi(); }
+  catch(e) { toast('Eroare','error'); }
+}
+
+function togglePacheteForm() {
+  const el = document.getElementById('pachete-form');
+  if (el.style.display==='block') { el.style.display='none'; return; }
+  const soferOpts = allSoferi.filter(s=>s.tura).sort((a,b)=>a.tura.localeCompare(b.tura))
+    .map(s=>'<option value="'+s.tura+'">Tura '+s.tura+' — '+s.numeSofer+'</option>').join('');
+  el.style.display = 'block';
+  el.innerHTML = `
     <div class="form-panel" style="margin-bottom:16px">
-      <div class="form-panel-title">📦 Pachete livrate per șofer/lună</div>
+      <div class="form-panel-title">📦 Pachete livrate per sofer/luna</div>
       <div class="form-grid">
-        <div class="form-group"><label>Tura</label><select id="pk-tura"><option value="">Selectează...</option>${soferOpts}</select></div>
-        <div class="form-group"><label>Luna</label><select id="pk-luna">${MONTHS_RO.map((m,i)=>`<option value="${i+1}" ${i===new Date().getMonth()?'selected':''}>${m}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Sofer</label><select id="pk-tura"><option value="">Selecteaza...</option>${soferOpts}</select></div>
+        <div class="form-group"><label>Luna</label><select id="pk-luna">${MONTHS_RO.map((m,i)=>'<option value="'+(i+1)+'" '+(i===new Date().getMonth()?'selected':'')+'>'+m+'</option>').join('')}</select></div>
         <div class="form-group"><label>An</label><input type="number" id="pk-an" value="${new Date().getFullYear()}"/></div>
         <div class="form-group"><label>Nr. pachete</label><input type="number" id="pk-nr" placeholder="0"/></div>
       </div>
       <div style="display:flex;gap:8px;margin-top:16px">
-        <button class="btn btn-primary" onclick="savePachete()">Salvează</button>
-        <button class="btn btn-ghost" onclick="togglePacheteForm()">Anulează</button>
+        <button class="btn btn-primary" onclick="savePachete()">Salveaza</button>
+        <button class="btn btn-ghost" onclick="togglePacheteForm()">Anuleaza</button>
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
-async function savePachete(){
-  const tura=document.getElementById('pk-tura').value;
-  const luna=document.getElementById('pk-luna').value;
-  const an=document.getElementById('pk-an').value;
-  const nr=document.getElementById('pk-nr').value;
-  if(!tura||!nr){toast('Completează toate câmpurile','error');return;}
-  try{
+async function savePachete() {
+  const tura=document.getElementById('pk-tura').value, luna=document.getElementById('pk-luna').value,
+        an=document.getElementById('pk-an').value, nr=document.getElementById('pk-nr').value;
+  if(!tura||!nr){toast('Completeaza toate campurile','error');return;}
+  try {
     await db.collection('pachete_livrate').add({turaSofer:tura,luna:parseInt(luna),an:parseInt(an),pachete:parseInt(nr),updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
-    toast('Pachete salvate');togglePacheteForm();renderSoferi();
-  }catch(e){toast('Eroare: '+e.message,'error');}
+    toast('Pachete salvate'); togglePacheteForm(); renderSoferi();
+  } catch(e){toast('Eroare: '+e.message,'error');}
 }
 
-// ════════════════════════════════════════════════════════
 // UTILIZATORI
 // ════════════════════════════════════════════════════════
 async function renderUtilizatori() {
