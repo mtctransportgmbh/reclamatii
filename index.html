@@ -10,6 +10,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 :root {
   --bg: #0a0b0f;
@@ -39,6 +40,58 @@
   --mono: 'JetBrains Mono', monospace;
   --transition: 0.18s cubic-bezier(0.4,0,0.2,1);
 }
+
+/* ── LIGHT THEME ── */
+body.light {
+  --bg: #f5f6fa;
+  --bg2: #ffffff;
+  --bg3: #eef0f7;
+  --bg4: #e4e8f2;
+  --border: #dde1ee;
+  --border2: #c8cfe0;
+  --text: #111827;
+  --text2: #4b5563;
+  --text3: #9ca3af;
+  --accent: #c9a227;
+  --accent2: #dbb633;
+  --accent-bg: rgba(201,162,39,0.1);
+  --accent-border: rgba(201,162,39,0.3);
+  --green: #059669;
+  --green-bg: rgba(5,150,105,0.1);
+  --red: #dc2626;
+  --red-bg: rgba(220,38,38,0.1);
+  --blue: #2563eb;
+  --blue-bg: rgba(37,99,235,0.1);
+  --shadow: 0 4px 24px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
+  --shadow-lg: 0 8px 48px rgba(0,0,0,0.12);
+}
+body.light #screen-login {
+  background: radial-gradient(ellipse at 20% 50%, rgba(201,162,39,0.06) 0%, transparent 60%),
+              radial-gradient(ellipse at 80% 20%, rgba(37,99,235,0.04) 0%, transparent 60%),
+              var(--bg);
+}
+body.light .key { background: #ffffff; }
+body.light .key:active { background: var(--accent-bg); }
+body.light .sidebar { box-shadow: 2px 0 12px rgba(0,0,0,0.06); }
+body.light .card { box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+body.light .user-card { box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+body.light .data-table tr:hover td { background: #f8f9fc; }
+body.light input, body.light select, body.light textarea { background: #ffffff; }
+
+/* ── THEME TOGGLE BUTTON ── */
+.theme-toggle {
+  position: fixed; top: 14px; right: 16px; z-index: 200;
+  width: 36px; height: 36px; border-radius: 10px;
+  background: var(--bg3); border: 1px solid var(--border);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: var(--transition); color: var(--text2);
+  box-shadow: var(--shadow);
+}
+.theme-toggle:hover { background: var(--bg4); color: var(--text); transform: scale(1.05); }
+.theme-toggle svg { width: 17px; height: 17px; }
+/* hide toggle on login screen */
+#screen-login.active ~ .theme-toggle,
+body:not(:has(#screen-app.active)) .theme-toggle { }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{font-size:16px;-webkit-font-smoothing:antialiased}
 body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
@@ -102,8 +155,22 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .user-card:hover .user-avatar{transform:scale(1.06)}
 .user-name{font-size:13px;font-weight:600;text-align:center}
 .user-role{font-size:11px;color:var(--text3);text-align:center}
-/* full width for admin */
-.user-card.full{grid-column:1/-1}
+/* Tania spans full width on top */
+.user-card.tania-card{grid-column:1/-1;flex-direction:row;padding:14px 16px;gap:14px;justify-content:flex-start;max-width:100%}
+.user-card.tania-card .user-avatar{width:52px;height:52px;border-radius:14px;font-size:18px;flex-shrink:0}
+.user-card.tania-card .user-name{font-size:15px;text-align:left}
+.user-card.tania-card .user-role{text-align:left}
+/* Admin subtle link */
+.admin-link{
+  margin-top:4px;text-align:center;
+  animation:fadeSlideUp 0.5s 0.2s ease both;opacity:0;animation-fill-mode:both;
+}
+.admin-link button{
+  background:none;border:none;cursor:pointer;font-family:var(--font);
+  font-size:11px;color:var(--text3);padding:6px 12px;border-radius:8px;
+  transition:var(--transition);letter-spacing:0.3px;
+}
+.admin-link button:hover{color:var(--text2);background:var(--bg3)}
 
 /* ── PIN PAD ── */
 .pin-container{
@@ -376,6 +443,10 @@ textarea{resize:vertical;min-height:80px}
   padding:14px 16px;background:var(--bg2);border-bottom:1px solid var(--border);
   position:sticky;top:0;z-index:50;
 }
+/* On mobile, theme toggle is inside header so hide the fixed one */
+@media(max-width:768px){
+  .theme-toggle{ display:none }
+}
 .mobile-header-title{font-size:16px;font-weight:800;flex:1}
 
 /* ── PRINT STYLES ── */
@@ -471,6 +542,12 @@ textarea{resize:vertical;min-height:80px}
 <body>
 
 <!-- ═══════════════ LOGIN ═══════════════ -->
+<!-- Theme toggle -->
+<button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Schimbă tema">
+  <svg id="theme-icon-moon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/></svg>
+  <svg id="theme-icon-sun" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z"/></svg>
+</button>
+
 <div id="screen-login" class="screen active">
   <div class="login-logo">
     <div class="login-logo-icon">
@@ -483,6 +560,7 @@ textarea{resize:vertical;min-height:80px}
   <!-- User selection -->
   <div id="login-select" style="width:100%;max-width:340px">
     <div class="user-grid" id="user-grid"></div>
+    <div class="admin-link"><button onclick="selectUser('admin')">⚙ Administrator</button></div>
   </div>
 
   <!-- PIN pad -->
@@ -554,6 +632,10 @@ textarea{resize:vertical;min-height:80px}
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:#0a0b0f"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/></svg>
       </div>
       <span class="mobile-header-title" id="mobile-page-title">Panou principal</span>
+      <button onclick="toggleTheme()" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:4px;border-radius:8px;display:flex;align-items:center;transition:var(--transition)" title="Temă">
+        <svg id="mob-icon-moon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/></svg>
+        <svg id="mob-icon-sun" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z"/></svg>
+      </button>
       <button class="btn-logout" onclick="logout()">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/></svg>
       </button>
@@ -679,12 +761,12 @@ textarea{resize:vertical;min-height:80px}
 // FIREBASE CONFIG — înlocuiește cu datele tale!
 // ════════════════════════════════════════════════════════
 const firebaseConfig = {
-  apiKey: "AIzaSyAUju0UiaAlTCjLgs0IZf01A65iiqpHZhI",
-  authDomain: "reclamatii-df0e7.firebaseapp.com",
-  projectId: "reclamatii-df0e7",
-  storageBucket: "reclamatii-df0e7.firebasestorage.app",
-  messagingSenderId: "231511007803",
-  appId: "1:231511007803:web:04b08affe925e6ef37f21e"
+  apiKey: "REPLACE_WITH_YOUR_API_KEY",
+  authDomain: "REPLACE_WITH_YOUR_AUTH_DOMAIN",
+  projectId: "REPLACE_WITH_YOUR_PROJECT_ID",
+  storageBucket: "REPLACE_WITH_YOUR_STORAGE_BUCKET",
+  messagingSenderId: "REPLACE_WITH_YOUR_MESSAGING_SENDER_ID",
+  appId: "REPLACE_WITH_YOUR_APP_ID"
 };
 
 firebase.initializeApp(firebaseConfig);
@@ -694,11 +776,11 @@ const db = firebase.firestore();
 // USERS CONFIG
 // ════════════════════════════════════════════════════════
 const USERS = [
-  { id:'admin',    name:'Admin',    role:'admin',    location:null,        avatar:'A',  color:'#e8c547', bg:'rgba(232,197,71,0.15)',  glow:'rgba(232,197,71,0.25)' },
   { id:'tania',    name:'Tania',    role:'tania',    location:null,        avatar:'T',  color:'#60a5fa', bg:'rgba(96,165,250,0.15)',  glow:'rgba(96,165,250,0.2)' },
   { id:'raluca',   name:'Raluca',   role:'operator', location:'Ruhstorf',  avatar:'R',  color:'#34d399', bg:'rgba(52,211,153,0.15)',  glow:'rgba(52,211,153,0.2)' },
   { id:'mihaela',  name:'Mihaela',  role:'operator', location:'Ruhstorf',  avatar:'Mi', color:'#f472b6', bg:'rgba(244,114,182,0.15)', glow:'rgba(244,114,182,0.2)' },
   { id:'madalina', name:'Mădălina', role:'operator', location:'Eiselfing', avatar:'Md', color:'#a78bfa', bg:'rgba(167,139,250,0.15)', glow:'rgba(167,139,250,0.2)' },
+  { id:'admin',    name:'Admin',    role:'admin',    location:null,        avatar:'A',  color:'#e8c547', bg:'rgba(232,197,71,0.15)',  glow:'rgba(232,197,71,0.25)', email:'paulandreimacarie@yahoo.com' },
 ];
 
 const MONTHS_RO = ['Ianuarie','Februarie','Martie','Aprilie','Mai','Iunie','Iulie','August','Septembrie','Octombrie','Noiembrie','Decembrie'];
@@ -763,11 +845,15 @@ function toast(msg, type='success') {
 // ════════════════════════════════════════════════════════
 function buildUserGrid() {
   const grid = document.getElementById('user-grid');
-  grid.innerHTML = USERS.map(u => `
-    <div class="user-card ${u.id==='admin'?'full':''}" onclick="selectUser('${u.id}')">
+  // Show only non-admin users in the main grid
+  const visibleUsers = USERS.filter(u => u.id !== 'admin');
+  grid.innerHTML = visibleUsers.map(u => `
+    <div class="user-card ${u.id==='tania'?'tania-card':''}" onclick="selectUser('${u.id}')">
       <div class="user-avatar" style="background:${u.bg};color:${u.color}">${u.avatar}</div>
-      <div class="user-name">${u.name}</div>
-      <div class="user-role">${u.role==='admin'?'Administrator':u.role==='tania'?'Șefă':'Operator · '+u.location}</div>
+      <div>
+        <div class="user-name">${u.name}</div>
+        <div class="user-role">${u.role==='tania'?'Toate locațiile':u.location}</div>
+      </div>
     </div>
   `).join('');
 }
@@ -955,7 +1041,7 @@ function updateSidebarUser() {
   av.style.background = u.bg; av.style.color = u.color;
   av.textContent = u.avatar;
   document.getElementById('sidebar-user-name').textContent = u.name;
-  document.getElementById('sidebar-user-role').textContent = u.role==='admin'?'Administrator':u.role==='tania'?'Șefă':'Operator · '+u.location;
+  document.getElementById('sidebar-user-role').textContent = u.role==='admin'?'Administrator':u.role==='tania'?'Toate locațiile':u.location;
 }
 
 // ════════════════════════════════════════════════════════
@@ -1481,99 +1567,525 @@ async function renderStatistici() {
 }
 
 // ════════════════════════════════════════════════════════
-// RECHNUNGURI
+// ════════════════════════════════════════════════════════
+// RECHNUNGURI — cu parsare automată PDF Hermes
 // ════════════════════════════════════════════════════════
 let rechnunguriData = [];
+let parsedRechnData = null; // date parsate din PDF înainte de salvare
+
+// ── PDF.js worker ──
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+// ── Parsează text extras din PDF Hermes ──
+function parseHermesPDF(fullText) {
+  const result = {
+    belegNr: null,
+    dataEmitere: null,
+    suma: null,
+    pozitii: []
+  };
+
+  // Beleg-Nr. (numărul facturii)
+  const belegMatch = fullText.match(/Beleg-Nr[.\s]+(\d+)/i);
+  if (belegMatch) result.belegNr = belegMatch[1];
+
+  // Data emiterii — "Hamburg, den DD.MM.YYYY" sau "Stand DD. Month YYYY"
+  const dataMatch = fullText.match(/Hamburg,\s+den\s+(\d{2}\.\d{2}\.\d{4})/i)
+    || fullText.match(/Stand\s+(\d{2}\.\s*\w+\s+\d{4})/i);
+  if (dataMatch) result.dataEmitere = dataMatch[1];
+
+  // Suma totală
+  const sumaMatch = fullText.match(/Forderung\s+gesamt[^€\d]*([\d.,]+)/i)
+    || fullText.match(/Forderung gesamt\*?\s*€?\s*([\d.,]+)/i);
+  if (sumaMatch) result.suma = sumaMatch[1].replace('.','').replace(',','.');
+
+  // Pozițiile din tabel — parsare linie cu linie
+  // Hermes format: Identnummer ATG Schadenart Kst. Tour Name Strasse PLZ Wohnort Übernahmedatum Forderung
+  const lines = fullText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+  // Găsim liniile cu date (au un număr de tour de 3 cifre și o sumă la sfârșit)
+  // Pattern: ...6258 [TOUR 3 cifre] [Prenume Nume] [Strada] [PLZ 5 cifre] [Ort] [Data DD.MM.YYYY] [Sumă]
+  const tourPattern = /\b6258\s+(\d{3,4})\s+(.+?)\s{2,}(.+?)\s{2,}(\d{5})\s+(.+?)\s+(\d{2}\.\d{2}\.\d{4})\s+([\d.,]+)\s*$/;
+  
+  // Abordare alternativă: căutăm după "Totalverlust" sau "Transportschaden"
+  // și extragem datele din context
+  
+  // Construim un text concatenat fără newlines pentru pattern matching mai ușor
+  const flatText = fullText.replace(/\n/g, ' ').replace(/\s+/g, ' ');
+  
+  // Pattern pentru fiecare pozitie din Hermes Anlage
+  // Identnummer (lung) + ATG + Schadenart + Kst(6258) + Tour + Name + Strasse + PLZ + Ort + Datum + Forderung
+  const posPattern = /(\d{11,20}[A-Z]?)\s+[\d\s]+(?:BONPRIX|LIMANGO|OTTO|ZAL|FEDEX|GIORDANO|WALBUSCH|PAGEN|[A-Z\s,]+?)\s*(?:Totalverlust|Transportschaden|Sonstige)\s+6258\s+(\d{3,4})\s+([\w\s\-\.äöüÄÖÜß]+?)\s{2,}([\w\s\-\.äöüÄÖÜß]+?\d+[a-z]?)\s+(\d{5})\s+([\w\s\-äöüÄÖÜß]+?)\s+(\d{2}\.\d{2}\.\d{4})\s+([\d.,]+)/gi;
+
+  let match;
+  while ((match = posPattern.exec(flatText)) !== null) {
+    result.pozitii.push({
+      identnummer: match[1],
+      tour: match[2],
+      name: match[3].trim(),
+      strasse: match[4].trim(),
+      plz: match[5],
+      ort: match[6].trim(),
+      datum: match[7],
+      forderung: parseFloat(match[8].replace('.','').replace(',','.'))
+    });
+  }
+
+  // Fallback: parsare linie cu linie din textul original
+  if (result.pozitii.length === 0) {
+    parseLinesHermes(lines, result);
+  }
+
+  return result;
+}
+
+function parseLinesHermes(lines, result) {
+  // Găsim header-ul tabelului
+  let tableStart = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('Identnummer') && lines[i].includes('Tour')) {
+      tableStart = i + 1;
+      break;
+    }
+  }
+  if (tableStart === -1) {
+    // Căutăm după "Totalverlust" direct
+    tableStart = 0;
+  }
+
+  // Colectăm blocuri de date - fiecare pozitie poate fi pe mai multe linii
+  // Identificăm liniile care conțin Tour (număr 3 cifre după 6258)
+  const tourLinePattern = /6258\s+(\d{3,4})\s+([\wäöüÄÖÜß\s\-\.]+)/;
+  const dateAmountPattern = /(\d{2}\.\d{2}\.\d{4})\s+([\d.,]+)\s*$/;
+  
+  let currentPos = null;
+  
+  for (let i = tableStart; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Linie care conține tour
+    const tourMatch = line.match(tourLinePattern);
+    if (tourMatch) {
+      if (currentPos) result.pozitii.push(currentPos);
+      currentPos = {
+        tour: tourMatch[1],
+        name: tourMatch[2].trim(),
+        strasse: '',
+        plz: '',
+        ort: '',
+        datum: '',
+        forderung: 0
+      };
+      
+      // Poate conține și data/suma pe aceeași linie
+      const dateMatch = line.match(dateAmountPattern);
+      if (dateMatch) {
+        currentPos.datum = dateMatch[1];
+        currentPos.forderung = parseFloat(dateMatch[2].replace('.','').replace(',','.'));
+      }
+      
+      // Extrage PLZ si Ort dacă sunt pe aceeași linie
+      const plzMatch = line.match(/(\d{5})\s+([\wäöüÄÖÜß\s\-]+?)(?:\s+\d{2}\.|$)/);
+      if (plzMatch) {
+        currentPos.plz = plzMatch[1];
+        currentPos.ort = plzMatch[2].trim();
+      }
+      continue;
+    }
+    
+    if (currentPos) {
+      // Completăm datele poziției curente
+      const plzMatch = line.match(/^(\d{5})\s+([\wäöüÄÖÜß\s\-]+)/);
+      if (plzMatch && !currentPos.plz) {
+        currentPos.plz = plzMatch[1];
+        currentPos.ort = plzMatch[2].trim();
+      }
+      
+      const dateMatch = line.match(dateAmountPattern);
+      if (dateMatch && !currentPos.datum) {
+        currentPos.datum = dateMatch[1];
+        currentPos.forderung = parseFloat(dateMatch[2].replace('.','').replace(',','.'));
+      }
+      
+      // Strada
+      if (!currentPos.strasse && line.match(/\d/) && !line.match(/^\d{5}/) && !line.match(/\d{2}\.\d{2}\.\d{4}/)) {
+        currentPos.strasse = line;
+      }
+      
+      // Stop la linia de total
+      if (line.includes('Forderung gesamt') || line.includes('Transportschäden') || line.includes('Verluste (Anzahl')) {
+        if (currentPos) { result.pozitii.push(currentPos); currentPos = null; }
+        break;
+      }
+    }
+  }
+  if (currentPos) result.pozitii.push(currentPos);
+}
+
+// ── Extrage text din PDF folosind PDF.js ──
+async function extractPDFText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const typedArray = new Uint8Array(e.target.result);
+        const pdf = await pdfjsLib.getDocument(typedArray).promise;
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          // Reconstituim textul cu poziții pentru a păstra ordinea tabelului
+          const items = content.items.sort((a, b) => {
+            const yDiff = Math.round(b.transform[5]) - Math.round(a.transform[5]);
+            if (Math.abs(yDiff) > 3) return yDiff;
+            return a.transform[4] - b.transform[4];
+          });
+          const pageText = items.map(item => item.str).join(' ');
+          fullText += '\n--- Pagina ' + i + ' ---\n' + pageText;
+        }
+        resolve(fullText);
+      } catch(err) { reject(err); }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// ── Render rechnung list ──
 async function renderRechnunguri() {
   const snap = await db.collection('rechnunguri').orderBy('uploadedAt','desc').get();
   rechnunguriData = snap.docs.map(d=>({id:d.id,...d.data()}));
   const el = document.getElementById('rechn-list');
   if (rechnunguriData.length===0) {
-    el.innerHTML=`<div class="empty"><div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg></div><div class="empty-title">Niciun rechnung uploadat</div><div class="empty-sub">Uploadează primul rechnung</div></div>`;
+    el.innerHTML=`<div class="empty"><div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg></div><div class="empty-title">Niciun rechnung uploadat</div><div class="empty-sub">Uploadează primul rechnung Hermes</div></div>`;
     return;
   }
-  el.innerHTML = rechnunguriData.map(r=>{
-    const recl = allReclamatii.filter(x=>{
-      const d=x.createdAt?.toDate?x.createdAt.toDate():new Date(x.createdAt||0);
-      return d.getMonth()+1===r.luna && d.getFullYear()===r.an;
-    });
-    const rez = recl.filter(x=>x.status==='rezolvata');
-    return `
-      <div class="card" style="margin-bottom:10px">
-        <div style="display:flex;align-items:flex-start;gap:14px">
-          <div style="width:44px;height:44px;background:rgba(248,113,113,0.1);border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-            <svg style="width:22px;height:22px;color:#f87171" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+  el.innerHTML = rechnunguriData.map(r => renderRechnCard(r)).join('');
+}
+
+function renderRechnCard(r) {
+  // Reclamatii din luna/an rechnungului
+  const reclLuna = allReclamatii.filter(x => {
+    const d = x.createdAt?.toDate ? x.createdAt.toDate() : new Date(x.createdAt||0);
+    return d.getMonth()+1 === r.luna && d.getFullYear() === r.an;
+  });
+  const rezLuna = reclLuna.filter(x => x.status === 'rezolvata');
+
+  // Pozitii din rechnung vs reclamatii — matching după tour
+  const pozitii = r.pozitii || [];
+  const matchuri = pozitii.map(p => {
+    // Caută reclamatie cu aceeași tură și nume similar
+    const reclMatch = allReclamatii.find(x =>
+      String(x.turaSofer) === String(p.tour) &&
+      (x.numeClient || '').toLowerCase().includes((p.name || '').split(' ')[0].toLowerCase())
+    );
+    return { ...p, reclamatie: reclMatch || null };
+  });
+
+  const disputabile = matchuri.filter(m => m.reclamatie && m.reclamatie.status === 'rezolvata');
+  const neidentificate = matchuri.filter(m => !m.reclamatie);
+
+  return `
+    <div class="card" style="margin-bottom:12px;border:1px solid ${r.disputat?'rgba(248,113,113,0.3)':r.verificat?'rgba(52,211,153,0.2)':'var(--border)'}">
+      <!-- Header rechnung -->
+      <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:${pozitii.length>0?'14px':'0'}">
+        <div style="width:46px;height:46px;background:rgba(248,113,113,0.1);border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <svg style="width:22px;height:22px;color:#f87171" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px">
+            <span style="font-size:16px;font-weight:800">${MONTHS_RO[r.luna-1]} ${r.an}</span>
+            ${r.belegNr ? `<span style="font-family:var(--mono);font-size:12px;color:var(--text3);background:var(--bg3);padding:2px 8px;border-radius:6px;border:1px solid var(--border)">Nr. ${r.belegNr}</span>` : ''}
+            ${r.suma ? `<span style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${parseFloat(r.suma).toFixed(2)}</span>` : ''}
+            ${r.disputat ? '<span class="badge badge-red">⚠ Dispută</span>' : ''}
+            ${r.verificat && !r.disputat ? '<span class="badge badge-green">✓ Verificat</span>' : ''}
+            ${disputabile.length > 0 ? `<span class="badge badge-yellow">⚠ ${disputabile.length} contestabile</span>` : ''}
           </div>
-          <div style="flex:1">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
-              <span style="font-size:15px;font-weight:700">${MONTHS_RO[r.luna-1]} ${r.an}</span>
-              ${r.suma?`<span style="font-size:14px;font-family:var(--mono);color:var(--accent)">€${parseFloat(r.suma).toFixed(2)}</span>`:''}
-              ${r.disputat?'<span class="badge badge-red">⚠ Dispută</span>':''}
-              ${r.verificat&&!r.disputat?'<span class="badge badge-green">✓ Verificat</span>':''}
-            </div>
-            <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${r.descriere||''} · ${recl.length} reclamații în lună · ${rez.length} rezolvate</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              ${r.fileURL?`<a href="${r.fileURL}" target="_blank" class="btn btn-ghost" style="padding:6px 12px;font-size:12px;text-decoration:none">📎 Fișier</a>`:''}
-              ${currentUser?.role==='admin'?`
-                <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="verifyRechn('${r.id}',false)">✓ Verificat</button>
-                <button class="btn btn-danger" style="padding:6px 12px;font-size:12px" onclick="verifyRechn('${r.id}',true)">⚠ Dispută</button>
-              `:''}
-            </div>
-            ${rez.length>0?`<div style="margin-top:10px;padding:10px;background:rgba(232,197,71,0.06);border:1px solid var(--accent-border);border-radius:8px;font-size:12px;color:var(--accent)">⚠ ${rez.length} reclamație(i) rezolvate de șoferi în această lună. Verificați facturarea!</div>`:''}
+          <div style="font-size:12px;color:var(--text3);display:flex;flex-wrap:wrap;gap:10px">
+            ${r.dataEmitere ? `<span>📅 Emis: ${r.dataEmitere}</span>` : ''}
+            <span>📋 ${pozitii.length} poziții în factură</span>
+            <span>🗂 ${reclLuna.length} reclamații în lună</span>
+            ${rezLuna.length > 0 ? `<span style="color:var(--green)">✓ ${rezLuna.length} rezolvate</span>` : ''}
           </div>
         </div>
+        <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+          ${r.fileURL ? `<a href="${r.fileURL}" target="_blank" class="btn btn-ghost" style="padding:7px 12px;font-size:12px;text-decoration:none">📎 PDF</a>` : ''}
+          ${currentUser?.role === 'admin' ? `
+            <button class="btn btn-ghost" style="padding:7px 12px;font-size:12px" onclick="verifyRechn('${r.id}',false)">✓ OK</button>
+            <button class="btn btn-danger" style="padding:7px 12px;font-size:12px" onclick="verifyRechn('${r.id}',true)">⚠ Dispută</button>
+          ` : ''}
+        </div>
       </div>
-    `;
-  }).join('');
+
+      <!-- Tabel pozitii parsate -->
+      ${pozitii.length > 0 ? `
+        <div style="border-top:1px solid var(--border);padding-top:14px">
+          <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">
+            Poziții factură — comparare cu reclamații
+          </div>
+
+          ${disputabile.length > 0 ? `
+            <div style="padding:10px 12px;background:rgba(232,197,71,0.06);border:1px solid var(--accent-border);border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--accent)">
+              ⚠ <strong>${disputabile.length} poziție(i) contestabile</strong> — reclamație rezolvată de șofer dar inclusă în factură! Suma potențial contestabilă: <strong>€${disputabile.reduce((s,p)=>s+p.forderung,0).toFixed(2)}</strong>
+            </div>
+          ` : ''}
+
+          <div style="overflow-x:auto">
+            <table class="data-table" style="font-size:12px;min-width:600px">
+              <thead>
+                <tr>
+                  <th>Tour</th>
+                  <th>Nume client</th>
+                  <th>Adresă</th>
+                  <th>Data pierderii</th>
+                  <th style="text-align:right">Sumă</th>
+                  <th>Status reclamație</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${matchuri.map(m => {
+                  const isContestabil = m.reclamatie && m.reclamatie.status === 'rezolvata';
+                  const hasRecl = !!m.reclamatie;
+                  return `
+                    <tr style="${isContestabil ? 'background:rgba(232,197,71,0.04)' : ''}">
+                      <td><span style="font-family:var(--mono);font-weight:700;color:var(--accent)">${m.tour}</span></td>
+                      <td style="font-weight:500">${m.name || '—'}</td>
+                      <td style="color:var(--text2)">${m.strasse ? m.strasse + ', ' : ''}${m.plz || ''} ${m.ort || ''}</td>
+                      <td style="color:var(--text3);font-family:var(--mono)">${m.datum || '—'}</td>
+                      <td style="text-align:right;font-weight:700;color:var(--text);font-family:var(--mono)">€${m.forderung?.toFixed(2) || '0.00'}</td>
+                      <td>
+                        ${isContestabil
+                          ? '<span class="badge badge-yellow">⚠ Rezolvată de șofer!</span>'
+                          : hasRecl
+                            ? '<span class="badge badge-red">✗ Nerezolvată</span>'
+                            : '<span class="badge badge-gray">Fără reclamație</span>'
+                        }
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+              <tfoot>
+                <tr style="border-top:2px solid var(--border)">
+                  <td colspan="4" style="font-weight:700;padding-top:10px">TOTAL</td>
+                  <td style="text-align:right;font-weight:800;font-family:var(--mono);color:var(--accent);padding-top:10px">€${pozitii.reduce((s,p)=>s+(p.forderung||0),0).toFixed(2)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `;
 }
 
 async function verifyRechn(id, dispute) {
-  await db.collection('rechnunguri').doc(id).update({verificat:!dispute,disputat:dispute,updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
-  toast(dispute?'Marcată ca dispută':'Marcată ca verificată');
+  await db.collection('rechnunguri').doc(id).update({
+    verificat: !dispute, disputat: dispute,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  toast(dispute ? '⚠ Marcată ca dispută' : '✓ Marcată ca verificată');
   renderRechnunguri();
 }
 
 function toggleRechnForm() {
   const el = document.getElementById('rechn-form');
-  if (el.style.display==='block'){el.style.display='none';return;}
-  el.style.display='block';
-  el.innerHTML=`
+  if (el.style.display === 'block') { el.style.display = 'none'; parsedRechnData = null; return; }
+  el.style.display = 'block';
+  el.innerHTML = `
     <div class="form-panel" style="margin-bottom:16px">
-      <div class="form-panel-title">Upload Rechnung nou</div>
-      <div class="form-grid">
-        <div class="form-group"><label>Luna</label><select id="rn-luna">${MONTHS_RO.map((m,i)=>`<option value="${i+1}" ${i===new Date().getMonth()?'selected':''}>${m}</option>`).join('')}</select></div>
-        <div class="form-group"><label>An</label><input type="number" id="rn-an" value="${new Date().getFullYear()}"/></div>
-        <div class="form-group"><label>Sumă (€)</label><input type="number" id="rn-suma" placeholder="0.00"/></div>
-        <div class="form-group"><label>Note</label><input id="rn-note" placeholder="ex: DHL Ianuarie"/></div>
-        <div class="form-group full"><label>Fișier (PDF/Excel)</label><input type="file" id="rn-file" accept=".pdf,.xlsx,.xls,.csv"/></div>
+      <div class="form-panel-title">
+        <svg style="width:16px;height:16px;color:var(--accent)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/></svg>
+        Upload Rechnung Hermes
       </div>
-      <div style="display:flex;gap:8px;margin-top:16px">
-        <button class="btn btn-primary" onclick="saveRechn()">Uploadează</button>
+
+      <!-- Drop zone PDF -->
+      <div id="rn-dropzone" style="border:2px dashed var(--border2);border-radius:var(--radius);padding:28px;text-align:center;cursor:pointer;transition:var(--transition);margin-bottom:16px"
+        onclick="document.getElementById('rn-file').click()"
+        ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+        ondragleave="this.style.borderColor='var(--border2)'"
+        ondrop="event.preventDefault();this.style.borderColor='var(--border2)';handleRechnDrop(event)">
+        <div style="font-size:28px;margin-bottom:8px">📄</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Trage PDF-ul Hermes aici</div>
+        <div style="font-size:12px;color:var(--text3)">sau click pentru a selecta · se parsează automat</div>
+        <input type="file" id="rn-file" accept=".pdf" style="display:none" onchange="handleRechnFile(this.files[0])"/>
+      </div>
+
+      <!-- Preview date parsate -->
+      <div id="rn-preview" style="display:none"></div>
+
+      <!-- Câmpuri manuale (fallback / completare) -->
+      <div id="rn-manual-fields" style="display:none">
+        <div class="divider"></div>
+        <div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.4px">Date extrase / completare manuală</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Nr. Beleg (factură)</label><input id="rn-beleg" placeholder="ex: 53335239"/></div>
+          <div class="form-group"><label>Data emiterii</label><input id="rn-data-emitere" placeholder="ex: 07.04.2026"/></div>
+          <div class="form-group"><label>Luna facturată</label><select id="rn-luna">${MONTHS_RO.map((m,i)=>`<option value="${i+1}" ${i===new Date().getMonth()?'selected':''}>${m}</option>`).join('')}</select></div>
+          <div class="form-group"><label>An</label><input type="number" id="rn-an" value="${new Date().getFullYear()}"/></div>
+          <div class="form-group"><label>Sumă totală (€)</label><input type="number" id="rn-suma" placeholder="0.00" step="0.01"/></div>
+          <div class="form-group"><label>Note</label><input id="rn-note" placeholder="ex: Hermes Verluste Aprilie"/></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:16px" id="rn-action-btns" style="display:none">
+        <button class="btn btn-primary" onclick="saveRechn()" id="rn-save-btn" style="display:none">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:15px;height:15px"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/></svg>
+          Salvează rechnung
+        </button>
         <button class="btn btn-ghost" onclick="toggleRechnForm()">Anulează</button>
       </div>
     </div>
   `;
 }
 
+async function handleRechnDrop(e) {
+  const file = e.dataTransfer.files[0];
+  if (file) handleRechnFile(file);
+}
+
+async function handleRechnFile(file) {
+  if (!file || !file.name.endsWith('.pdf')) { toast('Selectează un fișier PDF','error'); return; }
+
+  const dropzone = document.getElementById('rn-dropzone');
+  dropzone.innerHTML = `<div class="spinner" style="margin:0 auto 8px"></div><div style="font-size:13px;color:var(--text2)">Se parsează PDF-ul...</div>`;
+
+  try {
+    const text = await extractPDFText(file);
+    const parsed = parseHermesPDF(text);
+    parsed._file = file;
+    parsedRechnData = parsed;
+
+    // Afișăm preview
+    const preview = document.getElementById('rn-preview');
+    preview.style.display = 'block';
+
+    const pozCount = parsed.pozitii.length;
+    const sumaTotal = parsed.pozitii.reduce((s,p) => s + (p.forderung||0), 0);
+
+    preview.innerHTML = `
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:10px;display:flex;align-items:center;gap:6px">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          PDF parsat cu succes!
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+          <div>
+            <div style="font-size:10px;color:var(--text3);margin-bottom:2px">Nr. factură (Beleg)</div>
+            <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">${parsed.belegNr || '—'}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text3);margin-bottom:2px">Data emiterii</div>
+            <div style="font-size:14px;font-weight:700">${parsed.dataEmitere || '—'}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text3);margin-bottom:2px">Total facturat</div>
+            <div style="font-size:14px;font-weight:700;color:var(--red)">€${parsed.suma ? parseFloat(parsed.suma).toFixed(2) : sumaTotal.toFixed(2)}</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text3)">
+          📋 <strong style="color:var(--text)">${pozCount} poziții</strong> identificate în factură
+          ${pozCount > 0 ? ' · ' + parsed.pozitii.map(p => `Tour ${p.tour}`).join(', ') : ''}
+        </div>
+      </div>
+
+      ${pozCount > 0 ? `
+        <div style="overflow-x:auto;margin-bottom:14px">
+          <table class="data-table" style="font-size:11px;min-width:500px">
+            <thead><tr><th>Tour</th><th>Nume</th><th>Localitate</th><th>Data</th><th style="text-align:right">Sumă €</th></tr></thead>
+            <tbody>${parsed.pozitii.map(p=>`
+              <tr>
+                <td><span style="font-family:var(--mono);font-weight:700;color:var(--accent)">${p.tour}</span></td>
+                <td>${p.name}</td>
+                <td style="color:var(--text3)">${p.plz} ${p.ort}</td>
+                <td style="font-family:var(--mono);color:var(--text3)">${p.datum}</td>
+                <td style="text-align:right;font-weight:600;font-family:var(--mono)">€${p.forderung?.toFixed(2)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      ` : `<div style="padding:10px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);border-radius:8px;font-size:12px;color:var(--red);margin-bottom:14px">
+        ⚠ Nu s-au putut extrage pozițiile automat. Poți continua — rechnungul se salvează cu datele de bază.
+      </div>`}
+    `;
+
+    dropzone.innerHTML = `
+      <div style="font-size:20px;margin-bottom:6px">✅</div>
+      <div style="font-size:13px;font-weight:600;color:var(--green)">${file.name}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px">Click pentru alt fișier</div>
+    `;
+    dropzone.onclick = () => document.getElementById('rn-file').click();
+
+    // Populăm câmpurile manuale
+    document.getElementById('rn-manual-fields').style.display = 'block';
+    if (parsed.belegNr) document.getElementById('rn-beleg').value = parsed.belegNr;
+    if (parsed.dataEmitere) document.getElementById('rn-data-emitere').value = parsed.dataEmitere;
+    if (parsed.suma) document.getElementById('rn-suma').value = parseFloat(parsed.suma).toFixed(2);
+
+    // Detectăm luna din data emiterii
+    if (parsed.dataEmitere) {
+      const parts = parsed.dataEmitere.split('.');
+      if (parts.length >= 2) {
+        const luna = parseInt(parts[1]);
+        const an = parseInt(parts[2]);
+        if (luna >= 1 && luna <= 12) document.getElementById('rn-luna').value = luna;
+        if (an > 2000) document.getElementById('rn-an').value = an;
+      }
+    }
+
+    document.getElementById('rn-action-btns').style.display = 'flex';
+    document.getElementById('rn-save-btn').style.display = 'flex';
+
+  } catch(e) {
+    dropzone.innerHTML = `<div style="color:var(--red)">Eroare la parsare: ${e.message}</div>`;
+    toast('Eroare la citirea PDF: ' + e.message, 'error');
+  }
+}
+
 async function saveRechn() {
-  const file = document.getElementById('rn-file').files[0];
-  const luna = parseInt(document.getElementById('rn-luna').value);
-  const an = parseInt(document.getElementById('rn-an').value);
-  const suma = document.getElementById('rn-suma').value;
-  const note = document.getElementById('rn-note').value;
-  if (!file) { toast('Selectează un fișier','error'); return; }
+  const file = parsedRechnData?._file || document.getElementById('rn-file')?.files[0];
+  if (!file) { toast('Selectează un fișier PDF', 'error'); return; }
+
+  const beleg = document.getElementById('rn-beleg')?.value || parsedRechnData?.belegNr || '';
+  const dataEmitere = document.getElementById('rn-data-emitere')?.value || parsedRechnData?.dataEmitere || '';
+  const luna = parseInt(document.getElementById('rn-luna')?.value || new Date().getMonth() + 1);
+  const an = parseInt(document.getElementById('rn-an')?.value || new Date().getFullYear());
+  const suma = document.getElementById('rn-suma')?.value || parsedRechnData?.suma || '';
+  const note = document.getElementById('rn-note')?.value || '';
+
+  const saveBtn = document.getElementById('rn-save-btn');
+  saveBtn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px"></div> Se salvează...';
+  saveBtn.disabled = true;
+
   try {
     const storageRef = firebase.storage().ref(`rechnunguri/${an}/${luna}/${file.name}`);
     await storageRef.put(file);
     const url = await storageRef.getDownloadURL();
-    await db.collection('rechnunguri').add({luna,an,suma,descriere:note,fileName:file.name,fileURL:url,uploadedAt:firebase.firestore.FieldValue.serverTimestamp()});
-    toast('Rechnung uploadat!');
+
+    await db.collection('rechnunguri').add({
+      belegNr: beleg,
+      dataEmitere,
+      luna, an, suma,
+      descriere: note || `Hermes ${MONTHS_RO[luna-1]} ${an}`,
+      fileName: file.name,
+      fileURL: url,
+      pozitii: parsedRechnData?.pozitii || [],
+      uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    toast(`✓ Rechnung ${beleg ? 'Nr. ' + beleg : ''} salvat! ${parsedRechnData?.pozitii?.length || 0} poziții importate.`);
+    parsedRechnData = null;
     toggleRechnForm();
     renderRechnunguri();
-  } catch(e) { toast('Eroare: '+e.message,'error'); }
+  } catch(e) {
+    toast('Eroare: ' + e.message, 'error');
+    saveBtn.innerHTML = 'Salvează rechnung';
+    saveBtn.disabled = false;
+  }
 }
 
-// ════════════════════════════════════════════════════════
 // SOFERI
 // ════════════════════════════════════════════════════════
 let editSoferId = null;
@@ -1718,8 +2230,35 @@ async function resetUserPin(userId,name){
 }
 
 // ════════════════════════════════════════════════════════
+// THEME
+// ════════════════════════════════════════════════════════
+function syncThemeIcons(isLight) {
+  ['theme-icon-moon','mob-icon-moon'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.style.display = isLight ? 'none' : '';
+  });
+  ['theme-icon-sun','mob-icon-sun'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.style.display = isLight ? '' : 'none';
+  });
+}
+
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  localStorage.setItem('reclamatii_theme', isLight ? 'light' : 'dark');
+  syncThemeIcons(isLight);
+}
+
+function initTheme() {
+  const saved = localStorage.getItem('reclamatii_theme');
+  if (saved === 'light') {
+    document.body.classList.add('light');
+    syncThemeIcons(true);
+  }
+}
+
+// ════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════
+initTheme();
 buildUserGrid();
 </script>
 </body>
