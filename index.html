@@ -529,6 +529,25 @@ textarea{resize:vertical;min-height:80px}
 /* ── DIVIDER ── */
 .divider{height:1px;background:var(--border);margin:16px 0}
 
+/* ── STATS TABS ── */
+.stats-tab{
+  padding:9px 16px;background:none;border:none;border-bottom:2px solid transparent;
+  font-family:var(--font);font-size:13px;font-weight:600;color:var(--text3);
+  cursor:pointer;transition:var(--transition);margin-bottom:-1px;border-radius:8px 8px 0 0;
+}
+.stats-tab:hover{color:var(--text);background:var(--bg3)}
+.stats-tab.active{color:var(--accent);border-bottom-color:var(--accent);background:var(--accent-bg)}
+.stats-tab.has-alert{color:var(--red)!important}
+
+/* ── ALERT CARD ── */
+.alert-card{
+  background:rgba(248,113,113,0.06);border:1px solid rgba(248,113,113,0.25);
+  border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;
+}
+.alert-card-warning{
+  background:rgba(232,197,71,0.06);border-color:var(--accent-border);
+}
+
 /* ── CHART WRAPPER ── */
 .chart-wrap{position:relative;height:220px;margin-top:8px}
 
@@ -739,11 +758,23 @@ textarea{resize:vertical;min-height:80px}
 
       <!-- STATISTICI -->
       <div class="page" id="page-statistici">
-        <div class="page-header">
+        <div class="page-header" style="margin-bottom:16px">
           <div class="page-title">Statistici</div>
           <div class="page-sub" id="stats-sub">Analiză completă</div>
         </div>
-        <div id="stats-content"></div>
+        <!-- Tabs -->
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0" id="stats-tabs">
+          <button class="stats-tab active" data-tab="general" onclick="switchStatsTab('general',this)">📊 General</button>
+          <button class="stats-tab" data-tab="soferi" onclick="switchStatsTab('soferi',this)">🚚 Per șofer</button>
+          <button class="stats-tab" data-tab="persoane" onclick="switchStatsTab('persoane',this)">👤 Per persoană</button>
+          <button class="stats-tab" data-tab="zile" onclick="switchStatsTab('zile',this)">📅 Per zi / lună</button>
+          <button class="stats-tab" data-tab="alerte" onclick="switchStatsTab('alerte',this)" id="tab-alerte">⚠ Alerte</button>
+        </div>
+        <div id="stats-general" class="stats-panel"></div>
+        <div id="stats-soferi" class="stats-panel" style="display:none"></div>
+        <div id="stats-persoane" class="stats-panel" style="display:none"></div>
+        <div id="stats-zile" class="stats-panel" style="display:none"></div>
+        <div id="stats-alerte" class="stats-panel" style="display:none"></div>
       </div>
 
       <!-- RECHNUNGURI -->
@@ -1299,7 +1330,7 @@ function logout() {
 const NAV_ITEMS = [
   { id:'dashboard', label:'Panou principal', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/>', roles:['all'] },
   { id:'reclamatii', label:'Reclamații', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/>', roles:['all'] },
-  { id:'statistici', label:'Statistici', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>', roles:['admin','tania'] },
+  { id:'statistici', label:'Statistici', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>', roles:['all'] },
   { id:'rechnunguri', label:'Rechnunguri', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>', roles:['admin','tania'] },
   { id:'soferi', label:'Șoferi & Ture', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>', roles:['admin'] },
   { id:'utilizatori', label:'Utilizatori', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>', roles:['admin'] },
@@ -1395,6 +1426,8 @@ function renderDashboard() {
   });
   const nerezolvate = allReclamatii.filter(r=>r.status!=='rezolvata');
   const rezolvate = allReclamatii.filter(r=>r.status==='rezolvata');
+  // Count from rechnunguri too for total display
+  const rechnTotal = (window._rechnTotalCount||0);
 
   document.getElementById('dash-stats').innerHTML = `
     <div class="stat-card" style="--stat-color:var(--accent)">
@@ -1728,229 +1761,526 @@ function printReclData(r) {
 // ════════════════════════════════════════════════════════
 // STATISTICI
 // ════════════════════════════════════════════════════════
-async function renderStatistici() {
-  const el = document.getElementById('stats-content');
-  el.innerHTML = `<div class="loading-page"><div class="spinner"></div><span style="color:var(--text3);font-size:13px">Se încarcă...</span></div>`;
+
+let statsCache = null; // cache date pentru toate tab-urile
+
+async function loadStatsData() {
+  // Filtrare dupa locatie pentru operatori
+  const userLoc = currentUser?.location;
+  const isAdmin = currentUser?.role === 'admin';
+  const isTania = currentUser?.role === 'tania';
+  const seeAll = isAdmin || isTania;
 
   const [soferiSnap, pacheteSnap, rechnSnap] = await Promise.all([
     db.collection('soferi').get(),
     db.collection('pachete_livrate').get(),
     db.collection('rechnunguri').get()
   ]);
-  const soferi = soferiSnap.docs.map(d=>({id:d.id,...d.data()}));
+
+  let soferi = soferiSnap.docs.map(d=>({id:d.id,...d.data()}));
   const pachete = pacheteSnap.docs.map(d=>({id:d.id,...d.data()}));
   const rechnunguri = rechnSnap.docs.map(d=>({id:d.id,...d.data()}));
 
-  // Toate pozitiile din toate rechnungurile indexate dupa tour
-  const rechnPozitii = []; // {tour, atg, schadenart, name, ort, datum, forderung, belegNr, rechnId}
+  // Filtrare soferi dupa locatie
+  if (!seeAll && userLoc) {
+    soferi = soferi.filter(s => s.locatie === userLoc);
+  }
+
+  // Reclamatii manuale (din DB)
+  const reclSnap = seeAll
+    ? await db.collection('reclamatii').orderBy('createdAt','desc').get()
+    : await db.collection('reclamatii').where('locatie','==',userLoc).orderBy('createdAt','desc').get();
+  const reclManuale = reclSnap.docs.map(d=>({id:d.id,...d.data(),sursa:'manual'}));
+
+  // Pozitii din rechnunguri (filtrate dupa tour-uri ale soferilor vizibili)
+  const tourSet = new Set(soferi.map(s=>String(s.tura)).filter(Boolean));
+  const rechnPozitii = [];
   rechnunguri.forEach(r => {
-    (r.pozitii || []).forEach(p => {
-      rechnPozitii.push({ ...p, belegNr: r.belegNr, dataEmitere: r.dataEmitere, rechnId: r.id });
+    (r.pozitii||[]).forEach(p => {
+      if (!seeAll && !tourSet.has(String(p.tour))) return;
+      rechnPozitii.push({
+        ...p,
+        belegNr: r.belegNr,
+        dataEmitere: r.dataEmitere,
+        rechnId: r.id,
+        sursa: 'rechnung',
+        // Mapam la format reclamatie
+        numeClient: p.name,
+        numarPachet: p.sendungsnummer || p.identnummer,
+        turaSofer: p.tour,
+        adresaClient: [p.strasse, p.plz, p.ort].filter(Boolean).join(', '),
+        status: 'nerezolvata', // default din rechnung
+        numePachet: p.atg,
+        tipReclamatie: p.schadenart || 'Totalverlust',
+        dataReclamatie: p.datum ? (() => {
+          const parts = p.datum.split('.');
+          if (parts.length===3) return new Date(parseInt(parts[2])<100?2000+parseInt(parts[2]):parseInt(parts[2]),parseInt(parts[1])-1,parseInt(parts[0]));
+          return new Date(p.datum);
+        })() : null,
+      });
     });
   });
 
-  // Per tour din rechnunguri
-  const rechnPerTour = {};
-  rechnPozitii.forEach(p => {
-    if (!p.tour) return;
-    if (!rechnPerTour[p.tour]) rechnPerTour[p.tour] = { total: 0, suma: 0, pozitii: [] };
-    rechnPerTour[p.tour].total++;
-    rechnPerTour[p.tour].suma += p.forderung || 0;
-    rechnPerTour[p.tour].pozitii.push(p);
+  // ETAPA 3: Detectare overlap rechnung ↔ manual (alerte)
+  const alerte = [];
+  rechnPozitii.forEach(rp => {
+    // Cauta reclamatie manuala similara (aceeasi tura + nume asemanator)
+    const similar = reclManuale.filter(rm => {
+      if (String(rm.turaSofer) !== String(rp.tour)) return false;
+      const rnLower = (rp.name||'').toLowerCase().trim();
+      const rmLower = (rm.numeClient||'').toLowerCase().trim();
+      if (!rnLower || !rmLower) return false;
+      // Check word overlap
+      const rnWords = rnLower.split(/\s+/);
+      const rmWords = rmLower.split(/\s+/);
+      return rnWords.some(w => w.length > 3 && rmWords.some(rw => rw.includes(w) || w.includes(rw)));
+    });
+
+    similar.forEach(rm => {
+      if (rm.status === 'rezolvata') {
+        alerte.push({
+          tip: 'DISPUTA',
+          mesaj: `Tour ${rp.tour} — ${rp.name}: reclamație REZOLVATĂ de șofer, dar facturată în Rechnung Nr.${rp.belegNr} (€${(rp.forderung||0).toFixed(2)})`,
+          rechnPoz: rp,
+          reclManuala: rm,
+          suma: rp.forderung
+        });
+      }
+    });
+
+    // Daca apare in rechnung dar NU apare deloc in manual
+    if (similar.length === 0) {
+      alerte.push({
+        tip: 'LIPSA',
+        mesaj: `Tour ${rp.tour} — ${rp.name}: apare în Rechnung Nr.${rp.belegNr} (€${(rp.forderung||0).toFixed(2)}) dar NU a fost înregistrată manual`,
+        rechnPoz: rp,
+        reclManuala: null,
+        suma: rp.forderung
+      });
+    }
   });
 
-  const now = new Date();
-  document.getElementById('stats-sub').textContent = `${allReclamatii.length} reclamații total · actualizat ${now.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}`;
+  // Total reclamatii = manuale + din rechnunguri (deduplicare)
+  const toateReclamatiile = [...reclManuale];
+  // Adaugam din rechnung doar cele care nu au corespondent manual
+  const lipsa = alerte.filter(a => a.tip === 'LIPSA');
+  lipsa.forEach(a => toateReclamatiile.push({...a.rechnPoz, id:'rechn_'+a.rechnPoz.tour+'_'+Math.random()}));
 
-  // Per luna
-  const perLuna = {};
-  allReclamatii.forEach(r => {
-    const d = r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt||0);
-    const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    if (!perLuna[k]) perLuna[k] = {total:0,rez:0};
-    perLuna[k].total++;
-    if (r.status==='rezolvata') perLuna[k].rez++;
-  });
-  const lunaKeys = Object.keys(perLuna).sort().slice(-12);
+  // Pachete per tura
+  const pachetePerTura = {};
+  pachete.forEach(p => { pachetePerTura[p.turaSofer]=(pachetePerTura[p.turaSofer]||0)+(p.pachete||0); });
 
-  // Per sofer
+  // Per sofer stats
   const perSofer = {};
-  allReclamatii.forEach(r => {
-    if (!r.turaSofer) return;
-    if (!perSofer[r.turaSofer]) perSofer[r.turaSofer] = {total:0,rez:0};
-    perSofer[r.turaSofer].total++;
-    if (r.status==='rezolvata') perSofer[r.turaSofer].rez++;
+  soferi.forEach(s => { perSofer[s.tura]={numeSofer:s.numeSofer,locatie:s.locatie,manual:0,rechnung:0,rezolvate:0,nerezolvate:0,suma:0,angajatDe:s.angajatDe||null}; });
+  toateReclamatiile.forEach(r => {
+    const t = String(r.turaSofer);
+    if (!perSofer[t]) return;
+    if (r.sursa==='rechnung') { perSofer[t].rechnung++; perSofer[t].suma+=(r.forderung||0); }
+    else { perSofer[t].manual++; }
+    if (r.status==='rezolvata') perSofer[t].rezolvate++;
+    else perSofer[t].nerezolvate++;
   });
-  const pachetePerSofer = {};
-  pachete.forEach(p => { pachetePerSofer[p.turaSofer] = (pachetePerSofer[p.turaSofer]||0)+(p.pachete||0); });
 
-  const topSoferi = soferi.map(s => {
-    const st = perSofer[s.tura]||{total:0,rez:0};
-    const tp = pachetePerSofer[s.tura]||0;
-    const rechnData = rechnPerTour[s.tura]||{total:0,suma:0,pozitii:[]};
-    return {
-      ...s, ...st, pachete:tp,
-      medie: tp>0?((st.total/tp)*100).toFixed(2):null,
-      rechnTotal: rechnData.total,
-      rechnSuma: rechnData.suma,
-      rechnPozitii: rechnData.pozitii,
-    };
-  }).sort((a,b)=>b.rechnTotal-a.rechnTotal||b.total-a.total);
+  // Per persoana reclamanta
+  const perPersoana = {};
+  toateReclamatiile.forEach(r => {
+    const key = (r.numeClient||r.name||'').toLowerCase().trim();
+    if (!key) return;
+    if (!perPersoana[key]) perPersoana[key]={nume:r.numeClient||r.name,total:0,rezolvate:0,suma:0,ture:[],adrese:[]};
+    perPersoana[key].total++;
+    if(r.status==='rezolvata') perPersoana[key].rezolvate++;
+    perPersoana[key].suma+=(r.forderung||0);
+    if(r.turaSofer && !perPersoana[key].ture.includes(String(r.turaSofer))) perPersoana[key].ture.push(String(r.turaSofer));
+    const adr=(r.adresaClient||r.ort||'').trim();
+    if(adr && !perPersoana[key].adrese.includes(adr)) perPersoana[key].adrese.push(adr);
+  });
 
-  // Top adrese
-  const perAdresa = {};
-  allReclamatii.forEach(r=>{ const k=(r.adresaClient||'').toLowerCase().trim(); if(!k) return; if(!perAdresa[k]) perAdresa[k]={a:r.adresaClient,n:0}; perAdresa[k].n++; });
-  const topAdrese = Object.values(perAdresa).sort((a,b)=>b.n-a.n).slice(0,8);
+  // Per zi/luna
+  const perZi={}, perLuna={};
+  toateReclamatiile.forEach(r => {
+    let d;
+    try { d = r.createdAt?.toDate ? r.createdAt.toDate() : r.dataReclamatie?.toDate ? r.dataReclamatie.toDate() : r.dataReclamatie instanceof Date ? r.dataReclamatie : new Date(r.dataReclamatie||r.createdAt); }
+    catch { return; }
+    if (!d || isNaN(d)) return;
+    const zi = d.toLocaleDateString('de-DE');
+    const luna = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (!perZi[zi]) perZi[zi]={total:0,manual:0,rechnung:0};
+    perZi[zi].total++; perZi[zi][r.sursa||'manual']++;
+    if (!perLuna[luna]) perLuna[luna]={total:0,manual:0,rechnung:0,rezolvate:0};
+    perLuna[luna].total++; perLuna[luna][r.sursa||'manual']++;
+    if(r.status==='rezolvata') perLuna[luna].rezolvate++;
+  });
 
-  const topPersoane = {};
-  allReclamatii.forEach(r=>{ const k=(r.numeClient||'').toLowerCase().trim(); if(!k) return; if(!topPersoane[k]) topPersoane[k]={n:r.numeClient,c:0}; topPersoane[k].c++; });
-  const topPersArr = Object.values(topPersoane).sort((a,b)=>b.c-a.c).slice(0,8);
+  return {
+    soferi, reclManuale, rechnPozitii, toateReclamatiile, alerte,
+    perSofer, perPersoana, perZi, perLuna, pachetePerTura,
+    rechnunguri, seeAll, userLoc
+  };
+}
 
-  const rezTot = allReclamatii.filter(r=>r.status==='rezolvata').length;
-  const nrezTot = allReclamatii.length - rezTot;
-  const rataRez = allReclamatii.length>0 ? Math.round(rezTot/allReclamatii.length*100) : 0;
+async function renderStatistici() {
+  const el = document.getElementById('stats-general');
+  el.innerHTML = `<div class="loading-page"><div class="spinner"></div></div>`;
+  ['stats-soferi','stats-persoane','stats-zile','stats-alerte'].forEach(id=>{
+    const e=document.getElementById(id); if(e) e.innerHTML='';
+  });
+
+  try {
+    statsCache = await loadStatsData();
+    document.getElementById('stats-sub').textContent =
+      `${statsCache.toateReclamatiile.length} total (${statsCache.reclManuale.length} manuale + ${statsCache.rechnPozitii.length} din rechnunguri)${statsCache.userLoc?' · '+statsCache.userLoc:''}`;
+
+    // Alert badge on tab
+    const alertTab = document.getElementById('tab-alerte');
+    if (alertTab && statsCache.alerte.length > 0) {
+      alertTab.textContent = `⚠ Alerte (${statsCache.alerte.length})`;
+      alertTab.classList.add('has-alert');
+    }
+
+    renderStatsGeneral(statsCache);
+    // Prerender all panels
+    renderStatsSoferi(statsCache);
+    renderStatsPersoane(statsCache);
+    renderStatsZile(statsCache);
+    renderStatsAlerte(statsCache);
+  } catch(e) {
+    el.innerHTML = `<div class="empty"><div class="empty-title">Eroare la încărcare</div><div class="empty-sub">${e.message}</div></div>`;
+  }
+}
+
+function switchStatsTab(tab, btn) {
+  document.querySelectorAll('.stats-tab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.stats-panel').forEach(p=>p.style.display='none');
+  btn.classList.add('active');
+  document.getElementById('stats-'+tab).style.display='block';
+}
+
+// ── TAB 1: GENERAL ──
+function renderStatsGeneral(d) {
+  const el = document.getElementById('stats-general');
+  const totalSuma = d.rechnPozitii.reduce((s,p)=>s+(p.forderung||0),0);
+  const dispute = d.alerte.filter(a=>a.tip==='DISPUTA');
+  const disputaSuma = dispute.reduce((s,a)=>s+(a.suma||0),0);
 
   el.innerHTML = `
     <div class="stats-grid" style="margin-bottom:20px">
       <div class="stat-card" style="--stat-color:var(--accent)">
-        <div class="stat-icon" style="background:var(--accent-bg);color:var(--accent)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/></svg></div>
-        <div class="stat-val" style="color:var(--accent)">${allReclamatii.length}</div><div class="stat-label">Total reclamații</div>
-      </div>
-      <div class="stat-card" style="--stat-color:var(--red)">
-        <div class="stat-icon" style="background:var(--red-bg);color:var(--red)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg></div>
-        <div class="stat-val" style="color:var(--red)">${rechnPozitii.length}</div><div class="stat-label">Poziții facturate</div>
-      </div>
-      <div class="stat-card" style="--stat-color:#f472b6">
-        <div class="stat-icon" style="background:rgba(244,114,182,0.1);color:#f472b6"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
-        <div class="stat-val" style="color:#f472b6">€${rechnPozitii.reduce((s,p)=>s+(p.forderung||0),0).toFixed(0)}</div><div class="stat-label">Total facturat</div>
-      </div>
-      <div class="stat-card" style="--stat-color:var(--green)">
-        <div class="stat-icon" style="background:var(--green-bg);color:var(--green)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
-        <div class="stat-val" style="color:var(--green)">${rataRez}%</div><div class="stat-label">Rată rezolvare</div>
+        <div class="stat-icon" style="background:var(--accent-bg);color:var(--accent)">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/></svg>
+        </div>
+        <div class="stat-val" style="color:var(--accent)">${d.toateReclamatiile.length}</div>
+        <div class="stat-label">Total reclamații</div>
       </div>
       <div class="stat-card" style="--stat-color:var(--blue)">
-        <div class="stat-icon" style="background:var(--blue-bg);color:var(--blue)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0z"/></svg></div>
-        <div class="stat-val" style="color:var(--blue)">${soferi.length}</div><div class="stat-label">Șoferi activi</div>
+        <div class="stat-icon" style="background:var(--blue-bg);color:var(--blue)">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg>
+        </div>
+        <div class="stat-val" style="color:var(--blue)">${d.reclManuale.length}</div>
+        <div class="stat-label">Introduse manual</div>
+      </div>
+      <div class="stat-card" style="--stat-color:#f87171">
+        <div class="stat-icon" style="background:var(--red-bg);color:var(--red)">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+        </div>
+        <div class="stat-val" style="color:var(--red)">${d.rechnPozitii.length}</div>
+        <div class="stat-label">Din rechnunguri</div>
       </div>
       <div class="stat-card" style="--stat-color:#f472b6">
-        <div class="stat-icon" style="background:rgba(244,114,182,0.1);color:#f472b6"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/></svg></div>
-        <div class="stat-val" style="color:#f472b6">${topAdrese.filter(a=>a.n>1).length}</div><div class="stat-label">Adrese recurente</div>
+        <div class="stat-icon" style="background:rgba(244,114,182,0.1);color:#f472b6">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div class="stat-val" style="color:#f472b6">€${totalSuma.toFixed(0)}</div>
+        <div class="stat-label">Total facturat</div>
       </div>
+      ${dispute.length > 0 ? `
+      <div class="stat-card" style="--stat-color:var(--accent);border-color:var(--accent-border)">
+        <div class="stat-icon" style="background:var(--accent-bg);color:var(--accent)">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/></svg>
+        </div>
+        <div class="stat-val" style="color:var(--accent)">${dispute.length}</div>
+        <div class="stat-label">Dispute (€${disputaSuma.toFixed(0)} contestabil)</div>
+      </div>` : ''}
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-      <div class="card">
-        <div style="font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:6px">
-          <span style="color:var(--accent)">●</span> Evoluție lunară
-        </div>
-        <div class="chart-wrap"><canvas id="chart-luna"></canvas></div>
-      </div>
-      <div class="card">
-        <div style="font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:6px">
-          <span style="color:var(--green)">●</span> Status reclamații
-        </div>
-        <div class="chart-wrap" style="height:160px"><canvas id="chart-status"></canvas></div>
-        <div style="display:flex;justify-content:center;gap:20px;margin-top:8px;font-size:12px">
-          <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:var(--green);border-radius:50%;display:inline-block"></span>Rezolvate (${rezTot})</span>
-          <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:var(--red);border-radius:50%;display:inline-block"></span>Nerezolvate (${nrezTot})</span>
-        </div>
-      </div>
-    </div>
-
+    <!-- Grafic lunar -->
     <div class="card" style="margin-bottom:16px">
-      <div style="font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:6px"><span style="color:var(--blue)">●</span> Clasament șoferi</div>
-      <div style="overflow-x:auto">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>#</th><th>Tură</th><th>Șofer</th><th>Locație</th>
-              <th style="text-align:right">Reclamații</th>
-              <th style="text-align:right">Facturate</th>
-              <th style="text-align:right">Sumă facturată</th>
-              <th style="text-align:right">Pachete</th>
-              <th style="text-align:right">Medie %</th>
-            </tr>
-          </thead>
-          <tbody>${topSoferi.filter(s=>s.tura).map((s,i)=>`
-            <tr>
-              <td style="color:var(--text3)">${i+1}</td>
-              <td style="font-family:var(--mono);font-weight:600">${s.tura}</td>
-              <td style="font-weight:500">${s.numeSofer}</td>
-              <td><span class="badge badge-gray">${s.locatie}</span></td>
-              <td style="text-align:right;font-weight:700;color:var(--red)">${s.total||0}</td>
-              <td style="text-align:right;font-weight:700;color:${s.rechnTotal>0?'#f87171':'var(--text3)'}">${s.rechnTotal||0}</td>
-              <td style="text-align:right;font-family:var(--mono);color:var(--accent);font-weight:600">${s.rechnSuma>0?'€'+s.rechnSuma.toFixed(2):'—'}</td>
-              <td style="text-align:right;color:var(--text2)">${s.pachete?.toLocaleString()||'—'}</td>
-              <td style="text-align:right">${s.medie!=null?`<span class="badge ${parseFloat(s.medie)>2?'badge-red':parseFloat(s.medie)>1?'badge-yellow':'badge-green'}">${s.medie}%</span>`:'<span style="color:var(--text3)">—</span>'}</td>
-            </tr>
-            ${(()=>{
-              if(!s.rechnPozitii||!s.rechnPozitii.length) return '';
-              const pills = s.rechnPozitii.map(p=>{
-                const sc = (p.schadenart||'').includes('Verlust')?'var(--red)':'var(--accent)';
-                return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:4px 10px;font-size:11px;display:flex;gap:8px;align-items:center">'
-                  +'<span style="font-weight:600;color:var(--text)">'+(p.name||'—')+'</span>'
-                  +'<span style="color:var(--text3);font-size:10px">'+(p.atg||'')+'</span>'
-                  +'<span style="color:'+sc+';font-weight:600;font-size:10px">'+(p.schadenart||'')+'</span>'
-                  +'<span style="font-family:var(--mono);color:var(--accent)">€'+((p.forderung||0).toFixed(2))+'</span>'
-                  +'<span style="color:var(--text3);font-size:10px">'+(p.datum||'')+'</span>'
-                  +'</div>';
-              }).join('');
-              return '<tr style="background:var(--bg3)"><td colspan="9" style="padding:6px 12px 10px"><div style="font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:600">📄 '+s.rechnPozitii.length+' poziții facturate:</div><div style="display:flex;flex-wrap:wrap;gap:5px">'+pills+'</div></td></tr>';
-            })()}
-          `).join('')}
-          </tbody>
-        </table>
-      </div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">📈 Evoluție lunară (manuale + rechnunguri)</div>
+      <div class="chart-wrap"><canvas id="chart-luna-general"></canvas></div>
     </div>
 
+    <!-- Top 5 soferi + Top 5 persoane side by side -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div class="card">
-        <div style="font-size:13px;font-weight:700;margin-bottom:12px">📍 Top adrese problematice</div>
-        ${topAdrese.length===0?'<p style="color:var(--text3);font-size:13px">Fără date</p>':topAdrese.map((a,i)=>`
-          <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px">🚚 Top 5 șoferi (reclamații totale)</div>
+        ${Object.entries(d.perSofer).sort((a,b)=>(b[1].manual+b[1].rechnung)-(a[1].manual+a[1].rechnung)).slice(0,5).map(([tura,s],i)=>`
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
             <span style="width:20px;height:20px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
-            <span style="flex:1;font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.a}</span>
-            <span style="font-size:12px;font-weight:700;color:var(--red);flex-shrink:0">${a.n}x</span>
+            <span style="flex:1;font-size:12px;font-weight:500">Tura ${tura} — ${s.numeSofer||''}</span>
+            <span style="font-size:12px;font-weight:700;color:var(--red)">${s.manual+s.rechnung}</span>
           </div>`).join('')}
       </div>
       <div class="card">
-        <div style="font-size:13px;font-weight:700;margin-bottom:12px">👤 Top persoane reclamante</div>
-        ${topPersArr.length===0?'<p style="color:var(--text3);font-size:13px">Fără date</p>':topPersArr.map((p,i)=>`
-          <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px">👤 Top 5 persoane reclamante</div>
+        ${Object.values(d.perPersoana).sort((a,b)=>b.total-a.total).slice(0,5).map((p,i)=>`
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
             <span style="width:20px;height:20px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
-            <span style="flex:1;font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.n}</span>
-            <span style="font-size:12px;font-weight:700;color:var(--accent);flex-shrink:0">${p.c}x</span>
+            <span style="flex:1;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.nume}</span>
+            <span style="font-size:12px;font-weight:700;color:var(--accent)">${p.total}x</span>
           </div>`).join('')}
       </div>
     </div>
   `;
 
-  // Charts
-  setTimeout(()=>{
-    const ctxL = document.getElementById('chart-luna')?.getContext('2d');
-    if (ctxL && lunaKeys.length>0) {
-      new Chart(ctxL, {
-        type:'line',
-        data:{
-          labels:lunaKeys.map(k=>k.slice(5)+'/'+k.slice(0,4)),
-          datasets:[
-            {label:'Total',data:lunaKeys.map(k=>perLuna[k].total),borderColor:'#e8c547',backgroundColor:'rgba(232,197,71,0.08)',tension:0.4,fill:true,pointRadius:4,pointBackgroundColor:'#e8c547'},
-            {label:'Rezolvate',data:lunaKeys.map(k=>perLuna[k].rez),borderColor:'#34d399',backgroundColor:'rgba(52,211,153,0.06)',tension:0.4,fill:true,pointRadius:3,pointBackgroundColor:'#34d399'},
-          ]
-        },
-        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#9aa3b8',font:{family:'Outfit',size:11}}}},scales:{x:{ticks:{color:'#5c6478',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'}},y:{ticks:{color:'#5c6478',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'}}}}
-      });
-    }
-    const ctxS = document.getElementById('chart-status')?.getContext('2d');
-    if (ctxS && allReclamatii.length>0) {
-      new Chart(ctxS, {
-        type:'doughnut',
-        data:{labels:['Rezolvate','Nerezolvate'],datasets:[{data:[rezTot,nrezTot],backgroundColor:['#34d399','#f87171'],borderWidth:0,hoverOffset:4}]},
-        options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false}}}
-      });
-    }
-  },50);
+  // Chart
+  const lunaKeys = Object.keys(d.perLuna).sort().slice(-12);
+  setTimeout(() => {
+    const ctx = document.getElementById('chart-luna-general')?.getContext('2d');
+    if (!ctx || !lunaKeys.length) return;
+    new Chart(ctx, {
+      type:'bar',
+      data:{
+        labels: lunaKeys.map(k=>k.slice(5)+'/'+k.slice(0,4)),
+        datasets:[
+          {label:'Manuale',data:lunaKeys.map(k=>d.perLuna[k].manual||0),backgroundColor:'rgba(96,165,250,0.7)',borderRadius:4},
+          {label:'Rechnunguri',data:lunaKeys.map(k=>d.perLuna[k].rechnung||0),backgroundColor:'rgba(248,113,113,0.7)',borderRadius:4},
+        ]
+      },
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#9aa3b8',font:{family:'Outfit',size:11}}}},scales:{x:{stacked:true,ticks:{color:'#5c6478',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'}},y:{stacked:true,ticks:{color:'#5c6478',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'}}}}
+    });
+  }, 50);
 }
+
+// ── TAB 2: PER SOFER ──
+function renderStatsSoferi(d) {
+  const el = document.getElementById('stats-soferi');
+  const sorted = Object.entries(d.perSofer).sort((a,b)=>(b[1].manual+b[1].rechnung)-(a[1].manual+a[1].rechnung));
+
+  el.innerHTML = `
+    <div style="overflow-x:auto">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th><th>Tură</th><th>Șofer</th><th>Locație</th>
+            <th style="text-align:right">Manual</th>
+            <th style="text-align:right">Rechnung</th>
+            <th style="text-align:right">TOTAL</th>
+            <th style="text-align:right">Rezolvate</th>
+            <th style="text-align:right">Pachete</th>
+            <th style="text-align:right">Medie %</th>
+            <th style="text-align:right">Sumă facturată</th>
+            <th>Angajat din</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sorted.map(([tura,s],i) => {
+            const total = s.manual + s.rechnung;
+            const pachete = d.pachetePerTura[tura] || 0;
+            const medie = pachete > 0 ? ((total/pachete)*100).toFixed(2) : null;
+            const hasAlerta = d.alerte.some(a=>String(a.rechnPoz?.tour)===String(tura)&&a.tip==='DISPUTA');
+            return `<tr style="${hasAlerta?'background:rgba(232,197,71,0.04)':''}">
+              <td style="color:var(--text3)">${i+1}</td>
+              <td style="font-family:var(--mono);font-weight:700;color:var(--accent)">${tura}</td>
+              <td style="font-weight:500">${s.numeSofer||'—'} ${hasAlerta?'<span class="badge badge-yellow" style="font-size:10px">⚠ dispută</span>':''}</td>
+              <td><span class="badge badge-gray">${s.locatie||'—'}</span></td>
+              <td style="text-align:right;color:var(--blue)">${s.manual}</td>
+              <td style="text-align:right;color:var(--red)">${s.rechnung}</td>
+              <td style="text-align:right;font-weight:700">${total}</td>
+              <td style="text-align:right;color:var(--green)">${s.rezolvate}</td>
+              <td style="text-align:right;color:var(--text2)">${pachete.toLocaleString()||'—'}</td>
+              <td style="text-align:right">${medie!=null?`<span class="badge ${parseFloat(medie)>2?'badge-red':parseFloat(medie)>1?'badge-yellow':'badge-green'}">${medie}%</span>`:'<span style="color:var(--text3)">—</span>'}</td>
+              <td style="text-align:right;font-family:var(--mono);color:${s.suma>0?'var(--accent)':'var(--text3)'}">${s.suma>0?'€'+s.suma.toFixed(2):'—'}</td>
+              <td style="color:var(--text3);font-size:11px">${s.angajatDe||'—'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ── TAB 3: PER PERSOANA ──
+function renderStatsPersoane(d) {
+  const el = document.getElementById('stats-persoane');
+  const sorted = Object.values(d.perPersoana).sort((a,b)=>b.total-a.total);
+
+  el.innerHTML = `
+    <div class="filters" style="margin-bottom:14px">
+      <div class="search-wrap" style="max-width:280px">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+        <input type="text" placeholder="Caută persoană..." id="pers-search" oninput="filterPersoane()" />
+      </div>
+    </div>
+    <div id="pers-table">
+      ${renderPersoaneTable(sorted)}
+    </div>
+  `;
+  window._persoaneAll = sorted;
+}
+
+function renderPersoaneTable(list) {
+  if (!list.length) return '<div class="empty"><div class="empty-title">Nicio persoană</div></div>';
+  return `<div style="overflow-x:auto"><table class="data-table">
+    <thead><tr>
+      <th>#</th><th>Nume</th><th>Total reclamații</th><th>Rezolvate</th>
+      <th>Ture implicate</th><th>Adrese</th><th>Sumă totală</th>
+    </tr></thead>
+    <tbody>${list.map((p,i)=>`
+      <tr>
+        <td style="color:var(--text3)">${i+1}</td>
+        <td style="font-weight:600">${p.nume}</td>
+        <td style="text-align:right">
+          <span class="badge ${p.total>=3?'badge-red':p.total>=2?'badge-yellow':'badge-gray'}">${p.total}x</span>
+        </td>
+        <td style="text-align:right;color:var(--green)">${p.rezolvate}</td>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--text2)">${p.ture.join(', ')||'—'}</td>
+        <td style="font-size:11px;color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis">${p.adrese.join('; ')||'—'}</td>
+        <td style="text-align:right;font-family:var(--mono);color:${p.suma>0?'var(--accent)':'var(--text3)'}">${p.suma>0?'€'+p.suma.toFixed(2):'—'}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+function filterPersoane() {
+  const q = (document.getElementById('pers-search')?.value||'').toLowerCase();
+  const filtered = (window._persoaneAll||[]).filter(p=>(p.nume||'').toLowerCase().includes(q));
+  const el = document.getElementById('pers-table');
+  if (el) el.innerHTML = renderPersoaneTable(filtered);
+}
+
+// ── TAB 4: PER ZI / LUNA ──
+function renderStatsZile(d) {
+  const el = document.getElementById('stats-zile');
+  const lunaKeys = Object.keys(d.perLuna).sort().reverse();
+  const ziKeys = Object.keys(d.perZi).sort((a,b)=>new Date(b.split('.').reverse().join('-'))-new Date(a.split('.').reverse().join('-'))).slice(0,30);
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+      <!-- Per luna -->
+      <div class="card">
+        <div style="font-size:13px;font-weight:700;margin-bottom:12px">📅 Per lună</div>
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Lună</th><th style="text-align:right">Total</th><th style="text-align:right">Manuale</th><th style="text-align:right">Rechnung</th><th style="text-align:right">Rezolvate</th></tr></thead>
+          <tbody>${lunaKeys.map(k=>{const m=d.perLuna[k];return`<tr>
+            <td style="font-family:var(--mono)">${k.slice(5)}/${k.slice(0,4)}</td>
+            <td style="text-align:right;font-weight:700">${m.total}</td>
+            <td style="text-align:right;color:var(--blue)">${m.manual||0}</td>
+            <td style="text-align:right;color:var(--red)">${m.rechnung||0}</td>
+            <td style="text-align:right;color:var(--green)">${m.rezolvate||0}</td>
+          </tr>`}).join('')}</tbody>
+        </table>
+      </div>
+
+      <!-- Per zi (ultimele 30) -->
+      <div class="card" style="max-height:500px;overflow-y:auto">
+        <div style="font-size:13px;font-weight:700;margin-bottom:12px">📆 Per zi (ultimele 30 zile)</div>
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Zi</th><th style="text-align:right">Total</th><th style="text-align:right">Manuale</th><th style="text-align:right">Rechnung</th></tr></thead>
+          <tbody>${ziKeys.map(k=>{const z=d.perZi[k];return`<tr>
+            <td style="font-family:var(--mono)">${k}</td>
+            <td style="text-align:right;font-weight:700">${z.total}</td>
+            <td style="text-align:right;color:var(--blue)">${z.manual||0}</td>
+            <td style="text-align:right;color:var(--red)">${z.rechnung||0}</td>
+          </tr>`}).join('')}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Grafic zilnic chart -->
+    <div class="card">
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">📊 Grafic lunar detaliat</div>
+      <div class="chart-wrap"><canvas id="chart-zile"></canvas></div>
+    </div>
+  `;
+
+  setTimeout(() => {
+    const ctx = document.getElementById('chart-zile')?.getContext('2d');
+    if (!ctx || !lunaKeys.length) return;
+    const keys = lunaKeys.slice(0,12).reverse();
+    new Chart(ctx, {
+      type:'line',
+      data:{
+        labels:keys.map(k=>k.slice(5)+'/'+k.slice(0,4)),
+        datasets:[
+          {label:'Manuale',data:keys.map(k=>d.perLuna[k]?.manual||0),borderColor:'#60a5fa',backgroundColor:'rgba(96,165,250,0.1)',tension:0.4,fill:true,pointRadius:4},
+          {label:'Rechnunguri',data:keys.map(k=>d.perLuna[k]?.rechnung||0),borderColor:'#f87171',backgroundColor:'rgba(248,113,113,0.1)',tension:0.4,fill:true,pointRadius:4},
+        ]
+      },
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#9aa3b8',font:{family:'Outfit',size:11}}}},scales:{x:{ticks:{color:'#5c6478',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'}},y:{ticks:{color:'#5c6478',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'}}}}
+    });
+  }, 50);
+}
+
+// ── TAB 5: ALERTE ──
+function renderStatsAlerte(d) {
+  const el = document.getElementById('stats-alerte');
+  if (!d.alerte.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div class="empty-title" style="color:var(--green)">Nicio alertă!</div><div class="empty-sub">Totul e în ordine — nicio discrepanță între reclamații și rechnunguri</div></div>`;
+    return;
+  }
+
+  const dispute = d.alerte.filter(a=>a.tip==='DISPUTA');
+  const lipsa = d.alerte.filter(a=>a.tip==='LIPSA');
+  const disputaSuma = dispute.reduce((s,a)=>s+(a.suma||0),0);
+
+  el.innerHTML = `
+    ${dispute.length > 0 ? `
+    <div style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:800;color:var(--accent)">⚠ DISPUTE — Reclamații rezolvate dar facturate</div>
+        <span class="badge badge-yellow">${dispute.length} cazuri · €${disputaSuma.toFixed(2)} contestabil</span>
+      </div>
+      <div style="background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:var(--radius);padding:12px 16px;margin-bottom:12px;font-size:12px;color:var(--text2)">
+        Aceste reclamații au fost marcate ca <strong style="color:var(--green)">REZOLVATE</strong> de șoferi, 
+        dar au apărut în rechnung și vi s-au facturat. Contestați aceste sume la Hermes!
+      </div>
+      ${dispute.map(a=>`
+        <div class="alert-card alert-card-warning" style="margin-bottom:8px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+            <div>
+              <div style="font-size:13px;font-weight:700;margin-bottom:4px">
+                🚚 Tour ${a.rechnPoz.tour} — ${a.rechnPoz.name||'—'}
+              </div>
+              <div style="font-size:11px;color:var(--text2);margin-bottom:4px">
+                Rechnung Nr. <strong>${a.rechnPoz.belegNr}</strong> · 
+                ${a.rechnPoz.atg||a.rechnPoz.versender||''} · 
+                ${a.rechnPoz.datum||''} · 
+                ${a.rechnPoz.plz||''} ${a.rechnPoz.ort||''}
+              </div>
+              <div style="font-size:11px;color:var(--green)">
+                ✓ Reclamație manuală marcată REZOLVATĂ de ${a.reclManuala?.adaugatDe||'operator'} pe ${a.reclManuala?.updatedAt ? formatDatumDE(a.reclManuala.updatedAt.toDate?.() || a.reclManuala.updatedAt) : '—'}
+              </div>
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              <div style="font-size:18px;font-weight:800;font-family:var(--mono);color:var(--accent)">€${(a.suma||0).toFixed(2)}</div>
+              <div style="font-size:10px;color:var(--text3)">de contestat</div>
+            </div>
+          </div>
+        </div>`).join('')}
+    </div>` : ''}
+
+    ${lipsa.length > 0 ? `
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:700;color:var(--red)">📋 Reclamații din rechnung neînregistrate manual</div>
+        <span class="badge badge-red">${lipsa.length} cazuri</span>
+      </div>
+      <div style="background:var(--red-bg);border:1px solid rgba(248,113,113,0.2);border-radius:var(--radius);padding:12px 16px;margin-bottom:12px;font-size:12px;color:var(--text2)">
+        Aceste cazuri apar în rechnungul Hermes dar <strong>nu au fost introduse manual</strong> de operatoare. 
+        Verificați dacă șoferii au primit formularele.
+      </div>
+      ${lipsa.slice(0,20).map(a=>`
+        <div class="alert-card" style="margin-bottom:6px">
+          <div style="font-size:12px;font-weight:600">Tour ${a.rechnPoz.tour} — ${a.rechnPoz.name||'—'}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">
+            ${a.rechnPoz.atg||''} · ${a.rechnPoz.datum||''} · €${(a.suma||0).toFixed(2)} · Rechnung Nr.${a.rechnPoz.belegNr}
+          </div>
+        </div>`).join('')}
+      ${lipsa.length > 20 ? `<div style="font-size:11px;color:var(--text3);text-align:center;margin-top:8px">... și ${lipsa.length-20} mai mult</div>` : ''}
+    </div>` : ''}
+  `;
+}
+
 
 // ════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════
@@ -2677,7 +3007,7 @@ function autoFillFromAblieferung() {
 async function saveSofer() {
   const name = document.getElementById('sf-name').value.trim();
   if (!name) { toast('Completeaza numele', 'error'); return; }
-  const payload = { tura: document.getElementById('sf-tura').value.trim(), numeSofer: name, locatie: document.getElementById('sf-loc').value };
+  const payload = { tura: document.getElementById('sf-tura').value.trim(), numeSofer: name, locatie: document.getElementById('sf-loc').value, angajatDe: document.getElementById('sf-angajat')?.value||'' };
   try {
     if (editSoferId) { await db.collection('soferi').doc(editSoferId).update(payload); toast('Sofer actualizat'); }
     else { payload.createdAt = firebase.firestore.FieldValue.serverTimestamp(); await db.collection('soferi').add(payload); toast('Sofer adaugat'); }
