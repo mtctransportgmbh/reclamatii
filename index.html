@@ -861,6 +861,137 @@ let allSoferi = [];
 let chartInstance = null;
 
 // ════════════════════════════════════════════════════════
+// ABLIEFERNACHWEIS PARSER
+// ════════════════════════════════════════════════════════
+function parseAbliefernachweis(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const result = { tour:'', lieferdatum:'', sendungsnummer:'', name:'', vorname:'', nachname:'', strasse:'', plz:'', ort:'', erhalten_datum:'', versender:'', raw: text };
+
+  for (const line of lines) {
+    const m = line.match(/Tour\s+(\d+)\s+(\d{2}\.\d{2}\.\d{4})/);
+    if (m) { result.tour = m[1]; result.lieferdatum = m[2]; break; }
+  }
+  for (const line of lines) {
+    if (/^[Hh]?\d{13,}/.test(line) || /^H\d{15,}/i.test(line)) { result.sendungsnummer = line.trim(); break; }
+  }
+  for (const line of lines) {
+    const m = line.match(/Sendung erhalten.*?(\d{2}\.\d{2}\.\d{4})/);
+    if (m) { result.erhalten_datum = m[1]; break; }
+  }
+
+  const snIdx = lines.findIndex(l => /^[Hh]?\d{13,}/i.test(l));
+  const tourIdx = lines.findIndex(l => /^Tour\s+\d+/.test(l));
+  const skip = /^(Niederlassung|Depot|Druckdatum|Abliefernachweis)/i;
+
+  const addrLines = lines.slice(tourIdx < 0 ? 0 : tourIdx+1, snIdx > 0 ? snIdx : undefined)
+    .filter(l => !skip.test(l) && !/^\d{2}[.:]\d{2}[.:]\d{4}$/.test(l) && !/^\d{2}:\d{2}$/.test(l));
+
+  if (addrLines.length > 0) {
+    result.name = addrLines[0].replace(/^\d+[-–]\d+\s+/, '').trim();
+    const np = result.name.split(/\s+/);
+    result.vorname = np.length >= 2 ? np.slice(0,-1).join(' ') : '';
+    result.nachname = np[np.length-1] || result.name;
+  }
+  if (addrLines.length > 1) result.strasse = addrLines[1];
+  if (addrLines.length > 2) {
+    const pm = addrLines[2].match(/(?:DEU\s+)?(\d{5})\s+(.+)/);
+    if (pm) { result.plz = pm[1]; result.ort = pm[2].trim(); }
+    else result.ort = addrLines[2];
+  }
+  for (const line of lines) {
+    const m = line.match(/(.+?)\s*\(Originalempfänger\)/);
+    if (m) {
+      const orig = m[1].trim();
+      const op = orig.split(/\s+/);
+      if (op.length >= 2) { result.vorname = op.slice(0,-1).join(' '); result.nachname = op[op.length-1]; result.name = orig; }
+      break;
+    }
+  }
+  return result;
+}
+
+function formatDatumDE(d) {
+  if (!d) return '—';
+  if (typeof d === 'string' && d.includes('.')) return d;
+  try { const dt = d.toDate ? d.toDate() : new Date(d); return dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'}); }
+  catch { return String(d); }
+}
+
+function berechneTerMin(datum) {
+  if (!datum) return '';
+  try {
+    let d;
+    if (typeof datum === 'string' && datum.includes('.')) {
+      const p = datum.split('.'); d = new Date(parseInt(p[2])<100?2000+parseInt(p[2]):parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+    } else { d = datum.toDate ? datum.toDate() : new Date(datum); }
+    d.setDate(d.getDate() + 14);
+    return d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'});
+  } catch { return ''; }
+}
+
+function printFormularODS(data) {
+  const termin = data.termin || berechneTerMin(data.dataReclamatie || data.lieferdatum);
+  const vorname = (data.vorname || (data.numeClient||'').split(' ').slice(0,-1).join(' ')).toUpperCase();
+  const nachname = (data.nachname || (data.numeClient||'').split(' ').slice(-1)[0]||'').toUpperCase();
+  const datum = data.dataReclamatie || data.lieferdatum || '';
+  const versender = data.numePachet || data.versender || data.atg || '';
+  const sendNr = data.numarPachet || data.sendungsnummer || '';
+  const adresse = data.adresaClient || [data.strasse, data.plz, data.ort].filter(Boolean).join(' ');
+
+  document.getElementById('print-area').innerHTML = `
+    <div style="font-family:Arial,sans-serif;padding:28px 32px;max-width:680px;margin:0 auto;color:#111;font-size:13px">
+      <div style="border-bottom:2px solid #222;padding-bottom:10px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-end">
+        <div><div style="font-size:19px;font-weight:900;letter-spacing:-0.5px">REKLAMATION</div>
+          <div style="font-size:11px;color:#666;margin-top:2px">MTC Transport GmbH · Depot Mühldorf</div></div>
+        <div style="text-align:right;font-size:12px">Tour: <strong>${data.turaSofer||data.tour||'—'}</strong> &nbsp;|&nbsp; ${formatDatumDE(datum)}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+        <tr><td style="padding:8px 0;width:42%;font-weight:700;border-bottom:1px solid #eee">Vorname:</td>
+            <td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;font-weight:700">${vorname}</td></tr>
+        <tr><td style="padding:8px 0;font-weight:700;border-bottom:1px solid #eee">Nachname:</td>
+            <td style="padding:8px 0;border-bottom:1px solid #eee;font-size:14px;font-weight:700">${nachname}</td></tr>
+        <tr><td style="padding:8px 0;font-weight:700;border-bottom:1px solid #eee">Beanstandung vom:</td>
+            <td style="padding:8px 0;border-bottom:1px solid #eee;font-weight:600">${formatDatumDE(datum)}</td></tr>
+        <tr><td style="padding:8px 0;font-weight:700;border-bottom:1px solid #eee">Versender:</td>
+            <td style="padding:8px 0;border-bottom:1px solid #eee;font-weight:600">${versender}</td></tr>
+        <tr><td style="padding:8px 0;font-weight:700;border-bottom:1px solid #eee">Sendungsnummer:</td>
+            <td style="padding:8px 0;border-bottom:1px solid #eee;font-family:monospace;font-size:12px;font-weight:600">${sendNr}</td></tr>
+        ${adresse?`<tr><td style="padding:8px 0;font-weight:700;border-bottom:1px solid #eee">Adresse:</td>
+            <td style="padding:8px 0;border-bottom:1px solid #eee">${adresse}</td></tr>`:''}
+      </table>
+      <div style="margin-bottom:12px">
+        <div style="font-weight:700;margin-bottom:7px">Sendung erhalten persönlich:</div>
+        <div style="display:flex;gap:28px">
+          ${['JA','NEIN'].map(o=>`<label style="display:flex;align-items:center;gap:7px"><span style="width:16px;height:16px;border:2px solid #333;border-radius:3px;display:inline-block"></span>${o}</label>`).join('')}
+        </div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="font-weight:700;margin-bottom:7px">Die Sendung wurde zugestellt:</div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap">
+          ${['Haustür','Briefkasten','Terasse','Nachbar','Sonstiges'].map(o=>`<label style="display:flex;align-items:center;gap:5px"><span style="width:14px;height:14px;border:1.5px solid #555;border-radius:2px;display:inline-block"></span>${o}</label>`).join('')}
+        </div>
+      </div>
+      <div style="margin-bottom:6px;padding-left:18px">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px"><span style="font-size:12px;white-space:nowrap">Nachbar Vorname, Nachname:</span><span style="flex:1;border-bottom:1px solid #bbb;min-width:80px"></span></div>
+        <div style="display:flex;gap:8px;align-items:center"><span style="font-size:12px">Adresse:</span><span style="flex:1;border-bottom:1px solid #bbb"></span></div>
+      </div>
+      <div style="margin-bottom:16px;padding-left:18px">
+        <div style="display:flex;gap:8px;align-items:center"><span style="font-size:12px">Sonstiges:</span><span style="flex:1;border-bottom:1px solid #bbb"></span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:14px">
+        <div><div style="font-size:12px;color:#666;margin-bottom:26px">Datum:</div><div style="border-top:1.5px solid #333"></div></div>
+        <div><div style="font-size:12px;color:#666;margin-bottom:26px">Unterschrift Kunde:</div><div style="border-top:1.5px solid #333"></div></div>
+      </div>
+      <div style="background:#f5f5f5;border:2px solid #222;border-radius:6px;padding:10px 16px;display:flex;align-items:center;gap:16px">
+        <span style="font-weight:900;font-size:14px;letter-spacing:1px">TERMIN BIS</span>
+        <span style="font-size:17px;font-weight:800;font-family:monospace">${formatDatumDE(termin)}</span>
+      </div>
+      <div style="margin-top:10px;font-size:10px;color:#bbb;text-align:center">Reklamation App · ${new Date().toLocaleDateString('de-DE')} ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</div>
+    </div>`;
+  window.print();
+}
+
+// ════════════════════════════════════════════════════════
 // UTILS
 // ════════════════════════════════════════════════════════
 function hashPin(pin, userId) {
@@ -1406,6 +1537,18 @@ function toggleForm(data) {
         <svg style="width:16px;height:16px;color:var(--accent)" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
         ${editingId ? 'Editează reclamație' : 'Reclamație nouă'}
       </div>
+      ${!editingId ? `
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">
+          📋 Lipește textul Abliefernachweis — completare automată
+        </label>
+        <textarea id="ablieferung-paste" rows="5"
+          placeholder="Abliefernachweis&#10;Tour 405 16.05.2026&#10;Niederlassung&#10;..."
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 13px;color:var(--text);font-family:var(--mono);font-size:11px;line-height:1.5;resize:vertical;outline:none;transition:var(--transition)"
+          oninput="autoFillFromAblieferung()"></textarea>
+        <div id="ablieferung-status" style="font-size:11px;margin-top:4px;color:var(--text3)"></div>
+      </div>
+      ` : ''}
       <div class="form-grid">
         <div class="form-group">
           <label>Nume pachet</label>
@@ -1492,8 +1635,10 @@ async function saveReclamatie() {
       payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
       payload.status = 'nerezolvata';
       const ref = await db.collection('reclamatii').add(payload);
-      toast('Reclamație adăugată! Vrei să printezi formularul?','info');
-      setTimeout(()=>printReclData({id:ref.id,...payload}),500);
+      toast('Reclamație adăugată!');
+      const printData = { ...payload, id: ref.id, ...(window._lastAblieferung || {}) };
+      window._lastAblieferung = null;
+      setTimeout(() => { if(confirm('Tipărești formularul Reklamation?')) printFormularODS(printData); }, 300);
     }
     toggleForm();
     editingId = null;
@@ -1524,7 +1669,7 @@ async function deleteReclamatie(id) {
 // ════════════════════════════════════════════════════════
 function printReclamatie(id) {
   const r = allReclamatii.find(x=>x.id===id);
-  if (r) printReclData(r);
+  if (r) printFormularODS(r);
 }
 
 function printReclData(r) {
@@ -2497,6 +2642,36 @@ function toggleSoferForm(data) {
       </div>
     </div>`;
   el.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+
+function autoFillFromAblieferung() {
+  const text = document.getElementById('ablieferung-paste')?.value || '';
+  if (text.length < 20) return;
+  const parsed = parseAbliefernachweis(text);
+  const status = document.getElementById('ablieferung-status');
+  if (!parsed.tour && !parsed.sendungsnummer) {
+    if (status) { status.textContent = '⚠ Format nerecunoscut'; status.style.color = 'var(--accent)'; }
+    return;
+  }
+  const set = (id, val) => { const e=document.getElementById(id); if(e&&val) e.value=val; };
+  set('f-numarPachet', parsed.sendungsnummer);
+  set('f-numeClient', parsed.nachname || parsed.name);
+  set('f-prenumeClient', parsed.vorname || '');
+  if (parsed.strasse||parsed.ort) set('f-adresaClient', [parsed.strasse,parsed.plz,parsed.ort].filter(Boolean).join(', '));
+  if (parsed.lieferdatum) {
+    const p = parsed.lieferdatum.split('.');
+    if (p.length===3) {
+      const yr = parseInt(p[2])<100 ? 2000+parseInt(p[2]) : parseInt(p[2]);
+      set('f-data', `${yr}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`);
+    }
+  }
+  if (parsed.tour) {
+    const e = document.getElementById('f-tura');
+    if (e) for (const o of e.options) { if (o.value===parsed.tour) { e.value=parsed.tour; break; } }
+  }
+  window._lastAblieferung = parsed;
+  const parts = [parsed.name?'👤 '+parsed.name:'', parsed.tour?'🚚 Tour '+parsed.tour:'', parsed.sendungsnummer?'📦 ...'+parsed.sendungsnummer.slice(-6):''].filter(Boolean);
+  if (status) { status.textContent = '✓ Completat: ' + parts.join(' · '); status.style.color = 'var(--green)'; }
 }
 
 async function saveSofer() {
