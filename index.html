@@ -8,7 +8,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -2215,16 +2214,9 @@ async function saveRechn() {
   saveBtn.disabled = true;
 
   try {
-    // Upload PDF to Storage (optional — if fails, save without URL)
-    let url = '';
-    try {
-      const storageRef = firebase.storage().ref(`rechnunguri/${an}/${luna}/${file.name}`);
-      await storageRef.put(file);
-      url = await storageRef.getDownloadURL();
-    } catch(storageErr) {
-      console.warn('Storage upload failed (continuing without file URL):', storageErr.message);
-      toast('Fișierul PDF nu s-a putut uploada (Storage), dar datele se salvează.', 'info');
-    }
+    // Storage dezactivat (CORS issue cu GitHub Pages)
+    // PDF-ul rămâne local — datele parsate se salvează în Firestore
+    const url = '';
 
     await db.collection('rechnunguri').add({
       belegNr: beleg,
@@ -2237,7 +2229,8 @@ async function saveRechn() {
       uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
-    toast(`✓ Rechnung Nr. ${beleg} salvat — ${parsedRechnData?.pozitii?.length || 0} poziții importate!`);
+    const nrPoz = parsedRechnData?.pozitii?.length || 0;
+    toast(`✓ Rechnung Nr. ${beleg} salvat! ${nrPoz} poziții importate.`);
     parsedRechnData = null;
     toggleRechnForm();
     renderRechnunguri();
