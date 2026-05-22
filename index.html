@@ -815,12 +815,12 @@ textarea{resize:vertical;min-height:80px}
 // FIREBASE CONFIG — înlocuiește cu datele tale!
 // ════════════════════════════════════════════════════════
 const firebaseConfig = {
-  apiKey: "REPLACE_WITH_YOUR_API_KEY",
-  authDomain: "REPLACE_WITH_YOUR_AUTH_DOMAIN",
-  projectId: "REPLACE_WITH_YOUR_PROJECT_ID",
-  storageBucket: "REPLACE_WITH_YOUR_STORAGE_BUCKET",
-  messagingSenderId: "REPLACE_WITH_YOUR_MESSAGING_SENDER_ID",
-  appId: "REPLACE_WITH_YOUR_APP_ID"
+  apiKey: "AIzaSyAUju0UiaAlTCjLgs0IZf01A65iiqpHZhI",
+  authDomain: "reclamatii-df0e7.firebaseapp.com",
+  projectId: "reclamatii-df0e7",
+  storageBucket: "reclamatii-df0e7.firebasestorage.app",
+  messagingSenderId: "231511007803",
+  appId: "1:231511007803:web:04b08affe925e6ef37f21e"
 };
 
 firebase.initializeApp(firebaseConfig);
@@ -863,6 +863,36 @@ function hashPin(pin, userId) {
   for (let i = 0; i < pin.length; i++)
     r += String.fromCharCode(pin.charCodeAt(i) ^ salt.charCodeAt(i % salt.length));
   return btoa(r);
+}
+
+// ── PIN storage: localStorage (instant) + Firestore (sync) ──
+function savePinLocal(userId, pinHash) {
+  const data = JSON.parse(localStorage.getItem('reclamatii_pins') || '{}');
+  data[userId] = { pinHash, pinSetAt: new Date().toISOString() };
+  localStorage.setItem('reclamatii_pins', JSON.stringify(data));
+}
+
+function getPinLocal(userId) {
+  const data = JSON.parse(localStorage.getItem('reclamatii_pins') || '{}');
+  return data[userId] || null;
+}
+
+async function savePinCloud(userId, pinHash) {
+  try {
+    await db.collection('users').doc(userId).set({
+      pinHash, pinSetAt: new Date().toISOString(),
+      lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+  } catch(e) { console.warn('Cloud save failed:', e.message); }
+}
+
+async function getPinCloud(userId) {
+  try {
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000));
+    const snap = await Promise.race([db.collection('users').doc(userId).get(), timeout]);
+    if (snap.exists && snap.data().pinHash) return snap.data().pinHash;
+  } catch(e) { console.warn('Cloud read failed:', e.message); }
+  return null;
 }
 
 function fmtDate(ts) {
@@ -986,30 +1016,30 @@ async function selectUser(userId) {
   pinBuffer = '';
   tempPin = '';
 
-  // Try to fetch PIN status with 4s timeout — if fails, go straight to setup
-  const setPinMode = (hasPin) => {
-    pinMode = hasPin ? 'login' : 'setup1';
-    document.getElementById('pin-hint').textContent = hasPin ? 'Introdu PIN-ul tău' : 'Setează un PIN de 4 cifre';
+  // Check local first (instant) then cloud
+  const localPin = getPinLocal(userId);
+  if (localPin) {
+    // Has pin locally — show login immediately, sync cloud in background
+    pinMode = 'login';
+    document.getElementById('pin-hint').textContent = 'Introdu PIN-ul tău';
     updateDots();
-  };
-
-  // Show default immediately so user isn't stuck
-  setPinMode(false);
-
-  const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('timeout')), 4000)
-  );
-
-  try {
-    const snap = await Promise.race([
-      db.collection('users').doc(userId).get(),
-      timeout
-    ]);
-    setPinMode(snap.exists && !!snap.data().pinHash);
-  } catch(e) {
-    // Timeout or Firestore rules issue — default to setup mode
-    // User can still set a PIN which will save when Firestore is accessible
-    setPinMode(false);
+    // Background sync
+    getPinCloud(userId).then(cloudHash => {
+      if (cloudHash) savePinLocal(userId, cloudHash);
+    });
+  } else {
+    // No local pin — try cloud briefly
+    document.getElementById('pin-hint').textContent = '...';
+    const cloudHash = await getPinCloud(userId);
+    if (cloudHash) {
+      savePinLocal(userId, cloudHash);
+      pinMode = 'login';
+      document.getElementById('pin-hint').textContent = 'Introdu PIN-ul tău';
+    } else {
+      pinMode = 'setup1';
+      document.getElementById('pin-hint').textContent = 'Setează un PIN de 4 cifre';
+    }
+    updateDots();
   }
 }
 
@@ -1045,31 +1075,34 @@ async function pinKey(k) {
   if (pinBuffer.length < 4) return;
 
   const pin = pinBuffer;
+  const uid = currentUser.id;
+  const hashed = hashPin(pin, uid);
 
   if (pinMode === 'login') {
-    try {
-      const snap = await db.collection('users').doc(currentUser.id).get();
-      if (!snap.exists || !snap.data().pinHash) {
-        // No PIN in DB yet — switch to setup
-        pinMode = 'setup1';
-        document.getElementById('pin-hint').textContent = 'Setează un PIN de 4 cifre';
-        pinBuffer = ''; updateDots();
-        toast('PIN nesetat — setează unul acum', 'info');
-        return;
-      }
-      if (hashPin(pin, currentUser.id) !== snap.data().pinHash) {
-        document.getElementById('pin-dots').classList.add('shake');
-        setTimeout(() => document.getElementById('pin-dots').classList.remove('shake'), 450);
-        pinBuffer = ''; updateDots();
-        toast('PIN incorect', 'error');
-        return;
-      }
-      await db.collection('users').doc(currentUser.id).update({ lastLogin: firebase.firestore.FieldValue.serverTimestamp() });
-      enterApp();
-    } catch(e) { toast('Eroare conexiune Firebase: '+e.message,'error'); pinBuffer=''; updateDots(); }
+    // Check local first (instant), then cloud
+    const storedHash = getPinLocal(uid)?.pinHash || await getPinCloud(uid);
+    if (!storedHash) {
+      // No PIN anywhere — go to setup
+      pinMode = 'setup1';
+      document.getElementById('pin-hint').textContent = 'Setează un PIN de 4 cifre';
+      pinBuffer = ''; updateDots();
+      return;
+    }
+    if (hashed !== storedHash) {
+      document.getElementById('pin-dots').classList.add('shake');
+      setTimeout(() => document.getElementById('pin-dots').classList.remove('shake'), 450);
+      pinBuffer = ''; updateDots();
+      toast('PIN incorect', 'error');
+      return;
+    }
+    // Correct PIN — enter app, update lastLogin in background
+    enterApp();
+    savePinCloud(uid, storedHash); // refreshes lastLogin
 
   } else if (pinMode === 'setup1') {
-    tempPin = pin; pinBuffer = ''; pinMode = 'setup2';
+    tempPin = pin;
+    pinBuffer = '';
+    pinMode = 'setup2';
     document.getElementById('pin-hint').textContent = 'Confirmă PIN-ul';
     updateDots();
 
@@ -1077,20 +1110,16 @@ async function pinKey(k) {
     if (pin !== tempPin) {
       document.getElementById('pin-dots').classList.add('shake');
       setTimeout(() => document.getElementById('pin-dots').classList.remove('shake'), 450);
-      pinBuffer=''; tempPin=''; pinMode='setup1';
+      pinBuffer = ''; tempPin = ''; pinMode = 'setup1';
       document.getElementById('pin-hint').textContent = 'PIN-urile nu coincid. Încearcă din nou.';
       updateDots();
       return;
     }
-    try {
-      await db.collection('users').doc(currentUser.id).set({
-        pinHash: hashPin(pin, currentUser.id),
-        pinSetAt: new Date().toISOString(),
-        lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
-      }, {merge:true});
-      toast('PIN setat cu succes! Bun venit, '+currentUser.name+'!');
-      enterApp();
-    } catch(e) { toast('Eroare: '+e.message,'error'); }
+    // Save locally immediately — enter app — sync cloud in background
+    savePinLocal(uid, hashed);
+    toast('PIN setat! Bun venit, ' + currentUser.name + '!');
+    enterApp();
+    savePinCloud(uid, hashed); // async, doesn't block login
   }
 }
 
@@ -2369,7 +2398,12 @@ async function renderUtilizatori() {
 async function resetUserPin(userId,name){
   if(!confirm(`Resetezi PIN-ul pentru ${name}? Va seta unul nou la următoarea conectare.`))return;
   try{
-    await db.collection('users').doc(userId).update({pinHash:null,pinSetAt:null,pinResetRequired:true,pinResetAt:new Date().toISOString()});
+    // Clear from localStorage
+    const data = JSON.parse(localStorage.getItem('reclamatii_pins') || '{}');
+    delete data[userId];
+    localStorage.setItem('reclamatii_pins', JSON.stringify(data));
+    // Clear from Firestore
+    await db.collection('users').doc(userId).set({pinHash:null,pinSetAt:null,pinResetRequired:true,pinResetAt:new Date().toISOString()},{merge:true});
     toast(`PIN resetat pentru ${name}`);renderUtilizatori();
   }catch(e){toast('Eroare: '+e.message,'error');}
 }
