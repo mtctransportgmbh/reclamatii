@@ -560,7 +560,7 @@ textarea{resize:vertical;min-height:80px}
   <!-- User selection -->
   <div id="login-select" style="width:100%;max-width:340px">
     <div class="user-grid" id="user-grid"></div>
-    <div class="admin-link"><button onclick="selectUser('admin')">⚙ Administrator</button></div>
+    <div class="admin-link"><button onclick="selectUser('admin')" id="admin-btn">⚙ Administrator</button></div>
   </div>
 
   <!-- PIN pad -->
@@ -862,9 +862,7 @@ async function selectUser(userId) {
   const user = getUserById(userId);
   if (!user) return;
 
-  const snap = await db.collection('users').doc(userId).get();
-  const hasPin = snap.exists && snap.data().pinHash;
-
+  // Show PIN pad immediately — don't wait for Firestore
   document.getElementById('login-select').style.display = 'none';
   document.getElementById('login-pin').style.display = 'block';
 
@@ -874,17 +872,29 @@ async function selectUser(userId) {
   av.style.setProperty('--avatar-glow', user.glow);
   av.textContent = user.avatar;
   document.getElementById('pin-username').textContent = user.name;
+  document.getElementById('pin-hint').textContent = 'Se verifică...';
 
   currentUser = user;
   pinBuffer = '';
   tempPin = '';
+  updateDots();
 
-  if (!hasPin) {
+  // Now check Firestore for PIN status
+  try {
+    const snap = await db.collection('users').doc(userId).get();
+    const hasPin = snap.exists && snap.data().pinHash;
+    if (!hasPin) {
+      pinMode = 'setup1';
+      document.getElementById('pin-hint').textContent = 'Setează un PIN de 4 cifre';
+    } else {
+      pinMode = 'login';
+      document.getElementById('pin-hint').textContent = 'Introdu PIN-ul tău';
+    }
+  } catch(e) {
+    // Firebase not configured yet or offline
+    console.warn('Firestore error:', e.message);
     pinMode = 'setup1';
     document.getElementById('pin-hint').textContent = 'Setează un PIN de 4 cifre';
-  } else {
-    pinMode = 'login';
-    document.getElementById('pin-hint').textContent = 'Introdu PIN-ul tău';
   }
   updateDots();
 }
@@ -915,6 +925,14 @@ async function pinKey(k) {
   if (pinMode === 'login') {
     try {
       const snap = await db.collection('users').doc(currentUser.id).get();
+      if (!snap.exists || !snap.data().pinHash) {
+        // No PIN in DB yet — switch to setup
+        pinMode = 'setup1';
+        document.getElementById('pin-hint').textContent = 'Setează un PIN de 4 cifre';
+        pinBuffer = ''; updateDots();
+        toast('PIN nesetat — setează unul acum', 'info');
+        return;
+      }
       if (hashPin(pin, currentUser.id) !== snap.data().pinHash) {
         document.getElementById('pin-dots').classList.add('shake');
         setTimeout(() => document.getElementById('pin-dots').classList.remove('shake'), 450);
@@ -924,7 +942,7 @@ async function pinKey(k) {
       }
       await db.collection('users').doc(currentUser.id).update({ lastLogin: firebase.firestore.FieldValue.serverTimestamp() });
       enterApp();
-    } catch(e) { toast('Eroare: '+e.message,'error'); pinBuffer=''; updateDots(); }
+    } catch(e) { toast('Eroare conexiune Firebase: '+e.message,'error'); pinBuffer=''; updateDots(); }
 
   } else if (pinMode === 'setup1') {
     tempPin = pin; pinBuffer = ''; pinMode = 'setup2';
