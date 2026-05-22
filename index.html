@@ -872,22 +872,27 @@ function hashPin(pin, userId) {
   return btoa(r);
 }
 
-// ── PIN storage: localStorage (instant) + Firestore (sync) ──
-function savePinLocal(userId, pinHash) {
-  const data = JSON.parse(localStorage.getItem('reclamatii_pins') || '{}');
-  data[userId] = { pinHash, pinSetAt: new Date().toISOString() };
-  localStorage.setItem('reclamatii_pins', JSON.stringify(data));
+// ── PIN storage — Firestore only ──
+// PIN-ul este stocat in clar in Firestore pentru ca admin sa il poata vedea
+// (aplicatie interna, securitate suficienta)
+function savePinLocal(userId, pin) {
+  // pastram si in sessionStorage pentru viteza in sesiunea curenta
+  const data = JSON.parse(sessionStorage.getItem('reclamatii_pins') || '{}');
+  data[userId] = pin; // pin in clar pentru sesiunea curenta
+  sessionStorage.setItem('reclamatii_pins', JSON.stringify(data));
 }
 
 function getPinLocal(userId) {
-  const data = JSON.parse(localStorage.getItem('reclamatii_pins') || '{}');
+  const data = JSON.parse(sessionStorage.getItem('reclamatii_pins') || '{}');
   return data[userId] || null;
 }
 
-async function savePinCloud(userId, pinHash) {
+async function savePinCloud(userId, pinHash, pinClar) {
   try {
     await db.collection('users').doc(userId).set({
-      pinHash, pinSetAt: new Date().toISOString(),
+      pinHash,
+      pin: pinClar || '', // pin vizibil pentru admin
+      pinSetAt: new Date().toISOString(),
       lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
   } catch(e) { console.warn('Cloud save failed:', e.message); }
@@ -895,7 +900,7 @@ async function savePinCloud(userId, pinHash) {
 
 async function getPinCloud(userId) {
   try {
-    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000));
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000));
     const snap = await Promise.race([db.collection('users').doc(userId).get(), timeout]);
     if (snap.exists && snap.data().pinHash) return snap.data().pinHash;
   } catch(e) { console.warn('Cloud read failed:', e.message); }
@@ -1023,17 +1028,12 @@ async function selectUser(userId) {
   pinBuffer = '';
   tempPin = '';
 
-  // Check local first (instant) then cloud
-  const localPin = getPinLocal(userId);
+  // Check session first (instant) then cloud
+  const localPin = getPinLocal(userId); // from sessionStorage
   if (localPin) {
-    // Has pin locally — show login immediately, sync cloud in background
     pinMode = 'login';
     document.getElementById('pin-hint').textContent = 'Introdu PIN-ul tău';
     updateDots();
-    // Background sync
-    getPinCloud(userId).then(cloudHash => {
-      if (cloudHash) savePinLocal(userId, cloudHash);
-    });
   } else {
     // No local pin — try cloud briefly
     document.getElementById('pin-hint').textContent = '...';
@@ -1087,7 +1087,7 @@ async function pinKey(k) {
 
   if (pinMode === 'login') {
     // Check local first (instant), then cloud
-    const storedHash = getPinLocal(uid)?.pinHash || await getPinCloud(uid);
+    const storedHash = await getPinCloud(uid); // always check Firestore
     if (!storedHash) {
       // No PIN anywhere — go to setup
       pinMode = 'setup1';
@@ -1104,7 +1104,7 @@ async function pinKey(k) {
     }
     // Correct PIN — enter app, update lastLogin in background
     enterApp();
-    savePinCloud(uid, storedHash); // refreshes lastLogin
+    savePinCloud(uid, storedHash, getPinLocal(uid)); // refreshes lastLogin
 
   } else if (pinMode === 'setup1') {
     tempPin = pin;
@@ -1122,11 +1122,11 @@ async function pinKey(k) {
       updateDots();
       return;
     }
-    // Save locally immediately — enter app — sync cloud in background
-    savePinLocal(uid, hashed);
+    // Save to Firestore with pin in clear for admin visibility
+    savePinLocal(uid, pin); // session cache
     toast('PIN setat! Bun venit, ' + currentUser.name + '!');
     enterApp();
-    savePinCloud(uid, hashed); // async, doesn't block login
+    savePinCloud(uid, hashed, pin); // save hash + pin clar
   }
 }
 
@@ -1831,23 +1831,32 @@ function parseHermesPDF(pdfData) {
           if (o.length) ort = o.join(' ').trim();
         }
 
-        // Verificam si randul cu Y+5 pentru a doua parte a numelui (ex: Permetinger)
-        // si randul cu Y-5 (ex: Mechthild / Wiederkehr)
-        const checkNearby = (dy) => {
-          const nr = rowMap[yk+dy];
-          if (!nr) return;
+        // Cautam parti lipsa in randuri adiacente (Y±5, ±10)
+        // Hermes pune uneori Prenume pe un rand si Nume pe altul
+        // SAU Strada pe randul principal si Nume pe rand adiacent
+        const adjacentDiffs = [-5, 5, -10, 10, -15, 15];
+        for (const dy of adjacentDiffs) {
+          const nr = rowMap[yk + dy];
+          if (!nr || nr.some(it => it.text === '6258')) continue; // skip daca e alt rand principal
+
           const nName = getFromRow(nr, COL.NAME);
           const nStr  = getFromRow(nr, COL.STRASSE);
           const nOrt  = getFromRow(nr, COL.ORT);
-          if (nName && !nr.some(it => it.text === '6258')) {
-            if (name && !nName.includes(name)) name = (name + ' ' + nName).trim();
-            else if (!name) name = nName;
+
+          // Adaugam numele DOAR daca nu e deja inclus si nu e duplicat
+          if (nName && !name) {
+            name = nName;
+          } else if (nName && name && !name.includes(nName) && !nName.includes(name)) {
+            // Ex: "Mechthild" + "Wiederkehr" → "Mechthild Wiederkehr"
+            // Ordonam dupa Y: cel cu Y mai mic (mai jos in PDF = mai sus vizual) e prenumele
+            if (dy < 0) name = name + ' ' + nName; // randul de sub = continuare
+            else name = nName + ' ' + name; // randul de deasupra = inceput
           }
+
           if (nStr && !strasse) strasse = nStr;
-          if (nOrt && ort && !ort.includes(nOrt)) ort = (ort + ' ' + nOrt).trim();
-          else if (nOrt && !ort) ort = nOrt;
-        };
-        [-5, 5, -10, 10].forEach(checkNearby);
+          if (nOrt && !ort) ort = nOrt;
+          else if (nOrt && ort && !ort.includes(nOrt)) ort = ort + ' ' + nOrt;
+        }
 
         result.pozitii.push({
           tour, name, strasse, plz, ort, datum,
@@ -2206,9 +2215,16 @@ async function saveRechn() {
   saveBtn.disabled = true;
 
   try {
-    const storageRef = firebase.storage().ref(`rechnunguri/${an}/${luna}/${file.name}`);
-    await storageRef.put(file);
-    const url = await storageRef.getDownloadURL();
+    // Upload PDF to Storage (optional — if fails, save without URL)
+    let url = '';
+    try {
+      const storageRef = firebase.storage().ref(`rechnunguri/${an}/${luna}/${file.name}`);
+      await storageRef.put(file);
+      url = await storageRef.getDownloadURL();
+    } catch(storageErr) {
+      console.warn('Storage upload failed (continuing without file URL):', storageErr.message);
+      toast('Fișierul PDF nu s-a putut uploada (Storage), dar datele se salvează.', 'info');
+    }
 
     await db.collection('rechnunguri').add({
       belegNr: beleg,
@@ -2221,12 +2237,13 @@ async function saveRechn() {
       uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
-    toast(`✓ Rechnung ${beleg ? 'Nr. ' + beleg : ''} salvat! ${parsedRechnData?.pozitii?.length || 0} poziții importate.`);
+    toast(`✓ Rechnung Nr. ${beleg} salvat — ${parsedRechnData?.pozitii?.length || 0} poziții importate!`);
     parsedRechnData = null;
     toggleRechnForm();
     renderRechnunguri();
   } catch(e) {
-    toast('Eroare: ' + e.message, 'error');
+    console.error('saveRechn error:', e);
+    toast('Eroare la salvare: ' + e.message, 'error');
     saveBtn.innerHTML = 'Salvează rechnung';
     saveBtn.disabled = false;
   }
@@ -2471,15 +2488,24 @@ async function renderUtilizatori() {
               : '🔓 PIN nesetat — se va seta la prima conectare'}
           </div>
           ${!isSelf ? `
-          <div style="margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <span style="font-size:11px;color:var(--text3)">PIN admin:</span>
+          <div style="margin-top:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            ${hasPin && info.pin ? `
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:11px;color:var(--text3)">PIN:</span>
+                <span style="font-family:var(--mono);font-size:15px;font-weight:800;
+                  background:var(--accent-bg);border:1px solid var(--accent-border);
+                  color:var(--accent);padding:2px 12px;border-radius:8px;letter-spacing:4px">
+                  ${info.pin}
+                </span>
+              </div>` : `
+              <span style="font-size:11px;color:var(--text3)">${hasPin ? 'PIN: setat (neafișabil — resetează pentru a vedea)' : 'PIN: nesetat'}</span>
+            `}
             <button onclick="adminSetPin('${u.id}','${u.name}')" style="
-              font-family:var(--mono);font-size:12px;font-weight:600;
-              background:var(--bg3);padding:3px 10px;border-radius:6px;
-              border:1px solid var(--border);color:var(--accent);
-              cursor:pointer;transition:0.15s;letter-spacing:1px"
-              title="Click pentru a seta un PIN nou">
-              ${hasPin ? '🔑 Schimbă PIN' : '🔓 Setează PIN'}
+              font-size:11px;font-weight:600;background:var(--bg3);
+              padding:3px 10px;border-radius:6px;border:1px solid var(--border);
+              color:var(--text2);cursor:pointer;transition:0.15s;font-family:var(--font)"
+              title="Setează PIN nou">
+              ${hasPin ? '✏️ Schimbă' : '🔓 Setează PIN'}
             </button>
           </div>` : ''}
         </div>
@@ -2501,9 +2527,9 @@ async function adminSetPin(userId, userName) {
   if (!/^\d{4}$/.test(newPin)) { toast('PIN-ul trebuie să fie exact 4 cifre!', 'error'); return; }
   try {
     const hashed = hashPin(newPin, userId);
-    savePinLocal(userId, hashed);
-    await savePinCloud(userId, hashed);
-    toast(`✓ PIN setat pentru ${userName}: ${newPin}`, 'info');
+    savePinLocal(userId, newPin); // session cache
+    await savePinCloud(userId, hashed, newPin); // Firestore: hash + pin clar
+    toast(`✓ PIN setat pentru ${userName}: ${newPin}`);
     renderUtilizatori();
   } catch(e) { toast('Eroare: ' + e.message, 'error'); }
 }
