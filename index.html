@@ -1779,80 +1779,88 @@ function parseHermesPDF(pdfData) {
 
   // ── Parsare cu coordonate (metoda principala) ──
   if (pages) {
-    // Coloane Hermes (X aproximativ):
-    // Identnummer ~57, ATG ~135, Schadenart ~234, Kst ~312, Tour ~347, Name ~376, Strasse ~467, PLZ ~560, Ort ~594, Datum ~688, Forderung ~744
-    const COL = { TOUR: 347, NAME: 376, STRASSE: 467, PLZ: 560, ORT: 594, DATUM: 688, FORDERUNG: 744 };
-    const TOLERANCE = 25; // px tolerance pentru coloana
+    // Coloane Hermes fixe (X in pixeli PDF):
+    const COL = { TOUR:347, NAME:376, STRASSE:467, PLZ:560, ORT:594, DATUM:688, FORDERUNG:744 };
+    const T = 28; // toleranta px
 
-    const inCol = (x, col) => Math.abs(x - col) < TOLERANCE;
+    const inCol = (x, col) => Math.abs(x - col) < T;
 
     for (const page of pages) {
-      // Grupam items pe randuri (acelasi Y ± 5px)
-      const rows = {};
+      // Grupam items pe randuri (Y banda de 5px)
+      const rowMap = {};
       for (const item of page.items) {
-        const rowKey = Math.round(item.y / 5) * 5; // group by 5px bands
-        if (!rows[rowKey]) rows[rowKey] = [];
-        rows[rowKey].push(item);
+        const yk = Math.round(item.y / 5) * 5;
+        if (!rowMap[yk]) rowMap[yk] = [];
+        rowMap[yk].push(item);
       }
 
-      // Procesam fiecare rand care contine '6258' (Kst)
-      for (const [yKey, rowItems] of Object.entries(rows)) {
-        const hasKst = rowItems.some(it => it.text === '6258');
-        if (!hasKst) continue;
+      const getFromRow = (rowItems, col) =>
+        rowItems.filter(it => inCol(it.x, col)).map(it => it.text).join(' ').trim();
 
-        const getCol = (col) => {
-          const items = rowItems.filter(it => inCol(it.x, col));
-          return items.map(it => it.text).join(' ').trim();
-        };
+      // Gasim randurile cu 6258 (randul principal al pozitiei)
+      const yKeys = Object.keys(rowMap).map(Number).sort((a,b) => b - a);
+      for (const yk of yKeys) {
+        const mainRow = rowMap[yk];
+        if (!mainRow.some(it => it.text === '6258')) continue;
 
-        const tour = getCol(COL.TOUR);
+        const tour = getFromRow(mainRow, COL.TOUR);
         if (!tour || !/^\d{3,4}$/.test(tour)) continue;
 
-        const name = getCol(COL.NAME);
-        const strasse = getCol(COL.STRASSE);
-        const plz = getCol(COL.PLZ);
-        const ort = getCol(COL.ORT);
-        const datum = getCol(COL.DATUM);
-        const forderungStr = getCol(COL.FORDERUNG);
+        // Date din randul principal
+        let name     = getFromRow(mainRow, COL.NAME);
+        let strasse  = getFromRow(mainRow, COL.STRASSE);
+        let plz      = getFromRow(mainRow, COL.PLZ);
+        let ort      = getFromRow(mainRow, COL.ORT);
+        let datum    = getFromRow(mainRow, COL.DATUM);
+        let fordStr  = getFromRow(mainRow, COL.FORDERUNG);
 
-        // Unele randuri sunt continuare (ex: a doua linie de nume sau ort)
-        // Le ignoram daca nu au Tour
-        if (!name && !strasse) continue;
+        // Cautam randuri adiacente (Y ±5, ±10, ±15) pentru date lipsa
+        // Structura Hermes: uneori Nume si Strada sunt pe randul Y-5 sau Y+5
+        const adjacent = [-5,-10,5,10,15,-15].flatMap(dy => rowMap[yk+dy] || []);
 
-        const pos = {
-          tour,
-          name: name || '',
-          strasse: strasse || '',
-          plz: plz || '',
-          ort: ort || '',
-          datum: datum || '',
-          forderung: forderungStr ? parseFloat(forderungStr.replace('.','').replace(',','.')) : 0
-        };
-
-        // Verifica daca e o continuare a randului precedent (name lipseste, ort continua)
-        const lastPos = result.pozitii[result.pozitii.length - 1];
-        if (lastPos && !pos.name && !pos.datum && pos.ort) {
-          lastPos.ort += ' ' + pos.ort;
-          if (pos.strasse && !lastPos.strasse) lastPos.strasse = pos.strasse;
-        } else if (lastPos && !pos.datum && pos.name && !pos.strasse) {
-          // Continuare nume (ex: Simone / Permetinger)
-          lastPos.name += ' ' + pos.name;
-          if (pos.strasse) lastPos.strasse = pos.strasse;
-          if (pos.ort) lastPos.ort = pos.ort;
-          if (pos.datum) lastPos.datum = pos.datum;
-          if (pos.forderung) lastPos.forderung = pos.forderung;
-        } else {
-          result.pozitii.push(pos);
+        if (!name) {
+          const n = adjacent.filter(it => inCol(it.x, COL.NAME)).map(it => it.text);
+          if (n.length) name = n.join(' ').trim();
         }
+        if (!strasse) {
+          const s = adjacent.filter(it => inCol(it.x, COL.STRASSE)).map(it => it.text);
+          if (s.length) strasse = s.join(' ').trim();
+        }
+        if (!ort) {
+          const o = adjacent.filter(it => inCol(it.x, COL.ORT)).map(it => it.text);
+          if (o.length) ort = o.join(' ').trim();
+        }
+
+        // Verificam si randul cu Y+5 pentru a doua parte a numelui (ex: Permetinger)
+        // si randul cu Y-5 (ex: Mechthild / Wiederkehr)
+        const checkNearby = (dy) => {
+          const nr = rowMap[yk+dy];
+          if (!nr) return;
+          const nName = getFromRow(nr, COL.NAME);
+          const nStr  = getFromRow(nr, COL.STRASSE);
+          const nOrt  = getFromRow(nr, COL.ORT);
+          if (nName && !nr.some(it => it.text === '6258')) {
+            if (name && !nName.includes(name)) name = (name + ' ' + nName).trim();
+            else if (!name) name = nName;
+          }
+          if (nStr && !strasse) strasse = nStr;
+          if (nOrt && ort && !ort.includes(nOrt)) ort = (ort + ' ' + nOrt).trim();
+          else if (nOrt && !ort) ort = nOrt;
+        };
+        [-5, 5, -10, 10].forEach(checkNearby);
+
+        result.pozitii.push({
+          tour, name, strasse, plz, ort, datum,
+          forderung: fordStr ? parseFloat(fordStr.replace(/\./g,'').replace(',','.')) : 0
+        });
       }
     }
 
-    // Sorteaza dupa datum descrescator
+    // Sorteaza dupa data descrescator
     result.pozitii.sort((a,b) => {
       if (!a.datum || !b.datum) return 0;
-      const [da,ma,ya] = a.datum.split('.').map(Number);
-      const [db,mb,yb] = b.datum.split('.').map(Number);
-      return new Date(yb,mb-1,db) - new Date(ya,ma-1,da);
+      const toDate = s => { const [d,m,y]=s.split('.').map(Number); return new Date(y,m-1,d); };
+      return toDate(b.datum) - toDate(a.datum);
     });
   }
 
@@ -2458,12 +2466,46 @@ async function renderUtilizatori() {
             <span class="badge badge-gray">${u.role==='admin'?'Admin':u.role==='tania'?'Șefă':'Operator'}</span>
           </div>
           <div style="font-size:11px;color:${hasPin?'var(--green)':'var(--accent)'}">
-            ${hasPin?'🔒 PIN setat'+(info.pinSetAt?` · ${new Date(info.pinSetAt).toLocaleDateString('ro-RO')}`:''+(info.lastLogin?` · Ultima conectare: ${new Date(info.lastLogin.toDate?info.lastLogin.toDate():info.lastLogin).toLocaleDateString('ro-RO')}`:'')):'🔓 PIN nesetat — se va seta la prima conectare'}
+            ${hasPin
+              ? '🔒 PIN setat'+(info.pinSetAt?' · '+new Date(info.pinSetAt).toLocaleDateString('ro-RO'):'')+(info.lastLogin?' · Conectare: '+new Date(info.lastLogin.toDate?info.lastLogin.toDate():info.lastLogin).toLocaleDateString('ro-RO'):'')
+              : '🔓 PIN nesetat — se va seta la prima conectare'}
           </div>
+          ${!isSelf ? `
+          <div style="margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--text3)">PIN admin:</span>
+            <button onclick="adminSetPin('${u.id}','${u.name}')" style="
+              font-family:var(--mono);font-size:12px;font-weight:600;
+              background:var(--bg3);padding:3px 10px;border-radius:6px;
+              border:1px solid var(--border);color:var(--accent);
+              cursor:pointer;transition:0.15s;letter-spacing:1px"
+              title="Click pentru a seta un PIN nou">
+              ${hasPin ? '🔑 Schimbă PIN' : '🔓 Setează PIN'}
+            </button>
+          </div>` : ''}
         </div>
         ${!isSelf&&hasPin?`<button class="btn btn-danger" style="padding:7px 12px;font-size:12px;flex-shrink:0" onclick="resetUserPin('${u.id}','${u.name}')">Resetează PIN</button>`:''}
       </div>`;
   }).join('')}</div>`;
+}
+
+function togglePinVisibility(userId) {
+  // PIN-urile sunt stocate hashed — nu pot fi afisate in clar
+  // Admin poate seta un PIN nou direct
+  const name = USERS.find(u=>u.id===userId)?.name || userId;
+  adminSetPin(userId, name);
+}
+
+async function adminSetPin(userId, userName) {
+  const newPin = prompt(`Setează PIN nou pentru ${userName} (4 cifre):`);
+  if (!newPin) return;
+  if (!/^\d{4}$/.test(newPin)) { toast('PIN-ul trebuie să fie exact 4 cifre!', 'error'); return; }
+  try {
+    const hashed = hashPin(newPin, userId);
+    savePinLocal(userId, hashed);
+    await savePinCloud(userId, hashed);
+    toast(`✓ PIN setat pentru ${userName}: ${newPin}`, 'info');
+    renderUtilizatori();
+  } catch(e) { toast('Eroare: ' + e.message, 'error'); }
 }
 
 async function resetUserPin(userId,name){
