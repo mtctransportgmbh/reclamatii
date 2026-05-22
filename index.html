@@ -599,7 +599,7 @@ textarea{resize:vertical;min-height:80px}
     <div class="pin-user-info" style="margin-bottom:20px">
       <div class="pin-avatar" style="background:rgba(232,197,71,0.15);color:#e8c547;width:52px;height:52px;border-radius:14px;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-bottom:8px">A</div>
       <div class="pin-username">Administrator</div>
-      <div class="pin-hint" id="admin-hint" style="font-size:12px;color:var(--text3);margin-top:4px">Conectare cu cont Hermes</div>
+      <div class="pin-hint" id="admin-hint" style="font-size:12px;color:var(--text3);margin-top:4px"></div>
     </div>
     <div class="admin-field">
       <label>Email</label>
@@ -927,23 +927,42 @@ async function adminLogin() {
 
   const btn = document.getElementById('admin-login-btn');
   const hint = document.getElementById('admin-hint');
+  const ADMIN_UID = 'itgIGVH3Y2ZaGCSwJa7yt7Nd14R2';
+
   btn.disabled = true;
   btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;border-color:#0a0b0f33;border-top-color:#0a0b0f"></div> Se conectează...';
-  hint.textContent = 'Verificare credențiale...';
+  hint.textContent = '';
+
+  const resetBtn = () => {
+    btn.disabled = false;
+    btn.innerHTML = '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/></svg> Conectare';
+  };
 
   try {
-    await firebase.auth().signInWithEmailAndPassword(email, pass);
+    const cred = await firebase.auth().signInWithEmailAndPassword(email, pass);
+    // Verify it's the correct admin UID
+    if (cred.user.uid !== ADMIN_UID) {
+      await firebase.auth().signOut();
+      toast('Acces interzis', 'error');
+      resetBtn();
+      return;
+    }
     currentUser = USERS.find(u => u.id === 'admin');
     toast('Bun venit, Administrator!');
     enterApp();
   } catch(e) {
+    console.error('Auth error:', e.code, e.message);
     let msg = 'Email sau parolă incorecte';
+    if (e.code === 'auth/invalid-email') msg = 'Email invalid';
+    if (e.code === 'auth/user-not-found') msg = 'Contul nu există';
+    if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') msg = 'Parolă incorectă';
     if (e.code === 'auth/network-request-failed') msg = 'Eroare de rețea';
-    if (e.code === 'auth/too-many-requests') msg = 'Prea multe încercări. Încearcă mai târziu.';
+    if (e.code === 'auth/too-many-requests') msg = 'Prea multe încercări';
+    if (e.code === 'auth/operation-not-allowed') msg = 'Email/parolă nu e activat în Firebase!';
+    hint.textContent = msg;
+    hint.style.color = 'var(--red)';
     toast(msg, 'error');
-    hint.textContent = 'Conectare cu cont Hermes';
-    btn.disabled = false;
-    btn.innerHTML = '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/></svg> Conectare';
+    resetBtn();
   }
 }
 
@@ -962,23 +981,36 @@ async function selectUser(userId) {
   av.style.setProperty('--avatar-glow', user.glow);
   av.textContent = user.avatar;
   document.getElementById('pin-username').textContent = user.name;
-  document.getElementById('pin-hint').textContent = 'Se verifică...';
 
   currentUser = user;
   pinBuffer = '';
   tempPin = '';
-  updateDots();
 
-  try {
-    const snap = await db.collection('users').doc(userId).get();
-    const hasPin = snap.exists && snap.data().pinHash;
+  // Try to fetch PIN status with 4s timeout — if fails, go straight to setup
+  const setPinMode = (hasPin) => {
     pinMode = hasPin ? 'login' : 'setup1';
     document.getElementById('pin-hint').textContent = hasPin ? 'Introdu PIN-ul tău' : 'Setează un PIN de 4 cifre';
+    updateDots();
+  };
+
+  // Show default immediately so user isn't stuck
+  setPinMode(false);
+
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('timeout')), 4000)
+  );
+
+  try {
+    const snap = await Promise.race([
+      db.collection('users').doc(userId).get(),
+      timeout
+    ]);
+    setPinMode(snap.exists && !!snap.data().pinHash);
   } catch(e) {
-    pinMode = 'setup1';
-    document.getElementById('pin-hint').textContent = 'Setează un PIN de 4 cifre';
+    // Timeout or Firestore rules issue — default to setup mode
+    // User can still set a PIN which will save when Firestore is accessible
+    setPinMode(false);
   }
-  updateDots();
 }
 
 function backToSelect() {
