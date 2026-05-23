@@ -962,7 +962,8 @@ function berechneTerMin(datum) {
 }
 
 function printFormularODS(data) {
-  const termin = data.termin || berechneTerMin(data.dataReclamatie || data.lieferdatum);
+  // Termin: din camp manual sau gol
+  const termin = data.termin ? formatDatumDE(data.termin) : '___________';
   const vorname = (data.vorname || (data.numeClient||'').split(' ').slice(0,-1).join(' ')).toUpperCase();
   const nachname = (data.nachname || (data.numeClient||'').split(' ').slice(-1)[0]||'').toUpperCase();
   const datum = data.dataReclamatie || data.lieferdatum || '';
@@ -973,88 +974,88 @@ function printFormularODS(data) {
   const F = 'font-family:Arial,sans-serif';
   const row = (label, value) => `
     <tr>
-      <td style="padding:12px 0;width:44%;${F};font-size:15px;font-weight:700;border-bottom:1.5px solid #ddd;vertical-align:top">${label}</td>
-      <td style="padding:12px 0;${F};font-size:15px;font-weight:700;border-bottom:1.5px solid #ddd">${value}</td>
+      <td style="padding:7px 0;width:44%;${F};font-size:14px;font-weight:700;border-bottom:1px solid #ddd;vertical-align:top">${label}</td>
+      <td style="padding:7px 0;${F};font-size:14px;font-weight:700;border-bottom:1px solid #ddd">${value}</td>
     </tr>`;
 
   const checkbox = (label) => `
-    <label style="display:flex;align-items:center;gap:10px;${F};font-size:15px;font-weight:600">
-      <span style="width:20px;height:20px;border:2.5px solid #222;border-radius:3px;display:inline-block;flex-shrink:0"></span>${label}
+    <label style="display:flex;align-items:center;gap:8px;${F};font-size:14px;font-weight:600">
+      <span style="width:17px;height:17px;border:2px solid #222;border-radius:2px;display:inline-block;flex-shrink:0"></span>${label}
     </label>`;
 
   const line = (label) => `
-    <div style="display:flex;align-items:flex-end;gap:12px;margin-bottom:14px">
-      <span style="${F};font-size:15px;font-weight:700;white-space:nowrap">${label}</span>
-      <span style="flex:1;border-bottom:2px solid #555;min-width:60px;height:24px"></span>
+    <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:10px">
+      <span style="${F};font-size:13px;font-weight:700;white-space:nowrap">${label}</span>
+      <span style="flex:1;border-bottom:1.5px solid #555;min-width:60px;height:20px"></span>
     </div>`;
 
   document.getElementById('print-area').innerHTML = `
     <style>
       @media print {
-        @page { margin: 14mm 16mm; }
+        @page { margin: 10mm 14mm; }
         body > *:not(#print-area) { display:none!important }
         #print-area { display:block!important }
       }
     </style>
-    <div style="${F};padding:32px 36px;max-width:720px;margin:0 auto;color:#111">
+    <div style="${F};padding:18px 22px;max-width:680px;margin:0 auto;color:#111">
 
       <!-- Titlu -->
-      <div style="text-align:center;border-bottom:3px solid #111;padding-bottom:14px;margin-bottom:24px">
-        <div style="${F};font-size:28px;font-weight:900;letter-spacing:2px">REKLAMATION</div>
-        <div style="${F};font-size:16px;font-weight:700;margin-top:6px">
-          Tour: ${data.turaSofer||data.tour||'—'} &nbsp;&nbsp;|&nbsp;&nbsp; ${formatDatumDE(datum)}
+      <div style="text-align:center;border-bottom:2.5px solid #111;padding-bottom:10px;margin-bottom:16px">
+        <div style="${F};font-size:24px;font-weight:900;letter-spacing:2px">REKLAMATION</div>
+        <div style="${F};font-size:14px;font-weight:700;margin-top:4px">
+          Tour: ${data.turaSofer||data.tour||'—'} &nbsp;|&nbsp; ${formatDatumDE(datum)}
         </div>
       </div>
 
       <!-- Date client -->
-      <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+      <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
         ${row('Vorname:', vorname)}
         ${row('Nachname:', nachname)}
         ${row('Beanstandung vom:', formatDatumDE(datum))}
         ${row('Versender:', versender)}
-        ${row('Sendungsnummer:', `<span style="font-family:monospace;font-size:15px;font-weight:700">${sendNr}</span>`)}
+        ${row('Sendungsnummer:', '<span style="font-family:monospace;font-size:13px;font-weight:700">'+sendNr+'</span>')}
         ${adresse ? row('Adresse:', adresse) : ''}
       </table>
 
       <!-- Sendung erhalten -->
-      <div style="margin-bottom:20px">
-        <div style="${F};font-size:16px;font-weight:800;margin-bottom:12px">Sendung erhalten persönlich:</div>
-        <div style="display:flex;gap:40px;padding-left:8px">
+      <div style="margin-bottom:12px">
+        <div style="${F};font-size:14px;font-weight:800;margin-bottom:8px">Sendung erhalten persönlich:</div>
+        <div style="display:flex;gap:32px;padding-left:6px">
           ${['JA','NEIN'].map(checkbox).join('')}
         </div>
       </div>
 
       <!-- Zugestellt -->
-      <div style="margin-bottom:20px">
-        <div style="${F};font-size:16px;font-weight:800;margin-bottom:12px">Die Sendung wurde zugestellt:</div>
-        <div style="display:flex;gap:28px;flex-wrap:wrap;padding-left:8px">
+      <div style="margin-bottom:12px">
+        <div style="${F};font-size:14px;font-weight:800;margin-bottom:8px">Die Sendung wurde zugestellt:</div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;padding-left:6px">
           ${['Haustür','Briefkasten','Terasse','Nachbar','Sonstiges'].map(checkbox).join('')}
         </div>
       </div>
 
       <!-- Nachbar + Sonstiges -->
-      <div style="padding-left:8px;margin-bottom:20px">
+      <div style="padding-left:6px;margin-bottom:14px">
         ${line('Nachbar Vorname, Nachname:')}
         ${line('Adresse:')}
         ${line('Sonstiges:')}
       </div>
 
       <!-- Semnaturi -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:24px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:16px">
         <div>
-          <div style="${F};font-size:15px;font-weight:700;margin-bottom:32px">Datum:</div>
-          <div style="border-top:2px solid #222"></div>
+          <div style="${F};font-size:13px;font-weight:700;margin-bottom:24px">Datum:</div>
+          <div style="border-top:1.5px solid #222"></div>
         </div>
         <div>
-          <div style="${F};font-size:15px;font-weight:700;margin-bottom:32px">Unterschrift Kunde:</div>
-          <div style="border-top:2px solid #222"></div>
+          <div style="${F};font-size:13px;font-weight:700;margin-bottom:24px">Unterschrift Kunde:</div>
+          <div style="border-top:1.5px solid #222"></div>
         </div>
       </div>
 
       <!-- Termin -->
-      <div style="background:#111;color:#fff;border-radius:8px;padding:14px 22px;display:flex;align-items:center;gap:20px">
-        <span style="${F};font-size:17px;font-weight:900;letter-spacing:2px">TERMIN BIS</span>
-        <span style="${F};font-size:22px;font-weight:900;font-family:monospace;letter-spacing:1px">${formatDatumDE(termin)}</span>
+      <div style="background:#111;color:#fff;border-radius:6px;padding:11px 18px;display:flex;align-items:center;gap:16px">
+        <span style="${F};font-size:15px;font-weight:900;letter-spacing:2px">TERMIN BIS</span>
+        <span style="${F};font-size:20px;font-weight:900;letter-spacing:1px">${termin}</span>
       </div>
 
     </div>`;
@@ -1559,13 +1560,11 @@ function renderReclamatii() {
 function reclItemHTML(r, compact) {
   const resolved = r.status==='rezolvata';
   const actions = canEdit(currentUser) ? `
-    <button class="icon-btn ${r.status==='rezolvata'?'green':r.status==='nerezolvata'?'red':''}" onclick="cycleStatus('${r.id}','${r.status}')" title="Schimbă status: ${r.status==='neprelucrat'?'Nerezolvată':r.status==='nerezolvata'?'Rezolvată':'Neprelucrat'}">
-      ${r.status==='rezolvata'
-        ? '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>'
-        : r.status==='nerezolvata'
-          ? '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>'
-          : '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
-      }
+    <button class="icon-btn green${r.status==='rezolvata'?' active-green':''}" onclick="setStatus('${r.id}','rezolvata')" title="Rezolvată" style="${r.status==='rezolvata'?'background:var(--green-bg);color:var(--green);border:1px solid rgba(52,211,153,0.3)':''}">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+    </button>
+    <button class="icon-btn red${r.status==='nerezolvata'?' active-red':''}" onclick="setStatus('${r.id}','nerezolvata')" title="Nerezolvată" style="${r.status==='nerezolvata'?'background:var(--red-bg);color:var(--red);border:1px solid rgba(248,113,113,0.3)':''}">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
     </button>
     <button class="icon-btn yellow" onclick="printReclamatie('${r.id}')" title="Print formular">
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5zm-3 0h.008v.008H15V10.5z"/></svg>
@@ -1669,6 +1668,10 @@ function toggleForm(data) {
             ${['livrare','deteriorare','pierdut','adresa gresita','altele'].map(t=>`<option value="${t}" ${(v.tipReclamatie||'livrare')===t?'selected':''}>${t}</option>`).join('')}
           </select>
         </div>
+        <div class="form-group">
+          <label>Termin bis (data limită)</label>
+          <input type="date" id="f-termin" value="${v.termin||''}"/>
+        </div>
         <div class="form-group full">
           <label>Descriere</label>
           <textarea id="f-descriere" placeholder="Detalii suplimentare...">${v.descriere||''}</textarea>
@@ -1697,6 +1700,7 @@ async function saveReclamatie() {
     numarPachet, numeClient,
     adresaClient: document.getElementById('f-adresaClient').value.trim(),
     dataReclamatie: new Date(document.getElementById('f-data').value),
+    termin: document.getElementById('f-termin')?.value || '',
     turaSofer: tura,
     locatie: document.getElementById('f-locatie').value,
     tipReclamatie: document.getElementById('f-tip').value,
@@ -1723,12 +1727,11 @@ async function saveReclamatie() {
   } catch(e) { toast('Eroare: '+e.message,'error'); }
 }
 
-async function cycleStatus(id, current) {
-  const next = current === 'neprelucrat' ? 'nerezolvata' : current === 'nerezolvata' ? 'rezolvata' : 'neprelucrat';
-  const msgs = { neprelucrat: '⏳ Resetat ca neprelucrat', nerezolvata: '✗ Marcată ca nerezolvată', rezolvata: '✓ Marcată ca rezolvată' };
+async function setStatus(id, newStatus) {
+  const msgs = { nerezolvata: '✗ Marcată ca nerezolvată', rezolvata: '✓ Marcată ca rezolvată', neprelucrat: '⏳ Resetat ca neprelucrat' };
   try {
-    await db.collection('reclamatii').doc(id).update({ status: next, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-    toast(msgs[next]);
+    await db.collection('reclamatii').doc(id).update({ status: newStatus, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    toast(msgs[newStatus] || 'Status actualizat');
   } catch(e) { toast('Eroare', 'error'); }
 }
 
@@ -2364,8 +2367,8 @@ function parseHermesPDF(pdfData) {
   // ── Parsare cu coordonate (metoda principala) ──
   if (pages) {
     // Coloane Hermes fixe (X in pixeli PDF):
-    const COL = { IDENT:57, ATG:135, SCHAD:234, KST:312, TOUR:347, NAME:376, STRASSE:467, PLZ:560, ORT:594, DATUM:688, FORDERUNG:744 };
-    const T = 28; // toleranta px
+    const COL = { IDENT:57, ATG:135, SCHAD:234, KST:312, TOUR:347, NAME:376, STRASSE:464, PLZ:560, ORT:594, DATUM:688, FORDERUNG:744 };
+    const T = 32; // toleranta px (largita pentru variatii intre PDF-uri)
 
     const inCol = (x, col) => Math.abs(x - col) < T;
 
@@ -2389,14 +2392,17 @@ function parseHermesPDF(pdfData) {
       const getFromRow = (rowItems, col) =>
         rowItems.filter(it => inCol(it.x, col)).map(it => it.text).join(' ').trim();
 
-      // Gasim randurile cu 6258 (randul principal al pozitiei)
+      // Gasim randurile principale: au un Kst (4 cifre la x≈312) si un Tour (3-4 cifre la x≈347)
       const yKeys = Object.keys(rowMap).map(Number).sort((a,b) => b - a);
       for (const yk of yKeys) {
         const mainRow = rowMap[yk];
-        if (!mainRow.some(it => it.text === '6258')) continue;
+
+        // Kst = orice numar de 4 cifre la coloana x≈312 (nu doar 6258)
+        const hasKst = mainRow.some(it => inCol(it.x, COL.KST) && /^\d{4}$/.test(it.text));
+        if (!hasKst) continue;
 
         const tour = getFromRow(mainRow, COL.TOUR);
-        if (!tour || !/^\d{3,4}$/.test(tour)) continue;
+        if (!tour || !/^\d{1,4}$/.test(tour.trim())) continue;
 
         // Date din randul principal
         let atg      = getFromRow(mainRow, COL.ATG);
@@ -2425,10 +2431,9 @@ function parseHermesPDF(pdfData) {
           if (o.length) ort = o.join(' ').trim();
         }
 
-        // Cautam parti lipsa in randuri adiacente (Y±5, ±10)
-        // Hermes pune uneori Prenume pe un rand si Nume pe altul
-        // SAU Strada pe randul principal si Nume pe rand adiacent
-        const adjacentDiffs = [-5, 5, -10, 10, -15, 15];
+        // Cautam parti lipsa in randuri adiacente (Y±5, ±10, ±15)
+        // Hermes pune uneori datele pe 2-3 randuri cu Y diferit
+        const adjacentDiffs = [-5, 5, -10, 10, -15, 15, -20, 20];
         for (const dy of adjacentDiffs) {
           const nr = rowMap[yk + dy];
           if (!nr || nr.some(it => it.text === '6258')) continue; // skip daca e alt rand principal
@@ -2522,126 +2527,112 @@ async function renderRechnunguri() {
 }
 
 function renderRechnCard(r) {
-  // Reclamatii din luna/an rechnungului
   const reclLuna = allReclamatii.filter(x => {
     const d = x.createdAt?.toDate ? x.createdAt.toDate() : new Date(x.createdAt||0);
     return d.getMonth()+1 === r.luna && d.getFullYear() === r.an;
   });
   const rezLuna = reclLuna.filter(x => x.status === 'rezolvata');
-
-  // Pozitii din rechnung vs reclamatii — matching după tour
   const pozitii = r.pozitii || [];
   const matchuri = pozitii.map(p => {
-    // Caută reclamatie cu aceeași tură și nume similar
     const reclMatch = allReclamatii.find(x =>
       String(x.turaSofer) === String(p.tour) &&
       (x.numeClient || '').toLowerCase().includes((p.name || '').split(' ')[0].toLowerCase())
     );
     return { ...p, reclamatie: reclMatch || null };
   });
-
   const disputabile = matchuri.filter(m => m.reclamatie && m.reclamatie.status === 'rezolvata');
-  const neidentificate = matchuri.filter(m => !m.reclamatie);
+  const cardId = 'rechn-card-' + r.id;
 
   return `
-    <div class="card" style="margin-bottom:12px;border:1px solid ${r.disputat?'rgba(248,113,113,0.3)':r.verificat?'rgba(52,211,153,0.2)':'var(--border)'}">
-      <!-- Header rechnung -->
-      <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:${pozitii.length>0?'14px':'0'}">
-        <div style="width:46px;height:46px;background:rgba(248,113,113,0.1);border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-          <svg style="width:22px;height:22px;color:#f87171" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+    <div class="card" style="margin-bottom:8px;border:1px solid ${r.disputat?'rgba(248,113,113,0.3)':r.verificat?'rgba(52,211,153,0.2)':'var(--border)'}">
+
+      <!-- HEADER compact — mereu vizibil -->
+      <div style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:2px 0" onclick="toggleRechnCard('${r.id}')">
+
+        <!-- Icon -->
+        <div style="width:36px;height:36px;background:rgba(248,113,113,0.1);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <svg style="width:18px;height:18px;color:#f87171" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
         </div>
+
+        <!-- Info -->
         <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px">
-            <span style="font-size:16px;font-weight:800">${MONTHS_RO[r.luna-1]} ${r.an}</span>
-            ${r.belegNr ? `<span style="font-family:var(--mono);font-size:12px;color:var(--text3);background:var(--bg3);padding:2px 8px;border-radius:6px;border:1px solid var(--border)">Nr. ${r.belegNr}</span>` : ''}
-            ${r.suma ? `<span style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${parseFloat(r.suma).toFixed(2)}</span>` : ''}
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:14px;font-weight:700">${MONTHS_RO[r.luna-1]} ${r.an}</span>
+            ${r.belegNr ? `<span style="font-family:var(--mono);font-size:11px;color:var(--text3);background:var(--bg3);padding:1px 7px;border-radius:5px;border:1px solid var(--border)">Nr. ${r.belegNr}</span>` : ''}
+            ${r.suma ? `<span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${parseFloat(r.suma).toFixed(2)}</span>` : ''}
             ${r.disputat ? '<span class="badge badge-red">⚠ Dispută</span>' : ''}
-            ${r.verificat && !r.disputat ? '<span class="badge badge-green">✓ Verificat</span>' : ''}
-            ${disputabile.length > 0 ? `<span class="badge badge-yellow">⚠ ${disputabile.length} contestabile</span>` : ''}
+            ${r.verificat && !r.disputat ? '<span class="badge badge-green">✓ OK</span>' : ''}
+            ${disputabile.length > 0 ? `<span class="badge badge-yellow">⚠ ${disputabile.length} contestabil${disputabile.length>1?'e':''}</span>` : ''}
           </div>
-          <div style="font-size:12px;color:var(--text3);display:flex;flex-wrap:wrap;gap:10px">
-            ${r.dataEmitere ? `<span>📅 Emis: ${r.dataEmitere}</span>` : ''}
-            <span>📋 ${pozitii.length} poziții în factură</span>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;display:flex;gap:10px;flex-wrap:wrap">
+            ${r.dataEmitere ? `<span>📅 ${r.dataEmitere}</span>` : ''}
+            <span>📋 ${pozitii.length} poziți${pozitii.length===1?'e':'i'}</span>
             <span>🗂 ${reclLuna.length} reclamații în lună</span>
             ${rezLuna.length > 0 ? `<span style="color:var(--green)">✓ ${rezLuna.length} rezolvate</span>` : ''}
           </div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
-          ${r.fileURL ? `<a href="${r.fileURL}" target="_blank" class="btn btn-ghost" style="padding:7px 12px;font-size:12px;text-decoration:none">📎 PDF</a>` : ''}
+
+        <!-- Actiuni + sageata -->
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
           ${currentUser?.role === 'admin' ? `
-            <button class="btn btn-ghost" style="padding:7px 12px;font-size:12px" onclick="verifyRechn('${r.id}',false)">✓ OK</button>
-            <button class="btn btn-danger" style="padding:7px 12px;font-size:12px" onclick="verifyRechn('${r.id}',true)">⚠ Dispută</button>
-            <button class="icon-btn red" style="width:32px;height:32px;margin-top:2px" onclick="deleteRechn('${r.id}','${r.belegNr||'rechnung'}')" title="Șterge rechnung">
+            <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px" onclick="event.stopPropagation();verifyRechn('${r.id}',false)" title="OK">✓</button>
+            <button class="btn btn-danger" style="padding:5px 10px;font-size:11px" onclick="event.stopPropagation();verifyRechn('${r.id}',true)" title="Dispută">⚠</button>
+            <button class="icon-btn red" style="width:28px;height:28px" onclick="event.stopPropagation();deleteRechn('${r.id}','${r.belegNr||''}')" title="Șterge">
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
             </button>
           ` : ''}
+          <!-- Sageata expand -->
+          <div id="${cardId}-arrow" style="transition:transform 0.2s;color:var(--text3)">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+          </div>
         </div>
       </div>
 
-      <!-- Tabel pozitii parsate -->
-      ${pozitii.length > 0 ? `
-        <div style="border-top:1px solid var(--border);padding-top:14px">
-          <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">
-            Poziții factură — comparare cu reclamații
-          </div>
+      <!-- DETALII expandabile — ascunse implicit -->
+      <div id="${cardId}-details" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
 
+        ${pozitii.length > 0 ? `
           ${disputabile.length > 0 ? `
-            <div style="padding:10px 12px;background:rgba(232,197,71,0.06);border:1px solid var(--accent-border);border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--accent)">
-              ⚠ <strong>${disputabile.length} poziție(i) contestabile</strong> — reclamație rezolvată de șofer dar inclusă în factură! Suma potențial contestabilă: <strong>€${disputabile.reduce((s,p)=>s+p.forderung,0).toFixed(2)}</strong>
+            <div style="padding:8px 12px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--accent)">
+              ⚠ <strong>${disputabile.length} poziție(i) contestabile</strong> — rezolvate de șofer dar facturate! Sumă: <strong>€${disputabile.reduce((s,p)=>s+p.forderung,0).toFixed(2)}</strong>
             </div>
           ` : ''}
 
           <div style="overflow-x:auto">
-            <table class="data-table" style="font-size:12px;min-width:600px">
+            <table class="data-table" style="font-size:12px;min-width:550px">
               <thead>
-                <tr>
-                  <th>Tour</th>
-                  <th>Firmă / Pachet</th>
-                  <th>Tip daună</th>
-                  <th>Nume client</th>
-                  <th>Localitate</th>
-                  <th>Data</th>
-                  <th style="text-align:right">Sumă €</th>
-                  <th>Reclamație</th>
-                </tr>
+                <tr><th>Tour</th><th>Firmă</th><th>Tip</th><th>Nume</th><th>Localitate</th><th>Data</th><th style="text-align:right">€</th><th>Status</th></tr>
               </thead>
               <tbody>
                 ${matchuri.map(m => {
-                  const isContestabil = m.reclamatie && m.reclamatie.status === 'rezolvata';
-                  const hasRecl = !!m.reclamatie;
-                  const schadenColor = (m.schadenart||'').includes('Verlust') ? 'var(--red)' : (m.schadenart||'').includes('Schaden') ? 'var(--accent)' : 'var(--text2)';
-                  return `
-                    <tr style="${isContestabil ? 'background:rgba(232,197,71,0.05);' : ''}">
-                      <td><span style="font-family:var(--mono);font-weight:700;color:var(--accent)">${m.tour}</span></td>
-                      <td style="font-weight:600;font-size:12px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.atg||''}">${m.atg||'—'}</td>
-                      <td><span style="font-size:11px;font-weight:600;color:${schadenColor}">${m.schadenart||'—'}</span></td>
-                      <td style="font-weight:500">${m.name||'—'}</td>
-                      <td style="color:var(--text2);font-size:12px">${m.plz?m.plz+' ':''}${m.ort||''}</td>
-                      <td style="color:var(--text3);font-family:var(--mono);font-size:11px;white-space:nowrap">${m.datum||'—'}</td>
-                      <td style="text-align:right;font-weight:700;font-family:var(--mono)">€${m.forderung?.toFixed(2)||'0.00'}</td>
-                      <td>
-                        ${isContestabil
-                          ? '<span class="badge badge-yellow">⚠ Rezolvată!</span>'
-                          : hasRecl
-                            ? (m.reclamatie.status==='neprelucrat'?'<span class="badge badge-gray">⏳ Neprelucrat</span>':'<span class="badge badge-red">✗ Nerezolvată</span>')
-                            : '<span class="badge badge-gray">—</span>'
-                        }
-                      </td>
-                    </tr>
-                  `;
+                  const isCont = m.reclamatie && m.reclamatie.status === 'rezolvata';
+                  const hasR = !!m.reclamatie;
+                  const sc = (m.schadenart||'').includes('Verlust') ? 'var(--red)' : 'var(--accent)';
+                  return '<tr style="' + (isCont?'background:rgba(232,197,71,0.04)':'') + '">'
+                    + '<td><span style="font-family:var(--mono);font-weight:700;color:var(--accent)">' + m.tour + '</span></td>'
+                    + '<td style="font-size:11px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (m.atg||'') + '">' + (m.atg||'—') + '</td>'
+                    + '<td style="font-size:11px;color:' + sc + ';font-weight:600">' + (m.schadenart||'—') + '</td>'
+                    + '<td style="font-weight:500">' + (m.name||'—') + '</td>'
+                    + '<td style="color:var(--text2);font-size:11px">' + (m.plz?m.plz+' ':'') + (m.ort||'') + '</td>'
+                    + '<td style="font-family:var(--mono);font-size:11px;color:var(--text3)">' + (m.datum||'—') + '</td>'
+                    + '<td style="text-align:right;font-weight:700;font-family:var(--mono)">€' + (m.forderung||0).toFixed(2) + '</td>'
+                    + '<td>' + (isCont ? '<span class="badge badge-yellow" style="font-size:10px">⚠ Contestabil</span>'
+                      : hasR ? '<span class="badge badge-gray" style="font-size:10px">În sistem</span>'
+                      : '<span class="badge badge-red" style="font-size:10px">Lipsă</span>') + '</td>'
+                    + '</tr>';
                 }).join('')}
               </tbody>
               <tfoot>
                 <tr style="border-top:2px solid var(--border)">
-                  <td colspan="6" style="font-weight:700;padding-top:10px">TOTAL</td>
-                  <td style="text-align:right;font-weight:800;font-family:var(--mono);color:var(--accent);padding-top:10px">€${pozitii.reduce((s,p)=>s+(p.forderung||0),0).toFixed(2)}</td>
+                  <td colspan="6" style="font-weight:700;padding-top:8px;font-size:12px">TOTAL</td>
+                  <td style="text-align:right;font-weight:800;font-family:var(--mono);color:var(--accent);padding-top:8px">€${pozitii.reduce((s,p)=>s+(p.forderung||0),0).toFixed(2)}</td>
                   <td></td>
                 </tr>
               </tfoot>
             </table>
           </div>
-        </div>
-      ` : ''}
+        ` : '<p style="font-size:12px;color:var(--text3)">Nicio poziție importată</p>'}
+      </div>
     </div>
   `;
 }
@@ -2664,6 +2655,15 @@ async function deleteRechn(id, belegNr) {
   } catch(e) {
     toast('Eroare: ' + e.message, 'error');
   }
+}
+
+function toggleRechnCard(id) {
+  const details = document.getElementById('rechn-card-' + id + '-details');
+  const arrow = document.getElementById('rechn-card-' + id + '-arrow');
+  if (!details) return;
+  const isOpen = details.style.display !== 'none';
+  details.style.display = isOpen ? 'none' : 'block';
+  if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(180deg)';
 }
 
 function toggleRechnForm() {
