@@ -769,12 +769,14 @@ textarea{resize:vertical;min-height:80px}
           <button class="stats-tab" data-tab="soferi" onclick="switchStatsTab('soferi',this)">🚚 Per șofer</button>
           <button class="stats-tab" data-tab="persoane" onclick="switchStatsTab('persoane',this)">👤 Per client</button>
           <button class="stats-tab" data-tab="zile" onclick="switchStatsTab('zile',this)">📅 Per zi / lună</button>
+          <button class="stats-tab" data-tab="adrese" onclick="switchStatsTab('adrese',this)">📍 Per adresă</button>
           <button class="stats-tab" data-tab="alerte" onclick="switchStatsTab('alerte',this)" id="tab-alerte">⚠ Alerte</button>
         </div>
         <div id="stats-general" class="stats-panel"></div>
         <div id="stats-soferi" class="stats-panel" style="display:none"></div>
         <div id="stats-persoane" class="stats-panel" style="display:none"></div>
         <div id="stats-zile" class="stats-panel" style="display:none"></div>
+        <div id="stats-adrese" class="stats-panel" style="display:none"></div>
         <div id="stats-alerte" class="stats-panel" style="display:none"></div>
       </div>
 
@@ -969,7 +971,7 @@ function printFormularODS(data) {
   const datum = data.dataReclamatie || data.lieferdatum || '';
   const versender = data.numePachet || data.versender || data.atg || '';
   const sendNr = data.numarPachet || data.sendungsnummer || '';
-  const adresse = data.adresaClient || [data.strasse, data.plz, data.ort].filter(Boolean).join(' ');
+  const adresse = [data.strada||data.strasse||data.adresaClient, data.plz, data.ort].filter(Boolean).join(', ');
 
   const F = 'font-family:Arial,sans-serif';
   const row = (label, value) => `
@@ -1590,7 +1592,10 @@ function renderReclamatii() {
     (r.numeClient||'').toLowerCase().includes(search) ||
     (r.numarPachet||'').toLowerCase().includes(search) ||
     (r.numePachet||'').toLowerCase().includes(search) ||
-    (r.adresaClient||'').toLowerCase().includes(search)
+    (r.adresaClient||'').toLowerCase().includes(search) ||
+             (r.strada||'').toLowerCase().includes(search) ||
+             (r.plz||'').toLowerCase().includes(search) ||
+             (r.ort||'').toLowerCase().includes(search)
   );
   document.getElementById('recl-count').textContent = list.length+' înregistrări';
   const el = document.getElementById('recl-list');
@@ -1603,7 +1608,8 @@ function renderReclamatii() {
 
 function reclItemHTML(r, compact) {
   const resolved = r.status==='rezolvata';
-  const actions = canEdit(currentUser) ? `
+  // Mihaela: vede dar nu poate modifica status sau edita/sterge
+  const actions = canEdit(currentUser) && !isLimited(currentUser) ? `
     <button class="icon-btn green${r.status==='rezolvata'?' active-green':''}" onclick="setStatus('${r.id}','rezolvata')" title="Rezolvată" style="${r.status==='rezolvata'?'background:var(--green-bg);color:var(--green);border:1px solid rgba(52,211,153,0.3)':''}">
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
     </button>
@@ -1615,7 +1621,7 @@ function reclItemHTML(r, compact) {
     </button>
   ` : `<button class="icon-btn yellow" onclick="printReclamatie('${r.id}')" title="Print"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659"/></svg></button>`;
 
-  const editDel = currentUser?.role==='admin' ? `
+  const editDel = (currentUser?.role==='admin' || currentUser?.role==='operator') && !isLimited(currentUser) ? `
     <button class="icon-btn" onclick="editReclamatie('${r.id}')" title="Editează"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg></button>
     <button class="icon-btn red" onclick="deleteReclamatie('${r.id}')" title="Șterge"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916"/></svg></button>
   ` : '';
@@ -1633,7 +1639,7 @@ function reclItemHTML(r, compact) {
         <span>📦 ${r.numePachet||'—'} #${r.numarPachet||'—'}</span>
         <span>🚚 Tura ${r.turaSofer||'—'}</span>
         <span>📅 ${fmtDate(r.createdAt)}</span>
-        ${r.adresaClient?`<span>📍 ${r.adresaClient}</span>`:''}
+        ${(r.strada||r.adresaClient)?`<span>📍 ${[r.strada||r.adresaClient, r.plz, r.ort].filter(Boolean).join(' ')}</span>`:''}
         ${r.adaugatDeNume||r.adaugatDe?`<span style="color:var(--text3)">👤 ${r.adaugatDeNume||r.adaugatDe}</span>`:''}
       </div>
       ${r.descriere?`<div style="font-size:12px;color:var(--text3);margin-top:4px;font-style:italic">"${r.descriere}"</div>`:''}
@@ -1689,8 +1695,16 @@ function toggleForm(data) {
           <input id="f-prenumeClient" value="${(v.numeClient||'').split(' ').slice(1).join(' ')}" placeholder="Prenume"/>
         </div>
         <div class="form-group full">
-          <label>Adresă client</label>
-          <input id="f-adresaClient" value="${v.adresaClient||''}" placeholder="Strada, nr., localitate"/>
+          <label>Stradă + număr</label>
+          <input id="f-strada" value="${v.strada||v.adresaClient||''}" placeholder="ex: Hauptstraße 15"/>
+        </div>
+        <div class="form-group">
+          <label>Cod poștal (PLZ)</label>
+          <input id="f-plz" value="${v.plz||''}" placeholder="ex: 94072" maxlength="10"/>
+        </div>
+        <div class="form-group">
+          <label>Oraș (Ort)</label>
+          <input id="f-ort" value="${v.ort||''}" placeholder="ex: Bad Füssing"/>
         </div>
         <div class="form-group">
           <label>Data reclamației<span class="req">*</span></label>
@@ -1743,7 +1757,10 @@ async function saveReclamatie() {
   const payload = {
     numePachet: document.getElementById('f-numePachet').value.trim(),
     numarPachet, numeClient,
-    adresaClient: document.getElementById('f-adresaClient').value.trim(),
+    strada: document.getElementById('f-strada')?.value.trim() || '',
+    plz: document.getElementById('f-plz')?.value.trim() || '',
+    ort: document.getElementById('f-ort')?.value.trim() || '',
+    adresaClient: [document.getElementById('f-strada')?.value.trim(), document.getElementById('f-plz')?.value.trim(), document.getElementById('f-ort')?.value.trim()].filter(Boolean).join(', '),
     dataReclamatie: new Date(document.getElementById('f-data').value),
     termin: document.getElementById('f-termin')?.value || '',
     turaSofer: tura,
@@ -1991,15 +2008,47 @@ async function loadStatsData() {
   toateReclamatiile.forEach(r => {
     const key = (r.numeClient||r.name||'').toLowerCase().trim();
     if (!key || key.length < 2) return;
-    if (!perPersoana[key]) perPersoana[key]={nume:r.numeClient||r.name,total:0,rezolvate:0,sumaRechn:0,ture:[],adrese:[],plz:[]};
+    if (!perPersoana[key]) perPersoana[key]={nume:r.numeClient||r.name,total:0,rezolvate:0,sumaRechn:0,ture:[],adrese:[],plz:[],orte:[]};
     perPersoana[key].total++;
     if(r.status==='rezolvata') perPersoana[key].rezolvate++;
     if(r.sursa==='rechnung') perPersoana[key].sumaRechn+=(r.forderung||0);
     if(r.turaSofer&&!perPersoana[key].ture.includes(String(r.turaSofer))) perPersoana[key].ture.push(String(r.turaSofer));
-    const adr=(r.adresaClient||[r.strasse,r.ort].filter(Boolean).join(' ')||'').trim();
-    if(adr&&!perPersoana[key].adrese.includes(adr)) perPersoana[key].adrese.push(adr);
+    const strada=(r.strada||r.strasse||'').trim();
     const plz=(r.plz||'').trim();
+    const ort=(r.ort||'').trim();
+    const adr=[strada,plz,ort].filter(Boolean).join(' ') || (r.adresaClient||'').trim();
+    if(adr&&!perPersoana[key].adrese.includes(adr)) perPersoana[key].adrese.push(adr);
     if(plz&&!perPersoana[key].plz.includes(plz)) perPersoana[key].plz.push(plz);
+    if(ort&&!perPersoana[key].orte.includes(ort)) perPersoana[key].orte.push(ort);
+  });
+
+  // Per adresa (strada + PLZ + ort)
+  const perAdresa = {};
+  toateReclamatiile.forEach(r => {
+    const strada = (r.strada||r.strasse||'').trim();
+    const plz = (r.plz||'').trim();
+    const ort = (r.ort||'').trim();
+    if (!strada && !plz) return;
+    const adresaKey = [strada,plz,ort].filter(Boolean).join('|').toLowerCase();
+    if (!perAdresa[adresaKey]) perAdresa[adresaKey] = { strada, plz, ort, total:0, persoane:[], ture:[] };
+    perAdresa[adresaKey].total++;
+    const nm = (r.numeClient||r.name||'').trim();
+    if (nm && !perAdresa[adresaKey].persoane.includes(nm)) perAdresa[adresaKey].persoane.push(nm);
+    const t = String(r.turaSofer||r.tour||'');
+    if (t && !perAdresa[adresaKey].ture.includes(t)) perAdresa[adresaKey].ture.push(t);
+  });
+
+  // Per PLZ
+  const perPLZ = {};
+  toateReclamatiile.forEach(r => {
+    const plz = (r.plz||'').trim();
+    const ort = (r.ort||'').trim();
+    if (!plz) return;
+    const key = plz + (ort?' '+ort:'');
+    if (!perPLZ[key]) perPLZ[key] = { plz, ort, total:0, persoane:[] };
+    perPLZ[key].total++;
+    const nm = (r.numeClient||r.name||'').trim();
+    if (nm && !perPLZ[key].persoane.includes(nm)) perPLZ[key].persoane.push(nm);
   });
 
   // Per zi/luna
@@ -2021,6 +2070,7 @@ async function loadStatsData() {
   return {
     soferi, reclManuale, rechnPozitii, toateReclamatiile, alerte,
     perSofer, perPersoana, perZi, perLuna, pachetePerTura,
+    perAdresa, perPLZ,
     rechnunguri, seeAll, userLoc
   };
 }
@@ -2045,10 +2095,10 @@ async function renderStatistici() {
     }
 
     renderStatsGeneral(statsCache);
-    // Prerender all panels
     renderStatsSoferi(statsCache);
     renderStatsPersoane(statsCache);
     renderStatsZile(statsCache);
+    renderStatsAdrese(statsCache);
     renderStatsAlerte(statsCache);
   } catch(e) {
     el.innerHTML = `<div class="empty"><div class="empty-title">Eroare la încărcare</div><div class="empty-sub">${e.message}</div></div>`;
@@ -2401,6 +2451,104 @@ function renderStatsZile(d) {
 }
 
 // ── TAB 5: ALERTE ──
+// ── TAB: PER ADRESĂ ──
+function renderStatsAdrese(d) {
+  const el = document.getElementById('stats-adrese');
+  if (!el) return;
+
+  const topAdrese = Object.values(d.perAdresa||{}).sort((a,b)=>b.total-a.total);
+  const topPLZ = Object.values(d.perPLZ||{}).sort((a,b)=>b.total-a.total);
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+      <!-- Per PLZ / Oras -->
+      <div class="card">
+        <div style="font-size:13px;font-weight:700;margin-bottom:12px">🏙 Per cod poștal / oraș</div>
+        ${topPLZ.length === 0
+          ? '<p style="font-size:12px;color:var(--text3)">Nicio adresă cu PLZ înregistrată</p>'
+          : `<div style="overflow-y:auto;max-height:400px">
+              <table class="data-table" style="font-size:12px">
+                <thead><tr><th>#</th><th>PLZ</th><th>Oraș</th><th style="text-align:right">Reclamații</th><th style="text-align:right">Persoane</th></tr></thead>
+                <tbody>
+                  ${topPLZ.map((p,i)=>`
+                    <tr>
+                      <td style="color:var(--text3)">${i+1}</td>
+                      <td style="font-family:var(--mono);font-weight:700;color:var(--accent)">${p.plz}</td>
+                      <td style="font-weight:500">${p.ort||'—'}</td>
+                      <td style="text-align:right"><span class="badge ${p.total>=5?'badge-red':p.total>=3?'badge-yellow':'badge-gray'}">${p.total}x</span></td>
+                      <td style="text-align:right;color:var(--text3)">${p.persoane.length}</td>
+                    </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>`
+        }
+      </div>
+
+      <!-- Per strada exacta -->
+      <div class="card">
+        <div style="font-size:13px;font-weight:700;margin-bottom:8px">🏠 Per adresă exactă</div>
+        <div class="search-wrap" style="margin-bottom:10px">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+          <input type="text" placeholder="Caută stradă..." id="adresa-search" oninput="filterAdrese()" />
+        </div>
+        <div id="adrese-table" style="overflow-y:auto;max-height:360px">
+          ${renderAdreseTable(topAdrese)}
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Blocuri problematice (3+ reclamatii la aceeasi adresa) -->
+    ${topAdrese.filter(a=>a.total>=3).length > 0 ? `
+    <div class="card" style="border-color:var(--accent-border)">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--accent)">⚠ Adrese cu 3+ reclamații (blocuri problematice)</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${topAdrese.filter(a=>a.total>=3).map(a=>`
+          <div style="background:var(--bg3);border-radius:9px;padding:10px 14px;display:flex;align-items:center;gap:12px">
+            <div style="flex:1">
+              <div style="font-weight:700;font-size:13px">${a.strada} <span style="color:var(--text3);font-weight:400">${a.plz} ${a.ort}</span></div>
+              <div style="font-size:11px;color:var(--text3);margin-top:3px">
+                👥 ${a.persoane.length} persoane diferite · Ture: ${a.ture.join(', ')}
+              </div>
+              ${a.persoane.length > 0 ? `<div style="font-size:11px;color:var(--text2);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.persoane.join(' · ')}</div>` : ''}
+            </div>
+            <span class="badge badge-red" style="font-size:13px;font-weight:800;flex-shrink:0">${a.total}x</span>
+          </div>`).join('')}
+      </div>
+    </div>` : ''}
+  `;
+  window._adreseAll = topAdrese;
+}
+
+function renderAdreseTable(list) {
+  if (!list.length) return '<p style="font-size:12px;color:var(--text3)">Nicio adresă înregistrată</p>';
+  return `<table class="data-table" style="font-size:11px">
+    <thead><tr><th>#</th><th>Stradă</th><th>PLZ Oraș</th><th style="text-align:right">Recl.</th><th>Persoane</th></tr></thead>
+    <tbody>${list.map((a,i)=>`
+      <tr>
+        <td style="color:var(--text3)">${i+1}</td>
+        <td style="font-weight:500;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.strada}">${a.strada||'—'}</td>
+        <td style="font-family:var(--mono);font-size:10px;color:var(--text2)">${a.plz} ${a.ort}</td>
+        <td style="text-align:right"><span class="badge ${a.total>=3?'badge-red':a.total>=2?'badge-yellow':'badge-gray'}" style="font-size:10px">${a.total}x</span></td>
+        <td style="font-size:10px;color:var(--text3);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.persoane.slice(0,2).join(', ')}${a.persoane.length>2?' +'+( a.persoane.length-2):''}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function filterAdrese() {
+  const q = (document.getElementById('adresa-search')?.value||'').toLowerCase();
+  const filtered = (window._adreseAll||[]).filter(a =>
+    (a.strada||'').toLowerCase().includes(q) ||
+    (a.plz||'').toLowerCase().includes(q) ||
+    (a.ort||'').toLowerCase().includes(q)
+  );
+  const el = document.getElementById('adrese-table');
+  if (el) el.innerHTML = renderAdreseTable(filtered);
+}
+
+
 function renderStatsAlerte(d) {
   const el = document.getElementById('stats-alerte');
   const dispute = d.alerte.filter(a => a.tip === 'DISPUTA');
@@ -2972,7 +3120,9 @@ function autoFillFromAblieferung() {
   set('f-numarPachet', parsed.sendungsnummer);
   set('f-numeClient', parsed.nachname || parsed.name);
   set('f-prenumeClient', parsed.vorname || '');
-  if (parsed.strasse||parsed.ort) set('f-adresaClient', [parsed.strasse,parsed.plz,parsed.ort].filter(Boolean).join(', '));
+  if (parsed.strasse) set('f-strada', parsed.strasse);
+  if (parsed.plz) set('f-plz', parsed.plz);
+  if (parsed.ort) set('f-ort', parsed.ort);
   if (parsed.lieferdatum) {
     const p = parsed.lieferdatum.split('.');
     if (p.length===3) {
