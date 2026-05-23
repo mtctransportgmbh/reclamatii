@@ -1274,9 +1274,13 @@ function updateDots() {
 
 // ── Keyboard support for PIN ──
 document.addEventListener('keydown', (e) => {
-  // Only active when PIN pad is visible
+  // Only active when PIN pad is visible AND login screen is active (not in app)
+  const loginActive = document.getElementById('screen-login')?.classList.contains('active');
+  if (!loginActive) return;
   const pinVisible = document.getElementById('login-pin')?.style.display !== 'none';
   if (!pinVisible) return;
+  // Don't intercept if focus is on an input field
+  if (document.activeElement && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
   if (e.key >= '0' && e.key <= '9') { e.preventDefault(); pinKey(e.key); }
   if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); pinKey('del'); }
 });
@@ -1361,15 +1365,33 @@ function enterApp() {
 
 function logout() {
   if (reclamatiUnsubscribe) reclamatiUnsubscribe();
-  currentUser = null; allReclamatii = []; allSoferi = [];
+  // Reset all state
+  currentUser = null;
+  allReclamatii = [];
+  allSoferi = [];
+  statsCache = null;
+  window._lastAblieferung = null;
   // Sign out from Firebase Auth (for admin)
   try { firebase.auth().signOut(); } catch(e) {}
+  // Reset UI
   document.getElementById('screen-app').classList.remove('active');
   document.getElementById('screen-login').classList.add('active');
-  document.getElementById('login-select').style.display='block';
-  document.getElementById('login-admin').style.display='none';
-  document.getElementById('login-pin').style.display='none';
-  pinBuffer='';
+  document.getElementById('login-select').style.display = 'block';
+  document.getElementById('login-admin').style.display = 'none';
+  document.getElementById('login-pin').style.display = 'none';
+  pinBuffer = '';
+  // Reset reclamatii list so next user sees fresh data
+  const reclList = document.getElementById('recl-list');
+  if (reclList) reclList.innerHTML = '';
+  const reclForm = document.getElementById('recl-form');
+  if (reclForm) reclForm.style.display = 'none';
+  // Reset active filter
+  activeFilter = 'all';
+  document.querySelectorAll('.filter-btn').forEach((b,i) => {
+    b.classList.toggle('active', i === 0);
+  });
+  const searchInput = document.getElementById('search-input');
+  if (searchInput) searchInput.value = '';
 }
 
 // ════════════════════════════════════════════════════════
@@ -1443,6 +1465,11 @@ function updateSidebarUser() {
 // ════════════════════════════════════════════════════════
 function loadReclamatii() {
   if (reclamatiUnsubscribe) reclamatiUnsubscribe();
+  // Reset lista imediat la schimbarea userului
+  allReclamatii = [];
+  const reclList = document.getElementById('recl-list');
+  if (reclList) reclList.innerHTML = '<div class="loading-page"><div class="spinner"></div></div>';
+
   let q = db.collection('reclamatii').orderBy('createdAt','desc');
   if (isLimited(currentUser)) {
     // Mihaela vede doar ale ei
