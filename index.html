@@ -11,6 +11,11 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
 <style>
 :root {
   --bg: #0a0b0f;
@@ -769,6 +774,7 @@ textarea{resize:vertical;min-height:80px}
           <button class="stats-tab" data-tab="soferi" onclick="switchStatsTab('soferi',this)">🚚 Per șofer</button>
           <button class="stats-tab" data-tab="persoane" onclick="switchStatsTab('persoane',this)">👤 Per client</button>
           <button class="stats-tab" data-tab="zile" onclick="switchStatsTab('zile',this)">📅 Per zi / lună</button>
+          <button class="stats-tab" data-tab="harta" onclick="switchStatsTab('harta',this)">🗺 Hartă</button>
           <button class="stats-tab" data-tab="adrese" onclick="switchStatsTab('adrese',this)">📍 Per adresă</button>
           <button class="stats-tab" data-tab="alerte" onclick="switchStatsTab('alerte',this)" id="tab-alerte">⚠ Alerte</button>
         </div>
@@ -776,6 +782,7 @@ textarea{resize:vertical;min-height:80px}
         <div id="stats-soferi" class="stats-panel" style="display:none"></div>
         <div id="stats-persoane" class="stats-panel" style="display:none"></div>
         <div id="stats-zile" class="stats-panel" style="display:none"></div>
+        <div id="stats-harta" class="stats-panel" style="display:none"></div>
         <div id="stats-adrese" class="stats-panel" style="display:none"></div>
         <div id="stats-alerte" class="stats-panel" style="display:none"></div>
       </div>
@@ -2099,6 +2106,7 @@ async function renderStatistici() {
     renderStatsPersoane(statsCache);
     renderStatsZile(statsCache);
     renderStatsAdrese(statsCache);
+    renderStatsHarta(statsCache);
     renderStatsAlerte(statsCache);
   } catch(e) {
     el.innerHTML = `<div class="empty"><div class="empty-title">Eroare la încărcare</div><div class="empty-sub">${e.message}</div></div>`;
@@ -2451,6 +2459,277 @@ function renderStatsZile(d) {
 }
 
 // ── TAB 5: ALERTE ──
+// ════════════════════════════════════════════════════════
+// HARTA — Leaflet cu geocoding OSM Nominatim
+// ════════════════════════════════════════════════════════
+let hartaMap = null;
+let hartaMarkers = null;
+let geocodeCache = {}; // cache PLZ+Ort → {lat,lon}
+let geocodeQueue = [];
+let geocoding = false;
+
+async function geocodeAddress(plz, ort, strada) {
+  // Build cache key
+  const key = [strada, plz, ort].filter(Boolean).join('_').toLowerCase().replace(/\s+/g,'_');
+  if (geocodeCache[key]) return geocodeCache[key];
+
+  // Try from localStorage cache first
+  const stored = localStorage.getItem('geo_' + key);
+  if (stored) { try { const r = JSON.parse(stored); geocodeCache[key] = r; return r; } catch {} }
+
+  // Query Nominatim (free, no API key)
+  const query = [strada, plz, ort, 'Deutschland'].filter(Boolean).join(', ');
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&addressdetails=1`;
+    const resp = await fetch(url, { headers: { 'Accept-Language': 'de' } });
+    const data = await resp.json();
+    if (data && data[0]) {
+      const result = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display: data[0].display_name };
+      geocodeCache[key] = result;
+      localStorage.setItem('geo_' + key, JSON.stringify(result));
+      return result;
+    }
+  } catch(e) { console.warn('Geocode failed:', e.message); }
+
+  // Fallback: try just PLZ + Ort
+  if (strada) {
+    const key2 = [plz, ort].filter(Boolean).join('_').toLowerCase().replace(/\s+/g,'_');
+    const stored2 = localStorage.getItem('geo_' + key2);
+    if (stored2) { try { const r = JSON.parse(stored2); geocodeCache[key] = r; return r; } catch {} }
+    try {
+      const url2 = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent([plz,ort,'Deutschland'].filter(Boolean).join(', '))}&format=json&limit=1`;
+      const resp2 = await fetch(url2, { headers: { 'Accept-Language': 'de' } });
+      const data2 = await resp2.json();
+      if (data2 && data2[0]) {
+        const result2 = { lat: parseFloat(data2[0].lat), lon: parseFloat(data2[0].lon), approximate: true };
+        geocodeCache[key] = result2;
+        localStorage.setItem('geo_' + key2, JSON.stringify(result2));
+        return result2;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+async function renderStatsHarta(d) {
+  const el = document.getElementById('stats-harta');
+  if (!el) return;
+
+  el.innerHTML = `
+    <div style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <div>
+          <div style="font-size:15px;font-weight:800">🗺 Hartă reclamații</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px">Adresele clienților care au reclamat · click pe marker pentru detalii</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <div id="harta-progress" style="font-size:11px;color:var(--text3)"></div>
+          <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="refreshHarta()">🔄 Reîncarcă</button>
+          <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="hartaFitAll()">⊙ Centreaza</button>
+        </div>
+      </div>
+
+      <!-- Filtre -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px" id="harta-filters">
+        <button class="filter-btn active" onclick="setHartaFilter('all',this)">Toate</button>
+        <button class="filter-btn" onclick="setHartaFilter('rechnung',this)">📄 Din rechnung</button>
+        <button class="filter-btn" onclick="setHartaFilter('manual',this)">✍ Introduse manual</button>
+        <button class="filter-btn" onclick="setHartaFilter('rezolvata',this)">✓ Rezolvate</button>
+        <button class="filter-btn" onclick="setHartaFilter('nerezolvata',this)">✗ Nerezolvate</button>
+      </div>
+
+      <!-- Stats rapide -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px" id="harta-quick-stats"></div>
+    </div>
+
+    <!-- Harta -->
+    <div id="leaflet-map" style="height:480px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border);background:var(--bg3)"></div>
+
+    <!-- Legenda -->
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--text2)">
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;background:#f87171;border-radius:50%;display:inline-block"></span>Din rechnung</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;background:#60a5fa;border-radius:50%;display:inline-block"></span>Introdus manual</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;background:#34d399;border-radius:50%;display:inline-block"></span>Rezolvat</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;background:#e8c547;border-radius:50%;border:2px solid #c9a227;display:inline-block"></span>Pozitie aproximativa (PLZ)</span>
+    </div>
+  `;
+
+  window._hartaData = d;
+  window._hartaFilter = 'all';
+  await initLeafletMap(d);
+}
+
+async function initLeafletMap(d) {
+  // Destroy existing map
+  if (hartaMap) { hartaMap.remove(); hartaMap = null; }
+
+  // Wait for DOM
+  await new Promise(r => setTimeout(r, 50));
+
+  const mapEl = document.getElementById('leaflet-map');
+  if (!mapEl) return;
+
+  // Init map centered on Bayern
+  hartaMap = L.map('leaflet-map', { zoomControl: true }).setView([48.3, 13.0], 9);
+
+  // Dark/Light tile based on theme
+  const isLight = document.body.classList.contains('light');
+  const tileUrl = isLight
+    ? 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+    : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+  const attribution = isLight
+    ? '© <a href="https://openstreetmap.org">OpenStreetMap</a>'
+    : '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>';
+
+  L.tileLayer(tileUrl, { attribution, maxZoom: 19 }).addTo(hartaMap);
+
+  // Cluster group
+  hartaMarkers = L.markerClusterGroup({
+    maxClusterRadius: 40,
+    iconCreateFunction: cluster => {
+      const count = cluster.getChildCount();
+      const size = count >= 10 ? 44 : count >= 5 ? 38 : 32;
+      return L.divIcon({
+        html: `<div style="width:${size}px;height:${size}px;background:#e8c547;color:#0a0b0f;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:${count>=10?13:12}px;border:2px solid #c9a227;box-shadow:0 2px 8px rgba(0,0,0,0.4)">${count}</div>`,
+        className: '',
+        iconSize: [size, size],
+        iconAnchor: [size/2, size/2]
+      });
+    }
+  });
+  hartaMap.addLayer(hartaMarkers);
+
+  // Geocode si afiseaza markere
+  await loadHartaMarkers(d, 'all');
+}
+
+function getMarkerColor(r) {
+  if (r.status === 'rezolvata') return '#34d399';
+  if (r.sursa === 'rechnung') return '#f87171';
+  return '#60a5fa';
+}
+
+async function loadHartaMarkers(d, filter) {
+  if (!hartaMap || !hartaMarkers) return;
+  hartaMarkers.clearLayers();
+
+  const progress = document.getElementById('harta-progress');
+  let recl = d.toateReclamatiile.filter(r => {
+    if (!r.plz && !r.ort) return false;
+    if (filter === 'rechnung') return r.sursa === 'rechnung';
+    if (filter === 'manual') return r.sursa !== 'rechnung';
+    if (filter === 'rezolvata') return r.status === 'rezolvata';
+    if (filter === 'nerezolvata') return r.status !== 'rezolvata';
+    return true;
+  });
+
+  // Update quick stats
+  const qs = document.getElementById('harta-quick-stats');
+  if (qs) {
+    const byPLZ = {};
+    recl.forEach(r => { if(r.plz) byPLZ[r.plz]=(byPLZ[r.plz]||0)+1; });
+    const topPLZ = Object.entries(byPLZ).sort((a,b)=>b[1]-a[1]).slice(0,3);
+    qs.innerHTML = `
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:12px">
+        📍 <strong>${recl.length}</strong> adrese de afișat
+      </div>
+      ${topPLZ.map(([plz,cnt])=>`<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:12px">PLZ <strong>${plz}</strong>: ${cnt}x</div>`).join('')}
+    `;
+  }
+
+  if (progress) progress.textContent = `Se geocodifică... 0/${recl.length}`;
+
+  // Batch geocode cu delay pentru a respecta rate limits Nominatim
+  let done = 0;
+  const markers = [];
+
+  for (const r of recl) {
+    const geo = await geocodeAddress(r.plz||'', r.ort||'', r.strada||r.strasse||'');
+    done++;
+    if (progress) progress.textContent = `Geocodificat: ${done}/${recl.length}`;
+
+    if (!geo) continue;
+
+    const color = getMarkerColor(r);
+    const size = geo.approximate ? 14 : 16;
+    const border = geo.approximate ? '2px dashed #e8c547' : `2px solid ${color}`;
+
+    const icon = L.divIcon({
+      html: `<div style="width:${size}px;height:${size}px;background:${color};border-radius:50%;border:${border};box-shadow:0 2px 6px rgba(0,0,0,0.5)"></div>`,
+      className: '',
+      iconSize: [size, size],
+      iconAnchor: [size/2, size/2]
+    });
+
+    const dt = r.dataReclamatie instanceof Date ? r.dataReclamatie : r.dataReclamatie?.toDate?.() || (r.createdAt?.toDate ? r.createdAt.toDate() : null);
+    const dtStr = dt ? dt.toLocaleDateString('de-DE') : '—';
+    const stLabel = r.status==='rezolvata'?'<span style="color:#34d399">✓ Rezolvată</span>':r.status==='nerezolvata'?'<span style="color:#f87171">✗ Nerezolvată</span>':'<span style="color:#9aa3b8">⏳ Neprelucrat</span>';
+
+    const popup = `
+      <div style="font-family:Arial,sans-serif;font-size:13px;min-width:200px;max-width:280px">
+        <div style="font-weight:700;font-size:14px;margin-bottom:6px;border-bottom:1px solid #eee;padding-bottom:6px">${r.numeClient||r.name||'—'}</div>
+        <div style="line-height:1.8;color:#555">
+          <div>🚚 Tour <strong>${r.turaSofer||r.tour||'—'}</strong></div>
+          <div>📍 ${[r.strada||r.strasse, r.plz, r.ort].filter(Boolean).join(' ')}</div>
+          <div>📦 ${r.numePachet||r.atg||'—'} ${r.numarPachet?'#'+r.numarPachet:''}</div>
+          <div>📅 ${dtStr}</div>
+          <div>${stLabel}</div>
+          ${r.forderung?`<div>💶 <strong>€${r.forderung.toFixed(2)}</strong></div>`:''}
+          ${geo.approximate?'<div style="color:#e8c547;font-size:11px">⚠ Poziție aproximativă (PLZ)</div>':''}
+        </div>
+      </div>`;
+
+    const marker = L.marker([geo.lat, geo.lon], { icon })
+      .bindPopup(popup, { maxWidth: 300 });
+    markers.push(marker);
+
+    // Throttle: 1 req/sec Nominatim
+    await new Promise(r => setTimeout(r, 1100));
+  }
+
+  hartaMarkers.addLayers(markers);
+  if (progress) progress.textContent = `✓ ${markers.length} adrese afișate`;
+
+  // Fit bounds
+  if (markers.length > 0) {
+    hartaFitAll();
+  }
+}
+
+function hartaFitAll() {
+  if (!hartaMap || !hartaMarkers) return;
+  try {
+    const bounds = hartaMarkers.getBounds();
+    if (bounds.isValid()) hartaMap.fitBounds(bounds, { padding: [40,40] });
+  } catch {}
+}
+
+function setHartaFilter(filter, btn) {
+  document.querySelectorAll('#harta-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  window._hartaFilter = filter;
+  if (window._hartaData) loadHartaMarkers(window._hartaData, filter);
+}
+
+async function refreshHarta() {
+  // Clear geocode cache for fresh data
+  if (confirm('Ștergi cache-ul de geocodificare și reîncarcă toate adresele?')) {
+    Object.keys(localStorage).filter(k=>k.startsWith('geo_')).forEach(k=>localStorage.removeItem(k));
+    geocodeCache = {};
+    if (window._hartaData) await initLeafletMap(window._hartaData);
+  }
+}
+
+// Re-init map when tab becomes visible (fix Leaflet rendering on hidden div)
+const origSwitchTab = switchStatsTab;
+function switchStatsTab(tab, btn) {
+  origSwitchTab(tab, btn);
+  if (tab === 'harta' && hartaMap) {
+    setTimeout(() => hartaMap.invalidateSize(), 100);
+  }
+}
+
+
 // ── TAB: PER ADRESĂ ──
 function renderStatsAdrese(d) {
   const el = document.getElementById('stats-adrese');
