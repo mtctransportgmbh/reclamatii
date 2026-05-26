@@ -2470,51 +2470,95 @@ function renderStatsZile(d) {
 // ════════════════════════════════════════════════════════
 let hartaMap = null;
 let hartaMarkers = null;
-let geocodeCache = {}; // cache PLZ+Ort → {lat,lon}
-let geocodeQueue = [];
-let geocoding = false;
+let geocodeCache = {};
 
+// ── PLZ Lookup Table Bavaria (instant, no API) ──
+const PLZ_COORDS = {
+  "83512":[48.0611,12.225],"83539":[47.9878,12.0919],"83543":[47.9603,12.1644],
+  "83546":[48.0167,12.15],"83549":[47.9842,12.2197],"84174":[48.3728,12.3767],
+  "84307":[48.21,12.69],"84347":[48.4114,12.57],"84359":[48.3958,13.015],
+  "84364":[48.4308,12.7294],"84381":[48.4261,12.9558],"84388":[48.2803,13.1344],
+  "84419":[48.2069,12.4533],"84453":[48.2444,12.5233],"84478":[48.2406,12.5233],
+  "84503":[48.2522,12.6661],"84513":[48.2283,12.7122],"84529":[48.1744,12.6503],
+  "84533":[48.1553,12.7272],"84556":[48.175,12.7753],"94032":[48.5683,13.4312],
+  "94034":[48.5748,13.4312],"94036":[48.5748,13.4534],"94060":[48.6569,13.7272],
+  "94065":[48.7236,13.5853],"94072":[48.3475,13.3089],"94078":[48.4289,13.305],
+  "94094":[48.3517,13.1958],"94099":[48.3908,13.4197],"94118":[48.6761,13.7308],
+  "94127":[48.3744,13.3564],"94167":[48.5369,13.4792],"94315":[48.9681,12.6858],
+  "94327":[49.0267,12.6589],"94428":[48.8583,12.7289],"94469":[48.8325,12.9611],
+  "94474":[48.63,13.1833],"94501":[48.5697,12.9483],"94526":[48.87,13.0614],
+  "94544":[48.6819,13.1914],"94575":[48.6214,13.3106],"84347":[48.4114,12.57],
+  "84144":[48.2833,12.3667],"84149":[48.25,12.25],"84155":[48.3167,12.25],
+  "84160":[48.2833,12.4],"84163":[48.2833,12.4667],"84166":[48.2833,12.4167],
+  "84171":[48.2167,12.4667],"84177":[48.2667,12.55],"84180":[48.3,12.5833],
+  "84184":[48.25,12.5167],"84186":[48.2167,12.5167],"84189":[48.2167,12.55],
+  "84192":[48.2,12.4833],"84193":[48.2833,12.5333],"84405":[48.1833,12.4],
+  "84416":[48.2167,12.5833],"84424":[48.2,12.5],"84427":[48.1833,12.55],
+  "84431":[48.2167,12.6167],"84432":[48.2,12.6],"84435":[48.15,12.5],
+  "84437":[48.2167,12.6333],"84439":[48.1667,12.6167]
+};
+
+// ── Smart geocode: PLZ table first (instant), then Nominatim with batch ──
 async function geocodeAddress(plz, ort, strada) {
-  // Build cache key
-  const key = [strada, plz, ort].filter(Boolean).join('_').toLowerCase().replace(/\s+/g,'_');
+  const key = [strada||'', plz||'', ort||''].join('|').toLowerCase().trim();
+  const plzKey = (plz||'').trim();
+
   if (geocodeCache[key]) return geocodeCache[key];
 
-  // Try from localStorage cache first
+  // 1. Check localStorage cache
   const stored = localStorage.getItem('geo_' + key);
-  if (stored) { try { const r = JSON.parse(stored); geocodeCache[key] = r; return r; } catch {} }
+  if (stored) {
+    try { const r=JSON.parse(stored); geocodeCache[key]=r; return r; } catch {}
+  }
 
-  // Query Nominatim (free, no API key)
-  const query = [strada, plz, ort, 'Deutschland'].filter(Boolean).join(', ');
+  // 2. PLZ lookup table (instant, no network)
+  if (PLZ_COORDS[plzKey]) {
+    const [lat,lon] = PLZ_COORDS[plzKey];
+    const r = { lat, lon, approximate: !strada };
+    geocodeCache[key] = r;
+    // Also try to refine with street via Nominatim in background (no await)
+    if (strada) refineGeocode(key, strada, plz, ort);
+    return r;
+  }
+
+  // 3. Nominatim fallback for unknown PLZ (with cache)
+  const plzCacheKey = 'plz_' + plzKey;
+  const plzStored = localStorage.getItem(plzCacheKey);
+  if (plzStored) {
+    try { const r=JSON.parse(plzStored); geocodeCache[key]={...r,approximate:true}; return geocodeCache[key]; } catch {}
+  }
+
   try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&addressdetails=1`;
-    const resp = await fetch(url, { headers: { 'Accept-Language': 'de' } });
+    const q = [plzKey, ort, 'Deutschland'].filter(Boolean).join(' ');
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`;
+    const resp = await fetch(url, {headers:{'Accept-Language':'de','User-Agent':'ReclamationApp/1.0'}});
     const data = await resp.json();
     if (data && data[0]) {
-      const result = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display: data[0].display_name };
-      geocodeCache[key] = result;
-      localStorage.setItem('geo_' + key, JSON.stringify(result));
-      return result;
+      const r = { lat:parseFloat(data[0].lat), lon:parseFloat(data[0].lon), approximate:true };
+      geocodeCache[key] = r;
+      localStorage.setItem(plzCacheKey, JSON.stringify(r));
+      localStorage.setItem('geo_'+key, JSON.stringify(r));
+      return r;
     }
-  } catch(e) { console.warn('Geocode failed:', e.message); }
+  } catch(e) { console.warn('Nominatim fallback failed:', e.message); }
 
-  // Fallback: try just PLZ + Ort
-  if (strada) {
-    const key2 = [plz, ort].filter(Boolean).join('_').toLowerCase().replace(/\s+/g,'_');
-    const stored2 = localStorage.getItem('geo_' + key2);
-    if (stored2) { try { const r = JSON.parse(stored2); geocodeCache[key] = r; return r; } catch {} }
-    try {
-      const url2 = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent([plz,ort,'Deutschland'].filter(Boolean).join(', '))}&format=json&limit=1`;
-      const resp2 = await fetch(url2, { headers: { 'Accept-Language': 'de' } });
-      const data2 = await resp2.json();
-      if (data2 && data2[0]) {
-        const result2 = { lat: parseFloat(data2[0].lat), lon: parseFloat(data2[0].lon), approximate: true };
-        geocodeCache[key] = result2;
-        localStorage.setItem('geo_' + key2, JSON.stringify(result2));
-        return result2;
-      }
-    } catch {}
-  }
   return null;
+}
+
+// Background refinement — updates marker position after PLZ approximation
+async function refineGeocode(key, strada, plz, ort) {
+  await new Promise(r=>setTimeout(r,200)); // small delay
+  try {
+    const q = [strada, plz, ort, 'Deutschland'].filter(Boolean).join(', ');
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`;
+    const resp = await fetch(url, {headers:{'Accept-Language':'de','User-Agent':'ReclamationApp/1.0'}});
+    const data = await resp.json();
+    if (data && data[0]) {
+      const r = { lat:parseFloat(data[0].lat), lon:parseFloat(data[0].lon), approximate:false };
+      geocodeCache[key] = r;
+      localStorage.setItem('geo_'+key, JSON.stringify(r));
+    }
+  } catch {}
 }
 
 async function renderStatsHarta(d) {
@@ -2643,7 +2687,8 @@ async function loadHartaMarkers(d, filter) {
     `;
   }
 
-  if (progress) progress.textContent = `Se geocodifică... 0/${recl.length}`;
+  const knownPLZ = recl.filter(r => PLZ_COORDS[(r.plz||'').trim()]).length;
+  if (progress) progress.textContent = `⚡ ${knownPLZ} instant · 🌐 ${recl.filter(r=>r.plz&&!PLZ_COORDS[r.plz.trim()]).length} online`;
 
   // Batch geocode cu delay pentru a respecta rate limits Nominatim
   let done = 0;
@@ -2689,8 +2734,10 @@ async function loadHartaMarkers(d, filter) {
       .bindPopup(popup, { maxWidth: 300 });
     markers.push(marker);
 
-    // Throttle: 1 req/sec Nominatim
-    await new Promise(r => setTimeout(r, 1100));
+    // Small delay only for unknown PLZ (needs Nominatim)
+    if (!PLZ_COORDS[(r.plz||'').trim()]) {
+      await new Promise(resolve => setTimeout(resolve, 800));
+    }
   }
 
   hartaMarkers.addLayers(markers);
