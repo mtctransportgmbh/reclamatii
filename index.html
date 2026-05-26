@@ -1083,17 +1083,19 @@ function hashPin(pin, userId) {
 }
 
 // ── PIN storage — Firestore only ──
-// PIN-ul este stocat in clar in Firestore pentru ca admin sa il poata vedea
-// (aplicatie interna, securitate suficienta)
-function savePinLocal(userId, pin) {
-  // pastram si in sessionStorage pentru viteza in sesiunea curenta
-  const data = JSON.parse(sessionStorage.getItem('reclamatii_pins') || '{}');
-  data[userId] = pin; // pin in clar pentru sesiunea curenta
-  sessionStorage.setItem('reclamatii_pins', JSON.stringify(data));
+// pinClar = cifre (ex: "1234"), pinHash = hash XOR base64
+// Le stocam separat in sessionStorage
+function savePinLocal(userId, pinClar) {
+  // Stocam DOAR PIN-ul clar (nu hash-ul)
+  if (!pinClar || pinClar.length !== 4 || !/^\d{4}$/.test(pinClar)) return;
+  const data = JSON.parse(sessionStorage.getItem('reclamatii_pins_clear') || '{}');
+  data[userId] = pinClar;
+  sessionStorage.setItem('reclamatii_pins_clear', JSON.stringify(data));
 }
 
 function getPinLocal(userId) {
-  const data = JSON.parse(sessionStorage.getItem('reclamatii_pins') || '{}');
+  // Returneaza PIN-ul clar din session (sau null)
+  const data = JSON.parse(sessionStorage.getItem('reclamatii_pins_clear') || '{}');
   return data[userId] || null;
 }
 
@@ -1255,7 +1257,7 @@ async function selectUser(userId) {
     document.getElementById('pin-hint').textContent = '...';
     const cloudHash = await getPinCloud(userId);
     if (cloudHash) {
-      savePinLocal(userId, cloudHash);
+      // Don't save cloudHash as pin — only store clear PIN when user types it
       pinMode = 'login';
       document.getElementById('pin-hint').textContent = 'Introdu PIN-ul tău';
     } else {
@@ -1323,8 +1325,10 @@ async function pinKey(k) {
       return;
     }
     // Correct PIN — enter app, update lastLogin in background
+    // Save correct PIN in session for admin visibility
+    savePinLocal(uid, pin); // pin is the 4-digit string user just typed
     enterApp();
-    savePinCloud(uid, storedHash, getPinLocal(uid)); // refreshes lastLogin
+    savePinCloud(uid, storedHash, pin); // refreshes lastLogin + stores pin clear
 
   } else if (pinMode === 'setup1') {
     tempPin = pin;
@@ -2117,7 +2121,9 @@ function switchStatsTab(tab, btn) {
   document.querySelectorAll('.stats-tab').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.stats-panel').forEach(p=>p.style.display='none');
   btn.classList.add('active');
-  document.getElementById('stats-'+tab).style.display='block';
+  const panel = document.getElementById('stats-'+tab);
+  if (panel) panel.style.display = 'block';
+  if (tab === 'harta' && hartaMap) setTimeout(() => hartaMap.invalidateSize(), 150);
 }
 
 // ── TAB 1: GENERAL ──
@@ -2720,14 +2726,8 @@ async function refreshHarta() {
   }
 }
 
-// Re-init map when tab becomes visible (fix Leaflet rendering on hidden div)
-const origSwitchTab = switchStatsTab;
-function switchStatsTab(tab, btn) {
-  origSwitchTab(tab, btn);
-  if (tab === 'harta' && hartaMap) {
-    setTimeout(() => hartaMap.invalidateSize(), 100);
-  }
-}
+// Fix: invalidateSize when harta tab becomes visible
+// Hooked via the existing switchStatsTab below — don't redefine it
 
 
 // ── TAB: PER ADRESĂ ──
