@@ -2113,7 +2113,18 @@ async function renderStatistici() {
     renderStatsHarta(statsCache);
     renderStatsAlerte(statsCache);
   } catch(e) {
-    el.innerHTML = `<div class="empty"><div class="empty-title">Eroare la încărcare</div><div class="empty-sub">${e.message}</div></div>`;
+    const isPermission = e.message && (e.message.includes('permission') || e.message.includes('Permission'));
+    el.innerHTML = `<div class="empty">
+      <div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/></svg></div>
+      <div class="empty-title" style="color:var(--red)">Eroare la încărcare</div>
+      <div class="empty-sub">${e.message}</div>
+      ${isPermission ? `<div style="margin-top:12px;padding:10px 16px;background:var(--red-bg);border:1px solid rgba(248,113,113,0.2);border-radius:8px;font-size:12px;color:var(--text2);max-width:400px;text-align:left">
+        <strong style="color:var(--red)">Firestore Rules blocheaza accesul.</strong><br/>
+        Mergi la <strong>Firebase Console → Firestore → Rules</strong> și pune:<br/>
+        <code style="font-family:monospace;font-size:11px;color:var(--accent)">allow read, write: if true;</code><br/>
+        apoi apasa <strong>Publish</strong>.
+      </div>` : ''}
+    </div>`;
   }
 }
 
@@ -3132,6 +3143,164 @@ async function handleRechnDrop(e) {
   if (file) handleRechnFile(file);
 }
 
+// ════════════════════════════════════════════════════════
+// PDF PARSER — Hermes Rechnung
+// ════════════════════════════════════════════════════════
+
+// Extrage text cu coordonate X/Y din PDF folosind PDF.js
+async function extractPDFText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        if (typeof pdfjsLib === 'undefined') {
+          reject(new Error('PDF.js nu e încărcat — verifică conexiunea la internet'));
+          return;
+        }
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        const typedArray = new Uint8Array(e.target.result);
+        const pdf = await pdfjsLib.getDocument(typedArray).promise;
+        const pages = [];
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const items = textContent.items
+            .filter(item => item.str && item.str.trim())
+            .map(item => ({
+              text: item.str.trim(),
+              x: Math.round(item.transform[4]),
+              y: Math.round(item.transform[5])
+            }));
+          const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
+          pages.push({
+            items,
+            sorted,
+            plainText: sorted.map(i => i.text).join('
+')
+          });
+        }
+        resolve({ pages, fullText: pages.map(p => p.plainText).join('
+') });
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = () => reject(new Error('Eroare la citirea fișierului'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// Parsează structura tabelară din Anlage Hermes
+function parseHermesPDF(pdfData) {
+  const fullText = typeof pdfData === 'string' ? pdfData : pdfData.fullText;
+  const pages   = typeof pdfData === 'object'  ? pdfData.pages : null;
+  const result  = { belegNr: null, dataEmitere: null, suma: null, pozitii: [] };
+
+  // ── Header from full text ──
+  const belegM = fullText.match(/Beleg-Nr[.\s]+(\d+)/i);
+  if (belegM) result.belegNr = belegM[1];
+  const dataM = fullText.match(/Hamburg,\s*den\s*(\d{2}\.\d{2}\.\d{4})/i);
+  if (dataM) result.dataEmitere = dataM[1];
+  const sumaM = fullText.match(/Forderung\s+gesamt\*?\s*€?\s*([\d.]+,[\d]+)/i);
+  if (sumaM) result.suma = sumaM[1].replace('.','').replace(',','.');
+
+  if (!pages) return result;
+
+  // ── Column X positions ──
+  const KST_X=312, TOUR_X=347, NAME_X=376, STR_X=464, PLZ_X=560, ORT_X=594, DATUM_X=688, FORD_X=744, ATG_X=135, SCHAD_X=234;
+  const T=32;
+  const inCol=(x,c)=>Math.abs(x-c)<T;
+
+  const cleanATG=(raw)=>{
+    const parts=(raw||'').split(/\s+/);
+    const brand=parts.filter(p=>!/^\d{4,}$/.test(p)&&p!=='0000');
+    return [...new Set(brand)].join(' ').replace(/^[,\s]+|[,\s]+$/g,'').trim();
+  };
+
+  const cleanName=(name, tour)=>{
+    if(!name) return '';
+    // Remove tour number if it appears at start: "538 Erna" -> "Erna"
+    const tourStr = String(tour);
+    name = name.replace(new RegExp('^'+tourStr+'\\s+'), '').trim();
+    // Deduplicate: "Erna Aschenbrenner Erna Aschenbrenner" -> "Erna Aschenbrenner"
+    const words = name.split(/\s+/);
+    const half = Math.floor(words.length/2);
+    if(half>=1 && words.slice(0,half).join(' ')===words.slice(half).join(' ')) name=words.slice(0,half).join(' ');
+    return name.trim();
+  };
+
+  const cleanStrasse=(s)=>{
+    if(!s) return '';
+    // Fix "17 Schreinerbauerweg" -> "Schreinerbauerweg 17"
+    const m = s.match(/^(\d+[a-z]?)\s+(.+)$/i);
+    if(m) return m[2]+' '+m[1];
+    return s.trim();
+  };
+
+  for (const page of pages) {
+    const rowMap={};
+    for(const item of page.items){
+      const yk=Math.round(item.y/5)*5;
+      if(!rowMap[yk]) rowMap[yk]=[];
+      rowMap[yk].push(item);
+    }
+
+    const gfr=(rowItems,col)=>
+      rowItems.filter(it=>inCol(it.x,col)).map(it=>it.text).join(' ').trim();
+
+    const yKeys=Object.keys(rowMap).map(Number).sort((a,b)=>b-a);
+
+    for(const yk of yKeys){
+      const mr=rowMap[yk];
+      // Must have 4-digit KST at x≈312
+      if(!mr.some(it=>inCol(it.x,KST_X)&&/^\d{4}$/.test(it.text))) continue;
+      // Tour: 1-4 digits ONLY at x≈347
+      const tourItems=mr.filter(it=>inCol(it.x,TOUR_X)&&/^\d{1,4}$/.test(it.text));
+      if(!tourItems.length) continue;
+      const tour=tourItems[0].text;
+
+      // Collect all items from main row + adjacent rows
+      const allItems=[...mr];
+      for(const dy of [-5,5,-10,10,-15,15,-20,20]){
+        const nr=rowMap[yk+dy];
+        if(!nr) continue;
+        // Skip if adjacent is another main row (has its own KST)
+        if(nr.some(it=>inCol(it.x,KST_X)&&/^\d{4}$/.test(it.text))) continue;
+        allItems.push(...nr);
+      }
+
+      const atg   = gfr(allItems, ATG_X);
+      const schad = gfr(allItems, SCHAD_X);
+      const name  = gfr(allItems, NAME_X);
+      const str   = gfr(allItems, STR_X);
+      const plz   = gfr(allItems, PLZ_X);
+      const ort   = gfr(allItems, ORT_X);
+      const datum = gfr(allItems, DATUM_X);
+      const ford  = gfr(allItems, FORD_X);
+
+      result.pozitii.push({
+        tour,
+        atg: cleanATG(atg),
+        schadenart: schad||'Totalverlust',
+        name: cleanName(name, tour),
+        strasse: cleanStrasse(str),
+        plz: plz.trim(),
+        ort: ort.trim().replace(/\s+A\.\s+/, ' a.d. '), // fix "Wasserburg  A. Inn"
+        datum: datum.trim(),
+        forderung: ford ? parseFloat(ford.replace(/\./g,'').replace(',','.')) : 0
+      });
+    }
+
+    result.pozitii.sort((a,b)=>{
+      if(!a.datum||!b.datum) return 0;
+      const td=s=>{const p=s.split('.');return new Date(parseInt(p[2])<100?2000+parseInt(p[2]):parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0]));};
+      return td(b.datum)-td(a.datum);
+    });
+  }
+  return result;
+}
+
 async function handleRechnFile(file) {
   if (!file || !file.name.endsWith('.pdf')) { toast('Selectează un fișier PDF','error'); return; }
 
@@ -3140,7 +3309,9 @@ async function handleRechnFile(file) {
 
   try {
     const pdfData = await extractPDFText(file);
+    console.log('PDF extracted, pages:', pdfData.pages?.length, 'fullText length:', pdfData.fullText?.length);
     const parsed = parseHermesPDF(pdfData);
+    console.log('Parsed result:', parsed.belegNr, parsed.pozitii?.length, 'pozitii');
     parsed._file = file;
     parsedRechnData = parsed;
 
