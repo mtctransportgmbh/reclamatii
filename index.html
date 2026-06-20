@@ -3366,9 +3366,13 @@ function renderRechnCard(r) {
           ${currentUser?.role === 'admin' ? `
             <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px" onclick="event.stopPropagation();verifyRechn('${r.id}',false)" title="OK">✓</button>
             <button class="btn btn-danger" style="padding:5px 10px;font-size:11px" onclick="event.stopPropagation();verifyRechn('${r.id}',true)" title="Dispută">⚠</button>
+            <button class="icon-btn" style="width:28px;height:28px" onclick="event.stopPropagation();triggerReparseRechn('${r.id}')" title="Re-parsează din PDF (corectează ATG/date dacă au fost extrase greșit)">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+            </button>
             <button class="icon-btn red" style="width:28px;height:28px" onclick="event.stopPropagation();deleteRechn('${r.id}','${r.belegNr||''}')" title="Șterge">
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
             </button>
+            <input type="file" id="reparse-input-${r.id}" accept=".pdf" style="display:none" onchange="handleReparseFile(this.files[0],'${r.id}')"/>
           ` : ''}
           <!-- Sageata expand -->
           <div id="${cardId}-arrow" style="transition:transform 0.2s;color:var(--text3)">
@@ -3434,6 +3438,37 @@ async function verifyRechn(id, dispute) {
   });
   toast(dispute ? '⚠ Marcată ca dispută' : '✓ Marcată ca verificată');
   renderRechnunguri();
+}
+
+function triggerReparseRechn(id) {
+  document.getElementById('reparse-input-' + id)?.click();
+}
+
+async function handleReparseFile(file, rechnId) {
+  if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
+    toast('Selectează un fișier PDF', 'error'); return;
+  }
+  toast('Se re-parsează PDF-ul...', 'info');
+  try {
+    const pdfData = await extractPDFText(file);
+    const parsed = parseHermesPDF(pdfData);
+
+    if (!parsed.pozitii || !parsed.pozitii.length) {
+      toast('⚠ Nu s-au putut extrage poziții din acest PDF', 'error');
+      return;
+    }
+
+    const updateData = { pozitii: parsed.pozitii, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+    if (parsed.belegNr) updateData.belegNr = parsed.belegNr;
+    if (parsed.dataEmitere) updateData.dataEmitere = parsed.dataEmitere;
+    if (parsed.suma) updateData.suma = parsed.suma;
+
+    await db.collection('rechnunguri').doc(rechnId).update(updateData);
+    toast(`✓ Re-parsat cu succes! ${parsed.pozitii.length} poziții actualizate.`);
+    renderRechnunguri();
+  } catch(e) {
+    toast('Eroare la re-parsare: ' + e.message, 'error');
+  }
 }
 
 async function deleteRechn(id, belegNr) {
@@ -4168,6 +4203,8 @@ function parseSachverhaltPDF(pdfData) {
   if (!pages || !pages[0]) return result;
 
   const items = pages[0].items;
+  // NOTA: PDF.js foloseste coordonate PDF native (Y creste in SUS, de la baza paginii)
+  // Deci liniile urmatoare (citite de sus in jos pe pagina) au Y DESCRESCATOR, nu crescator!
   const atY = (yk, xmin, xmax, tol) => items.filter(it =>
     Math.abs(it.y - yk) <= (tol||2) && (xmin===undefined || it.x>=xmin) && (xmax===undefined || it.x<=xmax)
   ).sort((a,b)=>a.x-b.x);
@@ -4181,11 +4218,11 @@ function parseSachverhaltPDF(pdfData) {
   let y = findLabelY('Rückinfo bis:');
   if (y !== null) result.ruckinfo = atY(y, 200).map(v=>v.text).join(' ');
 
-  // Auftraggeber (poate fi pe 2 randuri)
+  // Auftraggeber (poate fi pe 2 randuri) — linia 2 e MAI JOS pe pagina = Y MAI MIC
   y = findLabelY('Auftraggeber');
   if (y !== null) {
     const l1 = atY(y, 200, 600).map(v=>v.text).join(' ');
-    const l2 = atY(y+12, 200, 600).map(v=>v.text).join(' ');
+    const l2 = atY(y-12, 200, 600).map(v=>v.text).join(' ');
     result.auftraggeber = (l1 + ' ' + l2).trim();
   }
 
@@ -4201,13 +4238,13 @@ function parseSachverhaltPDF(pdfData) {
   y = findLabelY('Auftragsnummer');
   if (y !== null) result.auftragsnummer = atY(y, 200).map(v=>v.text).join(' ');
 
-  // Zustelladresse: header, apoi nume (+13), strada (+36), plz/ort (+47)
+  // Zustelladresse: header, apoi nume (-13), strada (-36), plz/ort (-47) — toate MAI JOS = Y MAI MIC
   const headerItem = items.find(it => it.text === 'Zustelladresse');
   if (headerItem) {
     const yh = headerItem.y;
-    result.name = atY(yh+13, 250, 420).map(v=>v.text).join(' ').trim();
-    result.strasse = atY(yh+36, 250, 420).map(v=>v.text).join(' ').trim();
-    const plzText = atY(yh+47, 250, 420).map(v=>v.text).join(' ').trim();
+    result.name = atY(yh-13, 250, 420).map(v=>v.text).join(' ').trim();
+    result.strasse = atY(yh-36, 250, 420).map(v=>v.text).join(' ').trim();
+    const plzText = atY(yh-47, 250, 420).map(v=>v.text).join(' ').trim();
     const plzM = plzText.match(/^(\d{5})\s*(.+)/);
     if (plzM) { result.plz = plzM[1]; result.ort = plzM[2]; }
   }
@@ -4226,6 +4263,7 @@ function parseSachverhaltPDF(pdfData) {
   }
 
   // Tabel: gasim "Datum" header, apoi randul cu "Zugestellt"
+  // Header e cel mai SUS (Y cel mai mare), randurile tabelului sunt sub el (Y mai mic)
   const headerDatum = items.find(it => it.text === 'Datum' && it.x < 100);
   if (headerDatum) {
     const zugestellt = items.find(it => it.text.includes('Zugestellt') && it.y < headerDatum.y);
@@ -4234,7 +4272,10 @@ function parseSachverhaltPDF(pdfData) {
       result.deliveryDate = atY(yk, 50, 120).map(v=>v.text).join(' ');
       result.deliveryStatus = atY(yk, 230, 420).map(v=>v.text).join(' ');
       result.tour = atY(yk, 500, 560).map(v=>v.text).join(' ').trim();
-      result.deliveryTime = atY(yk+10, 50, 120, 4).map(v=>v.text).join(' ');
+      // Ora e pe linia de DEASUPRA datei in randul vizual (Y putin mai mare) — verificam ambele directii
+      let timeRow = atY(yk+10, 50, 120, 4);
+      if (!timeRow.length) timeRow = atY(yk-10, 50, 120, 4);
+      result.deliveryTime = timeRow.map(v=>v.text).join(' ');
     }
   }
 
