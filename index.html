@@ -3838,12 +3838,47 @@ async function checkRechnPozitiiAgainstManual(pozitii) {
   }
 }
 
+// Verifica daca un rechnung cu acelasi Nr. Beleg a mai fost incarcat deja
+async function checkRechnungDuplicat(belegNr) {
+  if (!belegNr) return null;
+  try {
+    const snap = await db.collection('rechnunguri').where('belegNr','==',belegNr).limit(1).get();
+    if (!snap.empty) {
+      const doc = snap.docs[0];
+      return { id: doc.id, ...doc.data() };
+    }
+  } catch(e) { console.warn('Check duplicat rechnung failed:', e.message); }
+  return null;
+}
+
 async function saveOneRechn(qid) {
   const entry = multiRechnQueue.find(e => e.qid === qid);
   if (!entry || entry.saved) return;
 
   try {
     const { parsed, luna, an } = entry;
+
+    // Verificare duplicat dupa Nr. Beleg — un rechnung Hermes are mereu un numar unic
+    if (parsed.belegNr) {
+      const dup = await checkRechnungDuplicat(parsed.belegNr);
+      if (dup) {
+        const uploadDate = dup.uploadedAt?.toDate ? dup.uploadedAt.toDate().toLocaleDateString('ro-RO') : '—';
+        const ok = confirm(
+          '⚠ ATENȚIE — Acest Rechnung a fost deja încărcat!\n\n' +
+          'Nr. Beleg ' + parsed.belegNr + ' există deja în sistem.\n' +
+          'Încărcat pe: ' + uploadDate + '\n' +
+          'Sumă: €' + (dup.suma ? parseFloat(dup.suma).toFixed(2) : '—') + '\n' +
+          'Poziții: ' + (dup.pozitii?.length || 0) + '\n\n' +
+          'Dacă continui, vei avea DOUĂ înregistrări identice și sumele se vor dubla în statistici!\n\n' +
+          'Vrei să salvezi oricum (NU recomandat)?'
+        );
+        if (!ok) {
+          toast('Rechnung anulat — există deja în sistem', 'info');
+          return;
+        }
+      }
+    }
+
     const pozitiiVerificate = await checkRechnPozitiiAgainstManual(parsed.pozitii || []);
     const suprapuneri = pozitiiVerificate.filter(p => p._existaManual);
 
@@ -3890,11 +3925,24 @@ async function saveAllRechn() {
   btn.disabled = true;
 
   let savedCount = 0;
+  let skippedDuplicates = [];
   let totalSuprapuneri = 0;
   for (const entry of toSave) {
     btn.innerHTML = `Se verifică ${savedCount+1}/${toSave.length}...`;
     try {
       const { parsed, luna, an } = entry;
+
+      // Skip automat daca e duplicat dupa Nr. Beleg (la bulk nu intrerupem cu popup per fisier)
+      if (parsed.belegNr) {
+        const dup = await checkRechnungDuplicat(parsed.belegNr);
+        if (dup) {
+          skippedDuplicates.push(parsed.belegNr);
+          entry.status = 'error';
+          entry.error = 'Duplicat — Nr. Beleg ' + parsed.belegNr + ' există deja în sistem';
+          continue;
+        }
+      }
+
       const pozitiiVerificate = await checkRechnPozitiiAgainstManual(parsed.pozitii || []);
       const suprapuneri = pozitiiVerificate.filter(p => p._existaManual);
       totalSuprapuneri += suprapuneri.length;
@@ -3920,7 +3968,11 @@ async function saveAllRechn() {
 
   btn.innerHTML = '✓ Salvează toate';
   btn.disabled = false;
-  toast(`✓ ${savedCount} rechnung-uri salvate!` + (totalSuprapuneri>0?` ⚠ ${totalSuprapuneri} suprapuneri cu reclamații manuale — verifică Statistici → Alerte`:''));
+
+  let msg = `✓ ${savedCount} rechnung-uri salvate!`;
+  if (skippedDuplicates.length) msg += ` ⚠ ${skippedDuplicates.length} sărite (deja existau: ${skippedDuplicates.join(', ')})`;
+  if (totalSuprapuneri>0) msg += ` ⚠ ${totalSuprapuneri} suprapuneri cu reclamații manuale`;
+  toast(msg);
   renderRechnQueue();
   renderRechnunguri();
 }
