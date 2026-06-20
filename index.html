@@ -3178,12 +3178,10 @@ async function extractPDFText(file) {
           pages.push({
             items,
             sorted,
-            plainText: sorted.map(i => i.text).join('
-')
+            plainText: sorted.map(i => i.text).join('\n')
           });
         }
-        resolve({ pages, fullText: pages.map(p => p.plainText).join('
-') });
+        resolve({ pages, fullText: pages.map(p => p.plainText).join('\n') });
       } catch (err) { reject(err); }
     };
     reader.onerror = () => reject(new Error('Eroare la citirea fișierului'));
