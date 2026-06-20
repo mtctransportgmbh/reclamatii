@@ -3549,7 +3549,7 @@ let rechnQueueIdCounter = 0;
 // Actualizeaza acest URL dupa ce faci deploy pe Render.com (vezi README server)
 // Daca serverul nu raspunde, aplicatia cade automat pe parserul local (PDF.js)
 // ════════════════════════════════════════════════════════
-const HERMES_PARSER_SERVER_URL = 'https://hermes-parser-server.onrender.com/';
+const HERMES_PARSER_SERVER_URL = 'https://hermes-parser-server.onrender.com/parse';
 
 async function parseViaServer(file) {
   const formData = new FormData();
