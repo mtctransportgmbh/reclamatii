@@ -3544,36 +3544,89 @@ async function handleRechnDrop(e) {
 let multiRechnQueue = [];
 let rechnQueueIdCounter = 0;
 
+// ════════════════════════════════════════════════════════
+// SERVER PARSER — extragere 100% sigura via pdfplumber (Python)
+// Actualizeaza acest URL dupa ce faci deploy pe Render.com (vezi README server)
+// Daca serverul nu raspunde, aplicatia cade automat pe parserul local (PDF.js)
+// ════════════════════════════════════════════════════════
+const HERMES_PARSER_SERVER_URL = 'https://hermes-parser-server.onrender.com/';
+
+async function parseViaServer(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000); // 45s — Render free tier poate fi "adormit"
+
+  try {
+    const resp = await fetch(HERMES_PARSER_SERVER_URL, {
+      method: 'POST',
+      body: formData,
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (!resp.ok) throw new Error('Server a răspuns cu eroare ' + resp.status);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    return data;
+  } catch (e) {
+    clearTimeout(timeout);
+    throw e;
+  }
+}
+
 async function handleRechnFiles(fileList) {
   const files = Array.from(fileList).filter(f => f.name.endsWith('.pdf'));
   if (!files.length) { toast('Selectează fișiere PDF', 'error'); return; }
 
   for (const file of files) {
     const qid = 'rq' + (rechnQueueIdCounter++);
-    const entry = { qid, file, status: 'parsing', parsed: null, error: null, saved: false };
+    const entry = { qid, file, status: 'parsing', parsed: null, error: null, saved: false, viaServer: false };
     multiRechnQueue.push(entry);
     renderRechnQueue();
 
-    try {
-      const pdfData = await extractPDFText(file);
-      const parsed = parseHermesPDF(pdfData);
-      entry.parsed = parsed;
-      entry.status = 'ready';
+    let parsed = null;
+    let usedServer = false;
 
-      // Auto-completam luna/an din data emiterii
-      if (parsed.dataEmitere) {
-        const p = parsed.dataEmitere.split('.');
-        if (p.length === 3) {
-          entry.luna = parseInt(p[1]);
-          entry.an = parseInt(p[2]) < 100 ? 2000+parseInt(p[2]) : parseInt(p[2]);
-        }
+    // Incercam serverul Python (sigur, 100% determinist) — daca e configurat si raspunde
+    if (HERMES_PARSER_SERVER_URL && !HERMES_PARSER_SERVER_URL.includes('REPLACE')) {
+      try {
+        const statusEl = document.getElementById('rn-bulk-summary');
+        if (statusEl) statusEl.innerHTML = '🔄 Se parsează pe server (poate dura până la 1 min dacă serverul tocmai a pornit)...';
+        parsed = await parseViaServer(file);
+        usedServer = true;
+      } catch (e) {
+        console.warn('Server parsing failed, falling back to local PDF.js:', e.message);
       }
-      if (!entry.luna) entry.luna = new Date().getMonth()+1;
-      if (!entry.an) entry.an = new Date().getFullYear();
-    } catch(e) {
-      entry.status = 'error';
-      entry.error = e.message;
     }
+
+    // Fallback: parser local PDF.js (mai putin precis, dar functioneaza fara server)
+    if (!parsed) {
+      try {
+        const pdfData = await extractPDFText(file);
+        parsed = parseHermesPDF(pdfData);
+      } catch(e) {
+        entry.status = 'error';
+        entry.error = e.message;
+        renderRechnQueue();
+        continue;
+      }
+    }
+
+    entry.parsed = parsed;
+    entry.status = 'ready';
+    entry.viaServer = usedServer;
+
+    // Auto-completam luna/an din data emiterii
+    if (parsed.dataEmitere) {
+      const p = parsed.dataEmitere.split('.');
+      if (p.length === 3) {
+        entry.luna = parseInt(p[1]);
+        entry.an = parseInt(p[2]) < 100 ? 2000+parseInt(p[2]) : parseInt(p[2]);
+      }
+    }
+    if (!entry.luna) entry.luna = new Date().getMonth()+1;
+    if (!entry.an) entry.an = new Date().getFullYear();
+
     renderRechnQueue();
   }
   // Reset file input pentru a permite re-selectarea acelorasi fisiere
@@ -3653,6 +3706,9 @@ function renderRechnQueueCard(entry) {
             ${parsed.dataEmitere ? `<span style="font-size:11px;color:var(--text3)">${parsed.dataEmitere}</span>` : ''}
             <span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${sumaShown.toFixed(2)}</span>
             ${saved ? '<span class="badge badge-green">✓ Salvat</span>' : `<span class="badge ${pozCount>0?'badge-yellow':'badge-red'}">${pozCount} poziții</span>`}
+            ${entry.viaServer
+              ? '<span class="badge badge-green" title="Parsat pe server — extragere 100% sigură">🛡 Server</span>'
+              : '<span class="badge badge-gray" title="Parsat local (fallback) — verifică cu atenție datele">⚠ Local</span>'}
           </div>
           <div style="font-size:11px;color:var(--text3)">${file.name}</div>
         </div>
