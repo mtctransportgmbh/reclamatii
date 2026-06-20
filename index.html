@@ -3874,48 +3874,6 @@ async function saveAllRechn() {
 // ════════════════════════════════════════════════════════
 
 // Extrage text cu coordonate X/Y din PDF folosind PDF.js
-// Extrage liniile orizontale desenate dintr-o pagina PDF (folosite pt detectarea
-// granitelor reale ale randurilor din tabel Hermes — mult mai sigur decat
-// estimarea din distante intre text)
-async function extractPageLines(page) {
-  const ops = await page.getOperatorList();
-  const viewport = page.getViewport({ scale: 1 });
-  const pageHeight = viewport.height;
-  const lines = [];
-
-  // Cautam operatori de tip "lineTo" / "moveTo" care formeaza linii orizontale
-  // OPS.constructPath are argumente: [fnArray, argsArray]
-  let currentX = null, currentY = null;
-  for (let i = 0; i < ops.fnArray.length; i++) {
-    const fn = ops.fnArray[i];
-    const args = ops.argsArray[i];
-
-    if (fn === pdfjsLib.OPS.constructPath) {
-      // args[0] = array de operatii (moveTo=13, lineTo=14 etc in pdf.js intern)
-      // args[1] = array de coordonate flat [x1,y1,x2,y2,...]
-      const subOps = args[0];
-      const coords = args[1];
-      let ci = 0;
-      let lastX = null, lastY = null;
-      for (const subOp of subOps) {
-        if (subOp === pdfjsLib.OPS.moveTo) {
-          lastX = coords[ci++]; lastY = coords[ci++];
-        } else if (subOp === pdfjsLib.OPS.lineTo) {
-          const x2 = coords[ci++], y2 = coords[ci++];
-          if (lastX !== null && Math.abs(lastY - y2) < 0.5 && Math.abs(lastX - x2) > 5) {
-            // Linie orizontala (Y aproape identic, X diferit semnificativ)
-            lines.push({ x0: Math.min(lastX, x2), x1: Math.max(lastX, x2), y: lastY });
-          }
-          lastX = x2; lastY = y2;
-        } else if (subOp === pdfjsLib.OPS.closePath) {
-          // ignore
-        }
-      }
-    }
-  }
-  return lines;
-}
-
 async function extractPDFText(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -3943,15 +3901,9 @@ async function extractPDFText(file) {
               y: Math.round(item.transform[5])
             }));
           const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
-
-          // Extragem si liniile orizontale desenate (granite reale ale randurilor tabel)
-          let tableLines = [];
-          try { tableLines = await extractPageLines(page); } catch(e) { console.warn('Line extraction failed:', e.message); }
-
           pages.push({
             items,
             sorted,
-            tableLines,
             plainText: sorted.map(i => i.text).join('\n')
           });
         }
@@ -3979,7 +3931,7 @@ function parseHermesPDF(pdfData) {
 
   if (!pages) return result;
 
-  // ── Column X positions (centre of each column, pt. fallback text-based) ──
+  // ── Column X positions ──
   const KST_X=312, TOUR_X=347, NAME_X=376, STR_X=464, PLZ_X=560, ORT_X=594, DATUM_X=688, FORD_X=744, ATG_X=135, SCHAD_X=234;
   const T=32;
   const inCol=(x,c)=>Math.abs(x-c)<T;
@@ -4008,123 +3960,64 @@ function parseHermesPDF(pdfData) {
   };
 
   for (const page of pages) {
-    const gfrItems = (items, col) =>
-      items.filter(it=>inCol(it.x,col)).map(it=>it.text).join(' ').trim();
-
-    // ════════════════════════════════════════════════
-    // METODA 1 (PRIORITARA): grupare pe baza liniilor REALE
-    // ale tabelului, desenate de Hermes — sigur, fara ambiguitate
-    // ════════════════════════════════════════════════
-    let usedLineMethod = false;
-    if (page.tableLines && page.tableLines.length >= 3) {
-      // Filtram doar liniile orizontale "late" (traverseaza majoritatea tabelului, lungime > 400px)
-      // ca sa eliminam liniile mici/decorative care nu separa randuri
-      const wideLines = page.tableLines.filter(l => (l.x1 - l.x0) > 400);
-      // Y unice, rotunjite, sortate descrescator (PDF.js: Y mare = sus pe pagina)
-      const yBoundaries = [...new Set(wideLines.map(l => Math.round(l.y)))].sort((a,b)=>b-a);
-
-      if (yBoundaries.length >= 3) {
-        usedLineMethod = true;
-        console.log('✓ Parser Hermes: folosesc liniile REALE ale tabelului ('+yBoundaries.length+' granițe Y detectate) — metodă sigură');
-        // Fiecare pereche consecutiva de linii defineste un rand (banda Y)
-        for (let i = 0; i < yBoundaries.length - 1; i++) {
-          const yTop = yBoundaries[i];
-          const yBot = yBoundaries[i+1];
-          // Ignoram benzi prea inalte (probabil header/footer in afara tabelului de date)
-          // sau prea mici (linii duplicate foarte apropiate)
-          if (yTop - yBot < 8) continue;
-
-          // Toate item-urile de text in aceasta banda Y (stricta intre yBot si yTop)
-          const rowItems = page.items.filter(it => it.y > yBot && it.y <= yTop);
-          if (!rowItems.length) continue;
-
-          // Verificam ca randul are Kst (4 cifre la coloana KST) — altfel e header/footer
-          if (!rowItems.some(it=>inCol(it.x,KST_X)&&/^\d{4}$/.test(it.text))) continue;
-
-          const tourItems = rowItems.filter(it=>inCol(it.x,TOUR_X)&&/^\d{1,4}$/.test(it.text));
-          const tour = tourItems.length ? tourItems[0].text : '';
-
-          const atg   = gfrItems(rowItems, ATG_X);
-          const schad = gfrItems(rowItems, SCHAD_X);
-          const name  = gfrItems(rowItems, NAME_X);
-          const str   = gfrItems(rowItems, STR_X);
-          const plz   = gfrItems(rowItems, PLZ_X);
-          const ort   = gfrItems(rowItems, ORT_X);
-          const datum = gfrItems(rowItems, DATUM_X);
-          const ford  = gfrItems(rowItems, FORD_X);
-
-          result.pozitii.push({
-            tour,
-            atg: cleanATG(atg),
-            schadenart: schad||'Totalverlust',
-            name: cleanName(name, tour),
-            strasse: cleanStrasse(str),
-            plz: plz.trim(),
-            ort: ort.trim().replace(/\s+A\.\s+/, ' a.d. '),
-            datum: datum.trim(),
-            forderung: ford ? parseFloat(ford.replace(/\./g,'').replace(',','.')) : 0
-          });
-        }
-      }
+    const rowMap={};
+    for(const item of page.items){
+      const yk=Math.round(item.y/5)*5;
+      if(!rowMap[yk]) rowMap[yk]=[];
+      rowMap[yk].push(item);
     }
 
-    // ════════════════════════════════════════════════
-    // METODA 2 (FALLBACK): boundary pe coordonate text,
-    // folosita doar daca liniile tabelului nu s-au putut extrage
-    // ════════════════════════════════════════════════
-    if (!usedLineMethod) {
-      console.log('⚠ Parser Hermes: liniile tabelului nu s-au detectat — folosesc metoda fallback (boundary pe coordonate text)');
-      const rowMap={};
-      for(const item of page.items){
-        const yk=Math.round(item.y/5)*5;
-        if(!rowMap[yk]) rowMap[yk]=[];
-        rowMap[yk].push(item);
+    const gfr=(rowItems,col)=>
+      rowItems.filter(it=>inCol(it.x,col)).map(it=>it.text).join(' ').trim();
+
+    const yKeys=Object.keys(rowMap).map(Number).sort((a,b)=>b-a);
+
+    // Boundary-based row grouping: fiecare pozitie ia DOAR randurile
+    // strict intre ea si vecinii ei (sau ±25px daca e prima/ultima)
+    // Asta evita "bleed" de date intre pozitii apropiate sau header/footer leak
+    for(let idx=0; idx<yKeys.length; idx++){
+      const yk=yKeys[idx];
+      const mr=rowMap[yk];
+      if(!mr.some(it=>inCol(it.x,KST_X)&&/^\d{4}$/.test(it.text))) continue;
+
+      const tourItems=mr.filter(it=>inCol(it.x,TOUR_X)&&/^\d{1,4}$/.test(it.text));
+      const tour = tourItems.length ? tourItems[0].text : '';
+
+      // yKeys e sortat descrescator: yKeys[idx-1] = randul de DEASUPRA (Y mai mare)
+      //                              yKeys[idx+1] = randul de DEDESUBT (Y mai mic)
+      const upperMain = idx>0 ? yKeys[idx-1] : null;
+      const lowerMain = idx<yKeys.length-1 ? yKeys[idx+1] : null;
+      const upperLimit = upperMain!==null ? (yk+upperMain)/2 : yk+25;
+      const lowerLimit = lowerMain!==null ? (yk+lowerMain)/2 : yk-25;
+
+      const allItems=[...mr];
+      for(const yCand of Object.keys(rowMap).map(Number)){
+        if(yCand===yk) continue;
+        const candRow=rowMap[yCand];
+        if(candRow.some(it=>inCol(it.x,KST_X)&&/^\d{4}$/.test(it.text))) continue; // skip alt main row
+        if(yCand>=lowerLimit && yCand<=upperLimit) allItems.push(...candRow);
       }
-      const gfr=(rowItems,col)=> gfrItems(rowItems, col);
-      const yKeys=Object.keys(rowMap).map(Number).sort((a,b)=>b-a);
 
-      for(let idx=0; idx<yKeys.length; idx++){
-        const yk=yKeys[idx];
-        const mr=rowMap[yk];
-        if(!mr.some(it=>inCol(it.x,KST_X)&&/^\d{4}$/.test(it.text))) continue;
+      const atg   = gfr(allItems, ATG_X);
+      const schad = gfr(allItems, SCHAD_X);
+      const name  = gfr(allItems, NAME_X);
+      const str   = gfr(allItems, STR_X);
+      const plz   = gfr(allItems, PLZ_X);
+      const ort   = gfr(allItems, ORT_X);
+      const datum = gfr(allItems, DATUM_X);
+      const ford  = gfr(allItems, FORD_X);
 
-        const tourItems=mr.filter(it=>inCol(it.x,TOUR_X)&&/^\d{1,4}$/.test(it.text));
-        const tour = tourItems.length ? tourItems[0].text : '';
-
-        const upperMain = idx>0 ? yKeys[idx-1] : null;
-        const lowerMain = idx<yKeys.length-1 ? yKeys[idx+1] : null;
-        const upperLimit = upperMain!==null ? (yk+upperMain)/2 : yk+25;
-        const lowerLimit = lowerMain!==null ? (yk+lowerMain)/2 : yk-25;
-
-        const allItems=[...mr];
-        for(const yCand of Object.keys(rowMap).map(Number)){
-          if(yCand===yk) continue;
-          const candRow=rowMap[yCand];
-          if(candRow.some(it=>inCol(it.x,KST_X)&&/^\d{4}$/.test(it.text))) continue;
-          if(yCand>=lowerLimit && yCand<=upperLimit) allItems.push(...candRow);
-        }
-
-        const atg   = gfr(allItems, ATG_X);
-        const schad = gfr(allItems, SCHAD_X);
-        const name  = gfr(allItems, NAME_X);
-        const str   = gfr(allItems, STR_X);
-        const plz   = gfr(allItems, PLZ_X);
-        const ort   = gfr(allItems, ORT_X);
-        const datum = gfr(allItems, DATUM_X);
-        const ford  = gfr(allItems, FORD_X);
-
-        result.pozitii.push({
-          tour,
-          atg: cleanATG(atg),
-          schadenart: schad||'Totalverlust',
-          name: cleanName(name, tour),
-          strasse: cleanStrasse(str),
-          plz: plz.trim(),
-          ort: ort.trim().replace(/\s+A\.\s+/, ' a.d. '),
-          datum: datum.trim(),
-          forderung: ford ? parseFloat(ford.replace(/\./g,'').replace(',','.')) : 0
-        });
-      }
+      result.pozitii.push({
+        tour,
+        atg: cleanATG(atg),
+        schadenart: schad||'Totalverlust',
+        name: cleanName(name, tour),
+        strasse: cleanStrasse(str),
+        plz: plz.trim(),
+        ort: ort.trim().replace(/\s+A\.\s+/, ' a.d. '),
+        datum: datum.trim(),
+        forderung: ford ? parseFloat(ford.replace(/\./g,'').replace(',','.')) : 0
+      });
     }
 
     result.pozitii.sort((a,b)=>{
