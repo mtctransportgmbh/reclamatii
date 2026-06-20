@@ -3030,7 +3030,7 @@ function renderRechnCard(r) {
                   const hasR = !!m.reclamatie;
                   const sc = (m.schadenart||'').includes('Verlust') ? 'var(--red)' : 'var(--accent)';
                   return '<tr style="' + (isCont?'background:rgba(232,197,71,0.04)':'') + '">'
-                    + '<td><span style="font-family:var(--mono);font-weight:700;color:var(--accent)">' + m.tour + '</span></td>'
+                    + '<td><span style="font-family:var(--mono);font-weight:700;color:' + (m.tour?'var(--accent)':'var(--text3)') + '">' + (m.tour||'fără tură') + '</span></td>'
                     + '<td style="font-size:11px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (m.atg||'') + '">' + (m.atg||'—') + '</td>'
                     + '<td style="font-size:11px;color:' + sc + ';font-weight:600">' + (m.schadenart||'—') + '</td>'
                     + '<td style="font-weight:500">' + (m.name||'—') + '</td>'
@@ -3249,23 +3249,30 @@ function parseHermesPDF(pdfData) {
 
     const yKeys=Object.keys(rowMap).map(Number).sort((a,b)=>b-a);
 
-    for(const yk of yKeys){
+    // Boundary-based row grouping: fiecare pozitie ia DOAR randurile
+    // strict intre ea si vecinii ei (sau ±15px daca e prima/ultima)
+    // Asta evita "bleed" de date intre pozitii apropiate sau header/footer leak
+    for(let idx=0; idx<yKeys.length; idx++){
+      const yk=yKeys[idx];
       const mr=rowMap[yk];
-      // Must have 4-digit KST at x≈312
       if(!mr.some(it=>inCol(it.x,KST_X)&&/^\d{4}$/.test(it.text))) continue;
-      // Tour: 1-4 digits ONLY at x≈347
-      const tourItems=mr.filter(it=>inCol(it.x,TOUR_X)&&/^\d{1,4}$/.test(it.text));
-      if(!tourItems.length) continue;
-      const tour=tourItems[0].text;
 
-      // Collect all items from main row + adjacent rows
+      const tourItems=mr.filter(it=>inCol(it.x,TOUR_X)&&/^\d{1,4}$/.test(it.text));
+      const tour = tourItems.length ? tourItems[0].text : '';
+
+      // yKeys e sortat descrescator: yKeys[idx-1] = randul de DEASUPRA (Y mai mare)
+      //                              yKeys[idx+1] = randul de DEDESUBT (Y mai mic)
+      const upperMain = idx>0 ? yKeys[idx-1] : null;
+      const lowerMain = idx<yKeys.length-1 ? yKeys[idx+1] : null;
+      const upperLimit = upperMain!==null ? (yk+upperMain)/2 : yk+15;
+      const lowerLimit = lowerMain!==null ? (yk+lowerMain)/2 : yk-15;
+
       const allItems=[...mr];
-      for(const dy of [-5,5,-10,10,-15,15,-20,20]){
-        const nr=rowMap[yk+dy];
-        if(!nr) continue;
-        // Skip if adjacent is another main row (has its own KST)
-        if(nr.some(it=>inCol(it.x,KST_X)&&/^\d{4}$/.test(it.text))) continue;
-        allItems.push(...nr);
+      for(const yCand of Object.keys(rowMap).map(Number)){
+        if(yCand===yk) continue;
+        const candRow=rowMap[yCand];
+        if(candRow.some(it=>inCol(it.x,KST_X)&&/^\d{4}$/.test(it.text))) continue; // skip alt main row
+        if(yCand>lowerLimit && yCand<upperLimit) allItems.push(...candRow);
       }
 
       const atg   = gfr(allItems, ATG_X);
@@ -3284,7 +3291,7 @@ function parseHermesPDF(pdfData) {
         name: cleanName(name, tour),
         strasse: cleanStrasse(str),
         plz: plz.trim(),
-        ort: ort.trim().replace(/\s+A\.\s+/, ' a.d. '), // fix "Wasserburg  A. Inn"
+        ort: ort.trim().replace(/\s+A\.\s+/, ' a.d. '),
         datum: datum.trim(),
         forderung: ford ? parseFloat(ford.replace(/\./g,'').replace(',','.')) : 0
       });
