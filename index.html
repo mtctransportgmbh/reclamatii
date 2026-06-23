@@ -837,8 +837,18 @@ textarea{resize:vertical;min-height:80px}
       <!-- UTILIZATORI -->
       <div class="page" id="page-utilizatori">
         <div class="page-header">
-          <div class="page-title">Utilizatori & PIN</div>
-          <div class="page-sub">Gestionează PIN-urile utilizatorilor</div>
+          <div>
+            <div class="page-title">Utilizatori & PIN</div>
+            <div class="page-sub">Gestionează PIN-urile utilizatorilor</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost" id="btn-backup" onclick="exportBackup()" style="padding:8px 14px;font-size:12px">
+              💾 Backup JSON
+            </button>
+            <button class="btn btn-ghost" onclick="showImportModal()" style="padding:8px 14px;font-size:12px">
+              📥 Import ODS
+            </button>
+          </div>
         </div>
         <div class="card" style="border-color:rgba(232,197,71,0.2);background:var(--accent-bg);margin-bottom:16px">
           <div style="display:flex;gap:10px;align-items:flex-start">
@@ -4136,6 +4146,288 @@ function parseHermesPDF(pdfData) {
   }
   return result;
 }
+
+// ════════════════════════════════════════════════════════
+// BACKUP — exportă TOATE datele din Firestore într-un JSON
+// ════════════════════════════════════════════════════════
+async function exportBackup() {
+  const btn = document.getElementById('btn-backup');
+  if (btn) { btn.disabled = true; btn.textContent = 'Se exportă...'; }
+  try {
+    const [reclSnap, rechnSnap, soferiSnap, usersSnap] = await Promise.all([
+      db.collection('reclamatii').get(),
+      db.collection('rechnunguri').get(),
+      db.collection('soferi').get(),
+      db.collection('users').get(),
+    ]);
+
+    const backup = {
+      exportedAt: new Date().toISOString(),
+      exportedBy: currentUser?.name || 'unknown',
+      version: '1.0',
+      reclamatii: reclSnap.docs.map(d => ({ _id: d.id, ...d.data() })),
+      rechnunguri: rechnSnap.docs.map(d => ({ _id: d.id, ...d.data() })),
+      soferi: soferiSnap.docs.map(d => ({ _id: d.id, ...d.data() })),
+      users: usersSnap.docs.map(d => ({ _id: d.id, ...omit(d.data(), ['pinHash']) })),
+    };
+
+    // Convertim Firestore Timestamps la ISO string
+    const stringify = (obj) => JSON.stringify(obj, (key, val) => {
+      if (val && typeof val === 'object' && val.toDate) return val.toDate().toISOString();
+      if (val && typeof val === 'object' && val.seconds !== undefined) return new Date(val.seconds*1000).toISOString();
+      return val;
+    }, 2);
+
+    const json = stringify(backup);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backup_reclamatii_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    toast(`✓ Backup exportat: ${backup.reclamatii.length} reclamații, ${backup.rechnunguri.length} rechnunguri, ${backup.soferi.length} șoferi`);
+  } catch(e) {
+    toast('Eroare la backup: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Backup JSON'; }
+  }
+}
+
+function omit(obj, keys) {
+  const r = {...obj};
+  keys.forEach(k => delete r[k]);
+  return r;
+}
+
+// ════════════════════════════════════════════════════════
+// IMPORT ODS — importă reclamații din fișierul vechi (Excel/ODS)
+// Se apelează ODATĂ pentru a migra datele istorice
+// ════════════════════════════════════════════════════════
+let importQueue = [];
+
+function showImportModal() {
+  const modal = document.getElementById('import-modal');
+  if (modal) { modal.style.display = 'flex'; return; }
+
+  const m = document.createElement('div');
+  m.id = 'import-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:800">📥 Import reclamații din ODS</div>
+        <button onclick="document.getElementById('import-modal').style.display='none'" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
+      </div>
+
+      <div id="import-dropzone" style="border:2px dashed var(--border2);border-radius:var(--radius-sm);padding:20px;text-align:center;cursor:pointer;margin-bottom:14px"
+        onclick="document.getElementById('import-ods-input').click()"
+        ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+        ondragleave="this.style.borderColor='var(--border2)'"
+        ondrop="event.preventDefault();this.style.borderColor='var(--border2)';handleImportODSFile(event.dataTransfer.files[0])">
+        <div style="font-size:24px;margin-bottom:6px">📋</div>
+        <div style="font-size:13px;font-weight:600">Trage fișierul ODS/XLSX aici</div>
+        <div style="font-size:11px;color:var(--text3)">sau click pentru a selecta</div>
+        <input type="file" id="import-ods-input" accept=".ods,.xlsx,.xls" style="display:none" onchange="handleImportODSFile(this.files[0])"/>
+      </div>
+
+      <div id="import-preview" style="display:none">
+        <div id="import-stats" style="padding:10px 14px;background:var(--bg3);border-radius:8px;font-size:12px;margin-bottom:12px"></div>
+        <div style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;font-size:11px" id="import-list"></div>
+        <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
+          <button class="btn btn-ghost" onclick="document.getElementById('import-modal').style.display='none'">Anulează</button>
+          <button class="btn btn-primary" id="btn-do-import" onclick="doImportODS()">✓ Importă toate</button>
+        </div>
+      </div>
+      <div id="import-progress" style="display:none;font-size:13px;color:var(--text2);text-align:center;padding:16px"></div>
+    </div>`;
+  document.body.appendChild(m);
+}
+
+async function handleImportODSFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      // Parse using SheetJS (available in the app)
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array', cellStyles: true });
+
+      // Look for "DATE" sheet
+      const sheetName = workbook.SheetNames.find(n => n === 'DATE') || workbook.SheetNames[0];
+      const ws = workbook.Sheets[sheetName];
+
+      // Map cell fill colors to status
+      const GREEN = new Set(['FF66FF00','FF99FF33','FF66FF66','FF99FF66']);
+      const RED   = new Set(['FFFF9999','FFFF8080']);
+
+      const getCellStatus = (cellAddr) => {
+        const cell = ws[cellAddr];
+        if (!cell || !cell.s || !cell.s.bgColor) return 'neprelucrat';
+        // bgColor can be in rgb or argb format
+        let color = (cell.s.bgColor.argb || cell.s.bgColor.rgb || '').toUpperCase().replace('#','');
+        if (color.length === 6) color = 'FF' + color;
+        if (GREEN.has(color)) return 'rezolvata';
+        if (RED.has(color)) return 'nerezolvata';
+        return 'neprelucrat';
+      };
+
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      const rows = [];
+      for (let r = range.s.r + 1; r <= range.e.r; r++) {
+        const getVal = (c) => {
+          const cell = ws[XLSX.utils.encode_cell({r, c})];
+          if (!cell) return '';
+          if (cell.t === 'd') return cell.v ? formatDateDE(cell.v) : '';
+          if (cell.t === 'n' && c === 3) {
+            // Date column stored as number
+            const d = XLSX.SSF.parse_date_code(cell.v);
+            if (d && d.y > 1900) return `${String(d.d).padStart(2,'0')}.${String(d.m).padStart(2,'0')}.${d.y}`;
+            return '';
+          }
+          return String(cell.v || '').trim();
+        };
+
+        const tour = getVal(0);
+        if (!tour || !/^\d+$/.test(tour)) continue;
+
+        const vorname  = getVal(1);
+        const nachname = getVal(2);
+        const datum    = getVal(3);
+        const versender = getVal(4);
+        const seNr     = getVal(5);
+        const termin   = getVal(6);
+
+        const name = (nachname + ' ' + vorname).trim();
+        if (!name && !seNr) continue;
+
+        // Get status from first colored cell in the row
+        let status = 'neprelucrat';
+        for (let c = 0; c <= 6; c++) {
+          const s = getCellStatus(XLSX.utils.encode_cell({r, c}));
+          if (s !== 'neprelucrat') { status = s; break; }
+        }
+
+        // Skip invalid dates (1899/1900)
+        const fixDate = (d) => (!d || d.includes('1899') || d.includes('1900')) ? '' : d;
+
+        rows.push({
+          turaSofer: tour,
+          numeClient: name,
+          numarPachet: seNr,
+          numePachet: versender,
+          dataReclamatie: fixDate(datum),
+          termin: fixDate(termin),
+          status,
+          locatie: 'Ruhstorf',
+          adaugatDe: 'import-ods',
+          adaugatDeNume: 'Import ODS',
+          _source: 'ods-import'
+        });
+      }
+
+      importQueue = rows;
+      showImportPreview(rows, sheetName);
+    } catch(e) {
+      toast('Eroare la citirea fișierului: ' + e.message, 'error');
+      console.error(e);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function formatDateDE(d) {
+  if (!d) return '';
+  try {
+    const dt = d instanceof Date ? d : new Date(d);
+    if (isNaN(dt) || dt.getFullYear() < 1990) return '';
+    return `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
+  } catch { return ''; }
+}
+
+function showImportPreview(rows, sheetName) {
+  const preview = document.getElementById('import-preview');
+  const stats = document.getElementById('import-stats');
+  const list = document.getElementById('import-list');
+  if (!preview) return;
+
+  preview.style.display = 'block';
+  document.getElementById('import-dropzone').style.display = 'none';
+
+  const rez = rows.filter(r=>r.status==='rezolvata').length;
+  const nerez = rows.filter(r=>r.status==='nerezolvata').length;
+  const nep = rows.filter(r=>r.status==='neprelucrat').length;
+
+  stats.innerHTML = `
+    <strong>${rows.length}</strong> reclamații găsite în sheet <em>${sheetName}</em> &nbsp;·&nbsp;
+    <span style="color:var(--green)">✓ ${rez} rezolvate</span> &nbsp;·&nbsp;
+    <span style="color:var(--red)">✗ ${nerez} nerezolvate</span> &nbsp;·&nbsp;
+    <span style="color:var(--text3)">⏳ ${nep} neprelucrate</span>
+    <br/><small style="color:var(--text3);margin-top:4px;display:block">⚠ Cele marcate REZOLVATE dar existente în rechnunguri vor genera alerte de dispută în Statistici → Alerte</small>`;
+
+  list.innerHTML = `<table style="width:100%;border-collapse:collapse">
+    <thead><tr style="background:var(--bg3)">
+      <th style="padding:5px 8px;text-align:left">Tour</th>
+      <th style="padding:5px 8px;text-align:left">Nume</th>
+      <th style="padding:5px 8px;text-align:left">Pachet</th>
+      <th style="padding:5px 8px;text-align:left">Data</th>
+      <th style="padding:5px 8px;text-align:left">Status</th>
+    </tr></thead>
+    <tbody>
+      ${rows.map(r => `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:4px 8px;font-family:var(--mono);font-weight:700;color:var(--accent)">${r.turaSofer}</td>
+        <td style="padding:4px 8px;font-size:11px">${r.numeClient}</td>
+        <td style="padding:4px 8px;font-size:10px;color:var(--text3);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.numePachet}</td>
+        <td style="padding:4px 8px;font-size:10px;color:var(--text3)">${r.dataReclamatie}</td>
+        <td style="padding:4px 8px"><span class="badge ${r.status==='rezolvata'?'badge-green':r.status==='nerezolvata'?'badge-red':'badge-gray'}" style="font-size:10px">${r.status==='rezolvata'?'✓':r.status==='nerezolvata'?'✗':'⏳'}</span></td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+async function doImportODS() {
+  const btn = document.getElementById('btn-do-import');
+  const progress = document.getElementById('import-progress');
+  const preview = document.getElementById('import-preview');
+  if (btn) btn.disabled = true;
+  if (preview) preview.style.display = 'none';
+  if (progress) progress.style.display = 'block';
+
+  let done = 0;
+  const batch_size = 10;
+  const total = importQueue.length;
+
+  for (let i = 0; i < total; i += batch_size) {
+    const batch = db.batch();
+    const chunk = importQueue.slice(i, i + batch_size);
+    for (const r of chunk) {
+      const ref = db.collection('reclamatii').doc();
+      const payload = {
+        ...r,
+        dataReclamatie: r.dataReclamatie ? (() => {
+          const p = r.dataReclamatie.split('.');
+          if (p.length===3) return new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0]));
+          return new Date();
+        })() : new Date(),
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      batch.set(ref, payload);
+    }
+    await batch.commit();
+    done += chunk.length;
+    if (progress) progress.innerHTML = `<div class="spinner" style="display:inline-block;width:16px;height:16px;vertical-align:middle;margin-right:8px"></div>Se importă... ${done}/${total}`;
+  }
+
+  if (progress) progress.innerHTML = `✅ Import complet! ${total} reclamații adăugate în Firestore.`;
+  toast(`✓ ${total} reclamații importate din ODS!`);
+  setTimeout(() => {
+    document.getElementById('import-modal').style.display = 'none';
+    loadReclamatii();
+  }, 2000);
+}
+
 
 // SOFERI — lista pre-populata
 // ════════════════════════════════════════════════════════
