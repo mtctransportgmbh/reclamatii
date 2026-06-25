@@ -1402,26 +1402,32 @@ async function loadReclamatii() {
 
   let q = db.collection('reclamatii').orderBy('createdAt','desc');
   if (isLimited(currentUser)) {
-    // Mihaela: un singur query dupa adaugatDe (fara index compus)
-    // Filtrare 30 zile + neprelucrate se face in memorie
-    db.collection('reclamatii')
+    // Mihaela: query simplu fara orderBy (evita necesitatea unui index Firestore)
+    // Sortarea si filtrarea se fac complet in memorie
+    reclamatiUnsubscribe = db.collection('reclamatii')
       .where('adaugatDe','==',currentUser.id)
-      .orderBy('createdAt','desc')
       .onSnapshot(snap => {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         allReclamatii = snap.docs
           .map(d => ({id:d.id,...d.data()}))
           .filter(r => {
-            // Mereu vizibile: neprelucrate
             if (r.status === 'neprelucrat') return true;
-            // Vizibile daca sunt din ultimele 30 zile
             const created = r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt||0);
             return created >= thirtyDaysAgo;
+          })
+          .sort((a,b) => {
+            const ta = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt||0);
+            const tb = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt||0);
+            return tb - ta;
           });
         renderReclamatii();
         renderDashboard();
         document.getElementById('recl-count').textContent = allReclamatii.length + ' înregistrări';
+      }, err => {
+        console.error('Mihaela load error:', err.message);
+        const reclList = document.getElementById('recl-list');
+        if (reclList) reclList.innerHTML = '<div style="padding:20px;color:var(--red)">Eroare la încărcare: ' + err.message + '</div>';
       });
     return;
   } else if (!canSeeAll(currentUser)) {
@@ -2199,6 +2205,92 @@ function switchStatsTab(tab, btn) {
 }
 
 // ── TAB 1: GENERAL ──
+
+// ════════════════════════════════════════════════════════
+// MODAL INTERACTIV — lista reclamatii cu click din statistici
+// ════════════════════════════════════════════════════════
+function showReclamatiiModal(title, reclamatii) {
+  // Remove existing modal if any
+  const existing = document.getElementById('stats-recl-modal');
+  if (existing) existing.remove();
+
+  const fmtD = (r) => {
+    const d = r.dataReclamatie instanceof Date ? r.dataReclamatie
+      : r.dataReclamatie?.toDate ? r.dataReclamatie.toDate()
+      : r.createdAt?.toDate ? r.createdAt.toDate() : null;
+    return d ? d.toLocaleDateString('de-DE') : '—';
+  };
+
+  const statusBadge = (s) => {
+    if (s==='rezolvata') return '<span class="badge badge-green" style="font-size:10px">✓ Rezolvată</span>';
+    if (s==='nerezolvata') return '<span class="badge badge-red" style="font-size:10px">✗ Nerezolvată</span>';
+    return '<span class="badge badge-gray" style="font-size:10px">⏳ Neprelucrat</span>';
+  };
+
+  const sorted = [...reclamatii].sort((a,b) => {
+    const da = a.dataReclamatie instanceof Date ? a.dataReclamatie : a.dataReclamatie?.toDate?.() || new Date(0);
+    const db2 = b.dataReclamatie instanceof Date ? b.dataReclamatie : b.dataReclamatie?.toDate?.() || new Date(0);
+    return db2 - da;
+  });
+
+  const totalSuma = sorted.reduce((s,r) => s + (r.forderung||0), 0);
+  const rezolvate = sorted.filter(r=>r.status==='rezolvata').length;
+  const nerezolvate = sorted.filter(r=>r.status==='nerezolvata').length;
+  const neprelucrat = sorted.filter(r=>r.status==='neprelucrat').length;
+
+  const m = document.createElement('div');
+  m.id = 'stats-recl-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = (e) => { if (e.target === m) m.remove(); };
+
+  m.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:780px;max-height:88vh;display:flex;flex-direction:column">
+      <!-- Header -->
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <div>
+          <div style="font-size:15px;font-weight:800">${title}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:3px;display:flex;gap:12px;flex-wrap:wrap">
+            <span><strong style="color:var(--text)">${sorted.length}</strong> reclamații</span>
+            <span style="color:var(--green)">✓ ${rezolvate} rezolvate</span>
+            <span style="color:var(--red)">✗ ${nerezolvate} nerezolvate</span>
+            <span>⏳ ${neprelucrat} neprelucrate</span>
+            ${totalSuma > 0 ? `<span style="color:var(--accent)">💶 €${totalSuma.toFixed(2)}</span>` : ''}
+          </div>
+        </div>
+        <button onclick="document.getElementById('stats-recl-modal').remove()"
+          style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;line-height:1;padding:4px">✕</button>
+      </div>
+      <!-- List -->
+      <div style="overflow-y:auto;flex:1;padding:12px 16px">
+        ${sorted.length === 0
+          ? '<div style="padding:20px;text-align:center;color:var(--text3)">Nicio reclamație</div>'
+          : sorted.map(r => `
+            <div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--bg)">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:700;font-size:13px;margin-bottom:4px">
+                    ${r.numeClient||r.name||'—'}
+                    ${statusBadge(r.status)}
+                  </div>
+                  <div style="font-size:11px;color:var(--text3);display:flex;flex-wrap:wrap;gap:8px">
+                    <span>🚚 Tura ${r.turaSofer||r.tour||'—'}</span>
+                    <span>📅 ${fmtD(r)}</span>
+                    ${(r.strada||r.strasse||r.adresaClient) ? `<span>📍 ${[r.strada||r.strasse,r.plz,r.ort].filter(Boolean).join(' ')}</span>` : ''}
+                    ${r.numePachet||r.atg ? `<span>📦 ${r.numePachet||r.atg}</span>` : ''}
+                    ${r.numarPachet||r.identnummer ? `<span style="font-family:var(--mono);background:var(--bg3);padding:1px 5px;border-radius:3px">#${r.numarPachet||r.identnummer}</span>` : ''}
+                    ${r.adaugatDeNume ? `<span>👤 ${r.adaugatDeNume}</span>` : ''}
+                  </div>
+                  ${r.descriere ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;font-style:italic">"${r.descriere}"</div>` : ''}
+                </div>
+                ${r.forderung > 0 ? `<div style="font-weight:800;font-family:var(--mono);color:var(--accent);white-space:nowrap">€${r.forderung.toFixed(2)}</div>` : ''}
+              </div>
+            </div>`).join('')}
+      </div>
+    </div>`;
+
+  document.body.appendChild(m);
+}
+
 function renderStatsGeneral(d) {
   const el = document.getElementById('stats-general');
   const totalSuma = d.rechnPozitii.reduce((s,p)=>s+(p.forderung||0),0);
@@ -2256,19 +2348,25 @@ function renderStatsGeneral(d) {
       <div class="card">
         <div style="font-size:13px;font-weight:700;margin-bottom:10px">🚚 Top 5 șoferi (reclamații totale)</div>
         ${Object.entries(d.perSofer).sort((a,b)=>(b[1].manual+b[1].rechnung)-(a[1].manual+a[1].rechnung)).slice(0,5).map(([tura,s],i)=>`
-          <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:6px;padding-left:4px;transition:background 0.15s"
+            onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+            onclick="showReclamatiiModal('🚚 Tura ${tura} — ${s.numeSofer||''}', statsCache.toateReclamatiile.filter(r=>String(r.turaSofer||r.tour)==='${tura}'))">
             <span style="width:20px;height:20px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
             <span style="flex:1;font-size:12px;font-weight:500">Tura ${tura} — ${s.numeSofer||''}</span>
             <span style="font-size:12px;font-weight:700;color:var(--red)">${s.manual+s.rechnung}</span>
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;color:var(--text3)"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
           </div>`).join('')}
       </div>
       <div class="card">
         <div style="font-size:13px;font-weight:700;margin-bottom:10px">👤 Top 5 persoane reclamante</div>
         ${Object.values(d.perPersoana).sort((a,b)=>b.total-a.total).slice(0,5).map((p,i)=>`
-          <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:6px;padding-left:4px;transition:background 0.15s"
+            onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+            onclick="showReclamatiiModal('👤 ${p.nume}', statsCache.toateReclamatiile.filter(r=>(r.numeClient||r.name||'').toLowerCase().trim()==='${p.nume.toLowerCase().trim()}'))">
             <span style="width:20px;height:20px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
             <span style="flex:1;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.nume}</span>
             <span style="font-size:12px;font-weight:700;color:var(--accent)">${p.total}x</span>
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;color:var(--text3)"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
           </div>`).join('')}
       </div>
     </div>
@@ -2353,6 +2451,11 @@ function renderStatsSoferi(d) {
             <div id="${cardId}-arrow" style="color:var(--text3);transition:transform 0.2s">
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
             </div>
+            </div><!-- end clickable area -->
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;flex-shrink:0"
+              onclick="event.stopPropagation();showReclamatiiModal('🚚 Tura '+tura+' — '+(s.numeSofer||'')+' · '+total+' reclamații', reclPerTura[tura]||[])">
+              📋 Listă
+            </button>
           </div>
 
           <!-- Detalii expandabile -->
