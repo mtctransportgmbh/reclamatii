@@ -751,8 +751,8 @@ textarea{resize:vertical;min-height:80px}
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
             <input type="text" placeholder="Caută client, pachet..." id="search-input" oninput="renderReclamatii()"/>
           </div>
-          <button class="filter-btn active" data-filter="all" onclick="setFilter(this,'all')">Toate</button>
-          <button class="filter-btn" data-filter="neprelucrat" onclick="setFilter(this,'neprelucrat')">⏳ Neprelucrate</button>
+          <button class="filter-btn" data-filter="all" onclick="setFilter(this,'all')">Toate</button>
+          <button class="filter-btn active" data-filter="neprelucrat" onclick="setFilter(this,'neprelucrat')">⏳ Neprelucrate</button>
           <button class="filter-btn" data-filter="nerezolvata" onclick="setFilter(this,'nerezolvata')">✗ Nerezolvate</button>
           <button class="filter-btn" data-filter="rezolvata" onclick="setFilter(this,'rezolvata')">✓ Rezolvate</button>
         </div>
@@ -908,7 +908,7 @@ let pinBuffer = '';
 let pinMode = 'login'; // 'login' | 'setup1' | 'setup2'
 let tempPin = '';
 let currentPage = 'dashboard';
-let activeFilter = 'all';
+let activeFilter = 'neprelucrat';
 let reclamatiUnsubscribe = null;
 let allReclamatii = [];
 let allSoferi = [];
@@ -1311,10 +1311,10 @@ function logout() {
   if (reclList) reclList.innerHTML = '';
   const reclForm = document.getElementById('recl-form');
   if (reclForm) reclForm.style.display = 'none';
-  // Reset active filter
-  activeFilter = 'all';
-  document.querySelectorAll('.filter-btn').forEach((b,i) => {
-    b.classList.toggle('active', i === 0);
+  // Reset active filter -> neprelucrat by default
+  activeFilter = 'neprelucrat';
+  document.querySelectorAll('[data-filter]').forEach(b => {
+    b.classList.toggle('active', b.dataset.filter === 'neprelucrat');
   });
   const searchInput = document.getElementById('search-input');
   if (searchInput) searchInput.value = '';
@@ -1398,21 +1398,22 @@ async function loadReclamatii() {
 
   let q = db.collection('reclamatii').orderBy('createdAt','desc');
   if (isLimited(currentUser)) {
-    // Mihaela: query simplu fara orderBy (evita necesitatea unui index Firestore)
-    // Sortarea si filtrarea se fac complet in memorie
+    // Mihaela vede reclamatiile din locatia ei (Ruhstorf):
+    // - TOATE neprelucratele (mereu vizibile)
+    // - Rezolvate/Nerezolvate din ultimele 2 luni
+    // Query dupa locatie (nu necesita index compus)
+    const mihaeleLoc = currentUser.location || 'Ruhstorf';
     reclamatiUnsubscribe = db.collection('reclamatii')
-      .where('adaugatDe','==',currentUser.id)
+      .where('locatie','==', mihaeleLoc)
       .onSnapshot(snap => {
-        const twoMonthsAgo = new Date();
-        twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         allReclamatii = snap.docs
           .map(d => ({id:d.id,...d.data()}))
           .filter(r => {
-            // Neprelucrate: mereu vizibile indiferent de data
             if (r.status === 'neprelucrat') return true;
-            // Rezolvate/Nerezolvate: vizibile din ultimele 2 luni
             const created = r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt||0);
-            return created >= twoMonthsAgo;
+            return created >= thirtyDaysAgo;
           })
           .sort((a,b) => {
             const ta = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt||0);
@@ -1425,7 +1426,7 @@ async function loadReclamatii() {
       }, err => {
         console.error('Mihaela load error:', err.message);
         const reclList = document.getElementById('recl-list');
-        if (reclList) reclList.innerHTML = '<div style="padding:20px;color:var(--red)">Eroare la încărcare: ' + err.message + '</div>';
+        if (reclList) reclList.innerHTML = '<div style="padding:20px;color:var(--red)">Eroare: ' + err.message + '</div>';
       });
     return;
   } else if (!canSeeAll(currentUser)) {
