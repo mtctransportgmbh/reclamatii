@@ -1402,45 +1402,28 @@ async function loadReclamatii() {
 
   let q = db.collection('reclamatii').orderBy('createdAt','desc');
   if (isLimited(currentUser)) {
-    // Mihaela vede:
-    // - toate reclamatiile adaugate DE EA cu status neprelucrat (mereu vizibile)
-    // - reclamatiile adaugate DE EA in ultimele 30 zile (rezolvate sau nerezolvate)
-    // Firestore nu suporta OR queries simplu, deci facem 2 query-uri si le combinam
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    const [qRecente, qNeprelucrate] = await Promise.all([
-      db.collection('reclamatii')
-        .where('adaugatDe','==',currentUser.id)
-        .where('createdAt','>=',thirtyDaysAgo)
-        .orderBy('createdAt','desc')
-        .get(),
-      db.collection('reclamatii')
-        .where('adaugatDe','==',currentUser.id)
-        .where('status','==','neprelucrat')
-        .orderBy('createdAt','desc')
-        .get()
-    ]);
-
-    // Combina si deduplica dupa id
-    const seen = new Set();
-    const combined = [];
-    for (const doc of [...qRecente.docs, ...qNeprelucrate.docs]) {
-      if (!seen.has(doc.id)) {
-        seen.add(doc.id);
-        combined.push({id:doc.id,...doc.data()});
-      }
-    }
-    combined.sort((a,b) => {
-      const ta = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt||0);
-      const tb = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt||0);
-      return tb - ta;
-    });
-    allReclamatii = combined;
-    renderReclamatii();
-    renderDashboard();
-    document.getElementById('recl-count').textContent = allReclamatii.length + ' înregistrări';
-    return; // skip snapshot listener below
+    // Mihaela: un singur query dupa adaugatDe (fara index compus)
+    // Filtrare 30 zile + neprelucrate se face in memorie
+    db.collection('reclamatii')
+      .where('adaugatDe','==',currentUser.id)
+      .orderBy('createdAt','desc')
+      .onSnapshot(snap => {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        allReclamatii = snap.docs
+          .map(d => ({id:d.id,...d.data()}))
+          .filter(r => {
+            // Mereu vizibile: neprelucrate
+            if (r.status === 'neprelucrat') return true;
+            // Vizibile daca sunt din ultimele 30 zile
+            const created = r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt||0);
+            return created >= thirtyDaysAgo;
+          });
+        renderReclamatii();
+        renderDashboard();
+        document.getElementById('recl-count').textContent = allReclamatii.length + ' înregistrări';
+      });
+    return;
   } else if (!canSeeAll(currentUser)) {
     q = q.where('locatie','==',currentUser.location);
   }
@@ -1601,7 +1584,8 @@ function reclItemHTML(r, compact) {
         ${r.tipReclamatie?`<span class="badge badge-blue">${r.tipReclamatie}</span>`:''}
       </div>
       <div class="recl-meta">
-        <span>📦 ${r.numePachet||'—'} #${r.numarPachet||'—'}</span>
+        <span>📦 ${r.numePachet||'—'}</span>
+        ${r.numarPachet ? `<span style="font-family:var(--mono);font-size:11px;background:var(--bg3);padding:1px 6px;border-radius:4px;letter-spacing:0.3px" title="Număr pachet / Sendungs-ID">#${r.numarPachet}</span>` : ''}
         <span>🚚 Tura ${r.turaSofer||'—'}</span>
         <span>📅 ${fmtDate(r.createdAt)}</span>
         ${(r.strada||r.adresaClient)?`<span>📍 ${[r.strada||r.adresaClient, r.plz, r.ort].filter(Boolean).join(' ')}</span>`:''}
@@ -1951,26 +1935,15 @@ async function loadStatsData() {
   // ALERTE — DOAR dispute: reclamatie marcata REZOLVATA dar apare in rechnung
   const alerte = [];
   rechnPozitii.forEach(rp => {
+    const rpIdent = (rp.identnummer||'').replace(/\s/g,'');
     const similar = reclManuale.filter(rm => {
-      // Match STRICT dupa numar pachet (ultimele 8 cifre identice)
-      const rpIdent = (rp.identnummer||'').replace(/\s/g,'');
+      // SINGURA regula: numarul de pachet din rechnung (identnummer)
+      // trebuie sa fie IDENTIC cu numarul din reclamatie (numarPachet)
+      // Comparam intregul sir, nu doar ultimele cifre
       const rmNr = (rm.numarPachet||'').replace(/\s/g,'');
-      if (rpIdent.length >= 8 && rmNr.length >= 8 && rpIdent.endsWith(rmNr.slice(-8))) return true;
-      if (rmNr.length >= 8 && rpIdent.length >= 8 && rmNr.endsWith(rpIdent.slice(-8))) return true;
-
-      // Match pe nume: EXACT pe ultimele 2 cuvinte (prenume + nume) SI aceeasi tura
-      if (String(rm.turaSofer) !== String(rp.tour)) return false;
-      const rpWords = (rp.name||'').toLowerCase().trim().split(/\s+/).filter(Boolean);
-      const rmWords = (rm.numeClient||'').toLowerCase().trim().split(/\s+/).filter(Boolean);
-      if (rpWords.length < 1 || rmWords.length < 1) return false;
-      // Ambele nume trebuie sa aiba cel putin 1 cuvant in comun, EXACT (nu includes)
-      const rpSet = new Set(rpWords.filter(w => w.length > 2));
-      const rmSet = new Set(rmWords.filter(w => w.length > 2));
-      let exactMatches = 0;
-      rpSet.forEach(w => { if (rmSet.has(w)) exactMatches++; });
-      // Cel putin 2 cuvinte identice (sau 1 daca numele e scurt)
-      const minMatch = Math.min(rpWords.length, rmWords.length) >= 2 ? 2 : 1;
-      return exactMatches >= minMatch;
+      if (!rpIdent || !rmNr) return false;
+      // Match exact (sau unul il contine complet pe celalalt — Hermes uneori trunchiaza)
+      return rpIdent === rmNr || rpIdent.endsWith(rmNr) || rmNr.endsWith(rpIdent);
     });
 
     // ALERTA DOAR daca reclamatia manuala e marcata REZOLVATA
