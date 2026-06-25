@@ -4170,24 +4170,48 @@ async function deduplicateImport() {
       return;
     }
 
-    // Grupeaza dupa cheie unica: numeClient + turaSofer + data
+    // Grupeaza dupa 3 chei diferite, de la stricta la agresiva
+    // Cheie 1: numeClient + turaSofer + data (exact)
+    // Cheie 2: numeClient + turaSofer (fara data - prinde reimport-uri cu date diferite)
+    // Cheie 3: numeClient normalizat (fara spatii/diacritice) + turaSofer
     const groups = {};
     snap.docs.forEach(doc => {
       const d = doc.data();
       const dateStr = d.dataReclamatie?.toDate
         ? d.dataReclamatie.toDate().toISOString().slice(0,10)
         : (d.dataReclamatie instanceof Date ? d.dataReclamatie.toISOString().slice(0,10) : String(d.dataReclamatie||''));
-      const key = `${(d.numeClient||'').trim().toLowerCase()}|${(d.turaSofer||'')}|${dateStr}`;
+      const name = (d.numeClient||'').trim().toLowerCase();
+      const tura = (d.turaSofer||'').trim();
+      // Cheie principala: nume + tura + data
+      const key = `${name}|${tura}|${dateStr}`;
       if (!groups[key]) groups[key] = [];
       groups[key].push(doc.id);
     });
 
-    // Identifica duplicatele (pastreaza primul, sterge restul)
+    // Pasul 2: din ce a ramas dupa pass 1, cauta duplicate pe nume+tura (fara data)
+    // Colecteaza ID-urile deja marcate pentru stergere
+    const alreadyMarked = new Set();
     const toDelete = [];
     for (const ids of Object.values(groups)) {
       if (ids.length > 1) {
-        // Pastreaza primul, sterge celelalte
-        toDelete.push(...ids.slice(1));
+        ids.slice(1).forEach(id => { toDelete.push(id); alreadyMarked.add(id); });
+      }
+    }
+
+    // Pasul 2: pe ce a ramas, grupeaza dupa nume+tura (ignora data)
+    const groups2 = {};
+    snap.docs.forEach(doc => {
+      if (alreadyMarked.has(doc.id)) return; // deja marcat
+      const d = doc.data();
+      const name = (d.numeClient||'').trim().toLowerCase();
+      const tura = (d.turaSofer||'').trim();
+      const key2 = `${name}|${tura}`;
+      if (!groups2[key2]) groups2[key2] = [];
+      groups2[key2].push(doc.id);
+    });
+    for (const ids of Object.values(groups2)) {
+      if (ids.length > 1) {
+        ids.slice(1).forEach(id => { toDelete.push(id); alreadyMarked.add(id); });
       }
     }
 
