@@ -11,6 +11,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
@@ -481,8 +482,7 @@ textarea{resize:vertical;min-height:80px}
 .mobile-header-title{font-size:16px;font-weight:800;flex:1}
 
 /* ── PRINT STYLES ── */
-@media print{
-  body > *{display:none!important}
+
   #print-area{display:block!important;font-family:'Outfit',Arial,sans-serif;color:#111;background:#fff;padding:32px;max-width:720px}
 }
 #print-area{display:none}
@@ -984,106 +984,6 @@ function berechneTerMin(datum) {
   } catch { return ''; }
 }
 
-function printFormularODS(data) {
-  // Termin: din camp manual sau gol
-  const termin = data.termin ? formatDatumDE(data.termin) : '___________';
-  const vorname = (data.vorname || (data.numeClient||'').split(' ').slice(0,-1).join(' ')).toUpperCase();
-  const nachname = (data.nachname || (data.numeClient||'').split(' ').slice(-1)[0]||'').toUpperCase();
-  const datum = data.dataReclamatie || data.lieferdatum || '';
-  const versender = data.numePachet || data.versender || data.atg || '';
-  const sendNr = data.numarPachet || data.sendungsnummer || '';
-  const adresse = [data.strada||data.strasse||data.adresaClient, data.plz, data.ort].filter(Boolean).join(', ');
-
-  const F = 'font-family:Arial,sans-serif';
-  const row = (label, value) => `
-    <tr>
-      <td style="padding:7px 0;width:44%;${F};font-size:14px;font-weight:700;border-bottom:1px solid #ddd;vertical-align:top">${label}</td>
-      <td style="padding:7px 0;${F};font-size:14px;font-weight:700;border-bottom:1px solid #ddd">${value}</td>
-    </tr>`;
-
-  const checkbox = (label) => `
-    <label style="display:flex;align-items:center;gap:8px;${F};font-size:14px;font-weight:600">
-      <span style="width:17px;height:17px;border:2px solid #222;border-radius:2px;display:inline-block;flex-shrink:0"></span>${label}
-    </label>`;
-
-  const line = (label) => `
-    <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:10px">
-      <span style="${F};font-size:13px;font-weight:700;white-space:nowrap">${label}</span>
-      <span style="flex:1;border-bottom:1.5px solid #555;min-width:60px;height:20px"></span>
-    </div>`;
-
-  document.getElementById('print-area').innerHTML = `
-    <style>
-      @media print {
-        @page { margin: 10mm 14mm; }
-        body > *:not(#print-area) { display:none!important }
-        #print-area { display:block!important }
-      }
-    </style>
-    <div style="${F};padding:18px 22px;max-width:680px;margin:0 auto;color:#111">
-
-      <!-- Titlu -->
-      <div style="text-align:center;border-bottom:2.5px solid #111;padding-bottom:10px;margin-bottom:16px">
-        <div style="${F};font-size:24px;font-weight:900;letter-spacing:2px">REKLAMATION</div>
-        <div style="${F};font-size:14px;font-weight:700;margin-top:4px">
-          Tour: ${data.turaSofer||data.tour||'—'} &nbsp;|&nbsp; ${formatDatumDE(datum)}
-        </div>
-      </div>
-
-      <!-- Date client -->
-      <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
-        ${row('Vorname:', vorname)}
-        ${row('Nachname:', nachname)}
-        ${row('Beanstandung vom:', formatDatumDE(datum))}
-        ${row('Versender:', versender)}
-        ${row('Sendungsnummer:', '<span style="font-family:monospace;font-size:13px;font-weight:700">'+sendNr+'</span>')}
-        ${adresse ? row('Adresse:', adresse) : ''}
-      </table>
-
-      <!-- Sendung erhalten -->
-      <div style="margin-bottom:12px">
-        <div style="${F};font-size:14px;font-weight:800;margin-bottom:8px">Sendung erhalten persönlich:</div>
-        <div style="display:flex;gap:32px;padding-left:6px">
-          ${['JA','NEIN'].map(checkbox).join('')}
-        </div>
-      </div>
-
-      <!-- Zugestellt -->
-      <div style="margin-bottom:12px">
-        <div style="${F};font-size:14px;font-weight:800;margin-bottom:8px">Die Sendung wurde zugestellt:</div>
-        <div style="display:flex;gap:20px;flex-wrap:wrap;padding-left:6px">
-          ${['Haustür','Briefkasten','Terasse','Nachbar','Sonstiges'].map(checkbox).join('')}
-        </div>
-      </div>
-
-      <!-- Nachbar + Sonstiges -->
-      <div style="padding-left:6px;margin-bottom:14px">
-        ${line('Nachbar Vorname, Nachname:')}
-        ${line('Adresse:')}
-        ${line('Sonstiges:')}
-      </div>
-
-      <!-- Semnaturi -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:16px">
-        <div>
-          <div style="${F};font-size:13px;font-weight:700;margin-bottom:24px">Datum:</div>
-          <div style="border-top:1.5px solid #222"></div>
-        </div>
-        <div>
-          <div style="${F};font-size:13px;font-weight:700;margin-bottom:24px">Unterschrift Kunde:</div>
-          <div style="border-top:1.5px solid #222"></div>
-        </div>
-      </div>
-
-      <!-- Termin -->
-      <div style="background:#111;color:#fff;border-radius:6px;padding:11px 18px;display:flex;align-items:center;gap:16px">
-        <span style="${F};font-size:15px;font-weight:900;letter-spacing:2px">TERMIN BIS</span>
-        <span style="${F};font-size:20px;font-weight:900;letter-spacing:1px">${termin}</span>
-      </div>
-
-    </div>`;
-  window.print();
-}
 
 // ════════════════════════════════════════════════════════
 // UTILS
@@ -1490,7 +1390,7 @@ function updateSidebarUser() {
 // ════════════════════════════════════════════════════════
 // DATA — RECLAMATII
 // ════════════════════════════════════════════════════════
-function loadReclamatii() {
+async function loadReclamatii() {
   if (reclamatiUnsubscribe) reclamatiUnsubscribe();
   // Reset lista imediat la schimbarea userului
   allReclamatii = [];
@@ -1499,8 +1399,45 @@ function loadReclamatii() {
 
   let q = db.collection('reclamatii').orderBy('createdAt','desc');
   if (isLimited(currentUser)) {
-    // Mihaela vede doar ale ei
-    q = db.collection('reclamatii').where('adaugatDe','==',currentUser.id).orderBy('createdAt','desc');
+    // Mihaela vede:
+    // - toate reclamatiile adaugate DE EA cu status neprelucrat (mereu vizibile)
+    // - reclamatiile adaugate DE EA in ultimele 30 zile (rezolvate sau nerezolvate)
+    // Firestore nu suporta OR queries simplu, deci facem 2 query-uri si le combinam
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const [qRecente, qNeprelucrate] = await Promise.all([
+      db.collection('reclamatii')
+        .where('adaugatDe','==',currentUser.id)
+        .where('createdAt','>=',thirtyDaysAgo)
+        .orderBy('createdAt','desc')
+        .get(),
+      db.collection('reclamatii')
+        .where('adaugatDe','==',currentUser.id)
+        .where('status','==','neprelucrat')
+        .orderBy('createdAt','desc')
+        .get()
+    ]);
+
+    // Combina si deduplica dupa id
+    const seen = new Set();
+    const combined = [];
+    for (const doc of [...qRecente.docs, ...qNeprelucrate.docs]) {
+      if (!seen.has(doc.id)) {
+        seen.add(doc.id);
+        combined.push({id:doc.id,...doc.data()});
+      }
+    }
+    combined.sort((a,b) => {
+      const ta = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt||0);
+      const tb = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt||0);
+      return tb - ta;
+    });
+    allReclamatii = combined;
+    renderReclamatii();
+    renderDashboard();
+    document.getElementById('recl-count').textContent = allReclamatii.length + ' înregistrări';
+    return; // skip snapshot listener below
   } else if (!canSeeAll(currentUser)) {
     q = q.where('locatie','==',currentUser.location);
   }
@@ -1783,19 +1720,24 @@ function toggleForm(data) {
 async function checkDuplicateInRechnunguri(numarPachet, numeClient, tura) {
   try {
     const snap = await db.collection('rechnunguri').get();
-    const lastDigits = (numarPachet||'').slice(-6);
-    const nameLast = (numeClient||'').toLowerCase().trim().split(/\s+/).slice(-1)[0];
+
+    // Match STRICT dupa numarul de pachet:
+    // - trebuie sa fie identic pe ultimele 8+ caractere (nu doar 6)
+    // - OR match exact pe intreg sirul (daca e acelasi format)
+    const cleanNr = (numarPachet||'').replace(/\s/g,'').toLowerCase();
+    const lastDigits = cleanNr.slice(-8); // minim 8 caractere pentru precizie
 
     for (const doc of snap.docs) {
       const r = doc.data();
       for (const p of (r.pozitii||[])) {
-        const pIdent = p.identnummer || p.sendungsnummer || '';
-        const matchByPachet = lastDigits.length >= 4 && pIdent.includes(lastDigits);
-        const pNameLast = (p.name||'').toLowerCase().trim().split(/\s+/).slice(-1)[0];
-        const matchByName = String(p.tour) === String(tura) && nameLast && pNameLast &&
-          nameLast.length > 2 && (nameLast===pNameLast || pNameLast.includes(nameLast) || nameLast.includes(pNameLast));
+        const pIdent = (p.identnummer || p.sendungsnummer || '').replace(/\s/g,'').toLowerCase();
 
-        if (matchByPachet || matchByName) {
+        // Match STRICT: doar daca numerele se suprapun substantial (min 8 caractere finale identice)
+        const matchByPachet = lastDigits.length >= 8 &&
+          pIdent.length >= 8 &&
+          pIdent.endsWith(lastDigits);
+
+        if (matchByPachet) {
           return { found: true, belegNr: r.belegNr, dataEmitere: r.dataEmitere, pozitie: p, rechnId: doc.id };
         }
       }
@@ -1852,9 +1794,7 @@ async function saveReclamatie() {
       payload.status = 'neprelucrat'; // status initial pt cele introduse manual
       const ref = await db.collection('reclamatii').add(payload);
       toast('Reclamație adăugată!');
-      const printData = { ...payload, id: ref.id, ...(window._lastAblieferung || {}) };
       window._lastAblieferung = null;
-      setTimeout(() => { if(confirm('Tipărești formularul Reklamation?')) printFormularODS(printData); }, 300);
     }
     toggleForm();
     editingId = null;
@@ -1885,7 +1825,6 @@ async function deleteReclamatie(id) {
 // ════════════════════════════════════════════════════════
 function printReclamatie(id) {
   const r = allReclamatii.find(x=>x.id===id);
-  if (r) printFormularODS(r);
 }
 
 function printReclData(r) {
@@ -1938,7 +1877,6 @@ function printReclData(r) {
       <div style="font-size:10px;color:#aaa;text-align:center;border-top:1px solid #eee;padding-top:10px">Reclamații App · Generat ${new Date().toLocaleDateString('ro-RO')} ${new Date().toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}</div>
     </div>
   `;
-  window.print();
 }
 
 // ════════════════════════════════════════════════════════
@@ -4247,94 +4185,37 @@ function showImportModal() {
 
 async function handleImportODSFile(file) {
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    try {
-      // Parse using SheetJS (available in the app)
-      const data = new Uint8Array(e.target.result);
-      const workbook = XLSX.read(data, { type: 'array', cellStyles: true });
 
-      // Look for "DATE" sheet
-      const sheetName = workbook.SheetNames.find(n => n === 'DATE') || workbook.SheetNames[0];
-      const ws = workbook.Sheets[sheetName];
+  const dropzone = document.getElementById('import-dropzone');
+  if (dropzone) dropzone.innerHTML = '<div class="spinner" style="margin:0 auto 8px"></div><div style="font-size:13px;color:var(--text3)">Se parsează pe server...</div>';
 
-      // Map cell fill colors to status
-      const GREEN = new Set(['FF66FF00','FF99FF33','FF66FF66','FF99FF66']);
-      const RED   = new Set(['FFFF9999','FFFF8080']);
+  try {
+    // Trimitem fisierul la serverul Python (parse-ods endpoint)
+    const SERVER_ODS_URL = HERMES_PARSER_SERVER_URL.replace('/parse', '/parse-ods');
+    const formData = new FormData();
+    formData.append('file', file);
 
-      const getCellStatus = (cellAddr) => {
-        const cell = ws[cellAddr];
-        if (!cell || !cell.s || !cell.s.bgColor) return 'neprelucrat';
-        // bgColor can be in rgb or argb format
-        let color = (cell.s.bgColor.argb || cell.s.bgColor.rgb || '').toUpperCase().replace('#','');
-        if (color.length === 6) color = 'FF' + color;
-        if (GREEN.has(color)) return 'rezolvata';
-        if (RED.has(color)) return 'nerezolvata';
-        return 'neprelucrat';
-      };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    const resp = await fetch(SERVER_ODS_URL, { method: 'POST', body: formData, signal: controller.signal });
+    clearTimeout(timeout);
 
-      const range = XLSX.utils.decode_range(ws['!ref']);
-      const rows = [];
-      for (let r = range.s.r + 1; r <= range.e.r; r++) {
-        const getVal = (c) => {
-          const cell = ws[XLSX.utils.encode_cell({r, c})];
-          if (!cell) return '';
-          if (cell.t === 'd') return cell.v ? formatDateDE(cell.v) : '';
-          if (cell.t === 'n' && c === 3) {
-            // Date column stored as number
-            const d = XLSX.SSF.parse_date_code(cell.v);
-            if (d && d.y > 1900) return `${String(d.d).padStart(2,'0')}.${String(d.m).padStart(2,'0')}.${d.y}`;
-            return '';
-          }
-          return String(cell.v || '').trim();
-        };
+    if (!resp.ok) throw new Error('Server a răspuns cu eroare ' + resp.status);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
 
-        const tour = getVal(0);
-        if (!tour || !/^\d+$/.test(tour)) continue;
+    importQueue = data.reclamatii.map(r => ({ ...r, _source: 'ods-import' }));
+    showImportPreview(importQueue, 'DATE');
 
-        const vorname  = getVal(1);
-        const nachname = getVal(2);
-        const datum    = getVal(3);
-        const versender = getVal(4);
-        const seNr     = getVal(5);
-        const termin   = getVal(6);
-
-        const name = (nachname + ' ' + vorname).trim();
-        if (!name && !seNr) continue;
-
-        // Get status from first colored cell in the row
-        let status = 'neprelucrat';
-        for (let c = 0; c <= 6; c++) {
-          const s = getCellStatus(XLSX.utils.encode_cell({r, c}));
-          if (s !== 'neprelucrat') { status = s; break; }
-        }
-
-        // Skip invalid dates (1899/1900)
-        const fixDate = (d) => (!d || d.includes('1899') || d.includes('1900')) ? '' : d;
-
-        rows.push({
-          turaSofer: tour,
-          numeClient: name,
-          numarPachet: seNr,
-          numePachet: versender,
-          dataReclamatie: fixDate(datum),
-          termin: fixDate(termin),
-          status,
-          locatie: 'Ruhstorf',
-          adaugatDe: 'import-ods',
-          adaugatDeNume: 'Import ODS',
-          _source: 'ods-import'
-        });
-      }
-
-      importQueue = rows;
-      showImportPreview(rows, sheetName);
-    } catch(e) {
-      toast('Eroare la citirea fișierului: ' + e.message, 'error');
-      console.error(e);
-    }
-  };
-  reader.readAsArrayBuffer(file);
+  } catch(e) {
+    // Restore dropzone
+    if (dropzone) dropzone.innerHTML = `
+      <div style="font-size:20px;margin-bottom:6px">❌</div>
+      <div style="font-size:13px;font-weight:600;color:var(--red)">Eroare: ${e.message}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Verifică că serverul Render este activ și încearcă din nou</div>
+      <input type="file" id="import-ods-input" accept=".ods,.xlsx,.xls" style="display:none" onchange="handleImportODSFile(this.files[0])"/>`;
+    toast('Eroare la parsarea ODS: ' + e.message, 'error');
+  }
 }
 
 function formatDateDE(d) {
