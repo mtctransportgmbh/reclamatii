@@ -848,6 +848,9 @@ textarea{resize:vertical;min-height:80px}
             <button class="btn btn-ghost" onclick="showImportModal()" style="padding:8px 14px;font-size:12px">
               📥 Import ODS
             </button>
+            <button class="btn btn-ghost" id="btn-dedup" onclick="deduplicateImport()" style="padding:8px 14px;font-size:12px">
+              🧹 Deduplicare import
+            </button>
           </div>
         </div>
         <div class="card" style="border-color:rgba(232,197,71,0.2);background:var(--accent-bg);margin-bottom:16px">
@@ -4144,6 +4147,84 @@ function omit(obj, keys) {
 // Se apelează ODATĂ pentru a migra datele istorice
 // ════════════════════════════════════════════════════════
 let importQueue = [];
+
+
+// ════════════════════════════════════════════════════════
+// DEDUPLICARE — sterge duplicatele din import ODS
+// ════════════════════════════════════════════════════════
+async function deduplicateImport() {
+  if (!confirm('Această operație va șterge DUPLICATELE din importul ODS.\n\nPăstrează o singură copie per reclamație (după nume + tură + dată).\n\nContinui?')) return;
+
+  const btn = document.getElementById('btn-dedup');
+  if (btn) { btn.disabled = true; btn.textContent = 'Se procesează...'; }
+
+  try {
+    // Ia toate reclamatiile importate din ODS
+    const snap = await db.collection('reclamatii')
+      .where('adaugatDe', '==', 'import-ods')
+      .get();
+
+    if (snap.empty) {
+      toast('Nu există înregistrări din import ODS', 'info');
+      if (btn) { btn.disabled = false; btn.textContent = '🧹 Deduplicare import'; }
+      return;
+    }
+
+    // Grupeaza dupa cheie unica: numeClient + turaSofer + data
+    const groups = {};
+    snap.docs.forEach(doc => {
+      const d = doc.data();
+      const dateStr = d.dataReclamatie?.toDate
+        ? d.dataReclamatie.toDate().toISOString().slice(0,10)
+        : (d.dataReclamatie instanceof Date ? d.dataReclamatie.toISOString().slice(0,10) : String(d.dataReclamatie||''));
+      const key = `${(d.numeClient||'').trim().toLowerCase()}|${(d.turaSofer||'')}|${dateStr}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(doc.id);
+    });
+
+    // Identifica duplicatele (pastreaza primul, sterge restul)
+    const toDelete = [];
+    for (const ids of Object.values(groups)) {
+      if (ids.length > 1) {
+        // Pastreaza primul, sterge celelalte
+        toDelete.push(...ids.slice(1));
+      }
+    }
+
+    if (toDelete.length === 0) {
+      toast('Nu s-au găsit duplicate — totul e ok!', 'info');
+      if (btn) { btn.disabled = false; btn.textContent = '🧹 Deduplicare import'; }
+      return;
+    }
+
+    // Confirma cu utilizatorul
+    const ok = confirm(`S-au găsit ${toDelete.length} duplicate din ${snap.docs.length} înregistrări totale.\n\nSe vor șterge ${toDelete.length} copii duplicate, rămân ${snap.docs.length - toDelete.length} unice.\n\nContinui?`);
+    if (!ok) {
+      if (btn) { btn.disabled = false; btn.textContent = '🧹 Deduplicare import'; }
+      return;
+    }
+
+    // Sterge in batch-uri de 500 (limita Firestore)
+    let deleted = 0;
+    for (let i = 0; i < toDelete.length; i += 100) {
+      const chunk = toDelete.slice(i, i + 100);
+      const batch = db.batch();
+      chunk.forEach(id => batch.delete(db.collection('reclamatii').doc(id)));
+      await batch.commit();
+      deleted += chunk.length;
+      if (btn) btn.textContent = `Se șterge... ${deleted}/${toDelete.length}`;
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    toast(`✓ ${deleted} duplicate șterse! Au rămas ${snap.docs.length - deleted} reclamații unice.`);
+    loadReclamatii();
+  } catch(e) {
+    toast('Eroare: ' + e.message, 'error');
+    console.error(e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🧹 Deduplicare import'; }
+  }
+}
 
 function showImportModal() {
   const modal = document.getElementById('import-modal');
