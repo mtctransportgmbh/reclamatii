@@ -1952,24 +1952,43 @@ async function loadStatsData() {
   const alerte = [];
   rechnPozitii.forEach(rp => {
     const similar = reclManuale.filter(rm => {
+      // Match STRICT dupa numar pachet (ultimele 8 cifre identice)
+      const rpIdent = (rp.identnummer||'').replace(/\s/g,'');
+      const rmNr = (rm.numarPachet||'').replace(/\s/g,'');
+      if (rpIdent.length >= 8 && rmNr.length >= 8 && rpIdent.endsWith(rmNr.slice(-8))) return true;
+      if (rmNr.length >= 8 && rpIdent.length >= 8 && rmNr.endsWith(rpIdent.slice(-8))) return true;
+
+      // Match pe nume: EXACT pe ultimele 2 cuvinte (prenume + nume) SI aceeasi tura
       if (String(rm.turaSofer) !== String(rp.tour)) return false;
-      // Match dupa numar pachet
-      if (rp.identnummer && rm.numarPachet && rp.identnummer.includes(rm.numarPachet.slice(-6))) return true;
-      // Match dupa nume (ultimul cuvant)
-      const rnLast = (rp.name||'').toLowerCase().trim().split(/\s+/).slice(-1)[0];
-      const rmLast = (rm.numeClient||'').toLowerCase().trim().split(/\s+/).slice(-1)[0];
-      return rnLast && rmLast && rnLast.length > 2 && (rnLast === rmLast || rnLast.includes(rmLast) || rmLast.includes(rnLast));
+      const rpWords = (rp.name||'').toLowerCase().trim().split(/\s+/).filter(Boolean);
+      const rmWords = (rm.numeClient||'').toLowerCase().trim().split(/\s+/).filter(Boolean);
+      if (rpWords.length < 1 || rmWords.length < 1) return false;
+      // Ambele nume trebuie sa aiba cel putin 1 cuvant in comun, EXACT (nu includes)
+      const rpSet = new Set(rpWords.filter(w => w.length > 2));
+      const rmSet = new Set(rmWords.filter(w => w.length > 2));
+      let exactMatches = 0;
+      rpSet.forEach(w => { if (rmSet.has(w)) exactMatches++; });
+      // Cel putin 2 cuvinte identice (sau 1 daca numele e scurt)
+      const minMatch = Math.min(rpWords.length, rmWords.length) >= 2 ? 2 : 1;
+      return exactMatches >= minMatch;
     });
 
     // ALERTA DOAR daca reclamatia manuala e marcata REZOLVATA
     similar.forEach(rm => {
       if (rm.status === 'rezolvata') {
-        alerte.push({
-          tip: 'DISPUTA',
-          rechnPoz: rp,
-          reclManuala: rm,
-          suma: rp.forderung
-        });
+        // Deduplicare alerte: aceeasi persoana + acelasi rechnung = o singura alerta
+        const alertKey = `${(rm.numeClient||'').toLowerCase().trim()}|${rp.belegNr||''}`;
+        if (!alerte.some(a => {
+          const ak = `${(a.reclManuala.numeClient||'').toLowerCase().trim()}|${a.rechnPoz.belegNr||''}`;
+          return ak === alertKey;
+        })) {
+          alerte.push({
+            tip: 'DISPUTA',
+            rechnPoz: rp,
+            reclManuala: rm,
+            suma: rp.forderung
+          });
+        }
       }
     });
   });
