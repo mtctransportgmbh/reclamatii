@@ -1671,7 +1671,7 @@ function toggleForm(data) {
         </div>
         <div class="form-group">
           <label>Tura șofer<span class="req">*</span></label>
-          <select id="f-tura"><option value="">Selectează...</option>${soferOptions}</select>
+          <select id="f-tura" onchange="autoSetLocatieFromTura(this.value)"><option value="">Selectează...</option>${soferOptions}</select>
         </div>
         <div class="form-group">
           <label>Locație</label>
@@ -1736,6 +1736,15 @@ async function checkDuplicateInRechnunguri(numarPachet, numeClient, tura) {
   } catch(e) { console.warn('Check duplicate failed:', e.message); }
   return { found: false };
 }
+
+function autoSetLocatieFromTura(tura) {
+  if (!tura) return;
+  const sofer = allSoferi.find(s => String(s.tura) === String(tura));
+  if (!sofer || !sofer.locatie) return;
+  const locEl = document.getElementById('f-locatie');
+  if (locEl) locEl.value = sofer.locatie;
+}
+
 
 async function saveReclamatie() {
   const numeClient = (document.getElementById('f-numeClient').value.trim()+' '+document.getElementById('f-prenumeClient').value.trim()).trim();
@@ -4854,7 +4863,10 @@ async function handleAbliefererFile(file) {
 
     if (parsed.tour) {
       const e = document.getElementById('f-tura');
-      if (e) for (const o of e.options) { if (o.value === parsed.tour) { e.value = parsed.tour; break; } }
+      if (e) {
+        for (const o of e.options) { if (o.value === parsed.tour) { e.value = parsed.tour; break; } }
+        autoSetLocatieFromTura(parsed.tour);
+      }
     }
 
     // Descriere automata cu detalii livrare
