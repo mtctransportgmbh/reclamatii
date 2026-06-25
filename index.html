@@ -4275,38 +4275,95 @@ async function doImportODS() {
   if (preview) preview.style.display = 'none';
   if (progress) progress.style.display = 'block';
 
-  let done = 0;
-  const batch_size = 10;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const BATCH_SIZE = 5; // mai mic pentru a evita rate limiting
   const total = importQueue.length;
+  let done = 0;
+  let errors = 0;
 
-  for (let i = 0; i < total; i += batch_size) {
-    const batch = db.batch();
-    const chunk = importQueue.slice(i, i + batch_size);
-    for (const r of chunk) {
-      const ref = db.collection('reclamatii').doc();
-      const payload = {
-        ...r,
-        dataReclamatie: r.dataReclamatie ? (() => {
-          const p = r.dataReclamatie.split('.');
-          if (p.length===3) return new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0]));
-          return new Date();
-        })() : new Date(),
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      };
-      batch.set(ref, payload);
+  for (let i = 0; i < total; i += BATCH_SIZE) {
+    const chunk = importQueue.slice(i, i + BATCH_SIZE);
+
+    // Retry logic — incearca de max 3 ori per batch
+    let success = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const batch = db.batch();
+        for (const r of chunk) {
+          const ref = db.collection('reclamatii').doc();
+          let dataObj = new Date();
+          if (r.dataReclamatie) {
+            const p = r.dataReclamatie.split('.');
+            if (p.length === 3) {
+              const yr = parseInt(p[2]);
+              dataObj = new Date(yr < 100 ? 2000+yr : yr, parseInt(p[1])-1, parseInt(p[0]));
+            }
+          }
+          batch.set(ref, {
+            ...r,
+            dataReclamatie: dataObj,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+        await batch.commit();
+        done += chunk.length;
+        success = true;
+        break;
+      } catch(e) {
+        console.warn(`Batch ${i}-${i+BATCH_SIZE} attempt ${attempt} failed:`, e.message);
+        if (attempt < 3) await sleep(1000 * attempt); // 1s, 2s intre reincercari
+      }
     }
-    await batch.commit();
-    done += chunk.length;
-    if (progress) progress.innerHTML = `<div class="spinner" style="display:inline-block;width:16px;height:16px;vertical-align:middle;margin-right:8px"></div>Se importă... ${done}/${total}`;
+
+    if (!success) {
+      errors += chunk.length;
+      console.error(`Batch ${i}-${i+BATCH_SIZE} failed after 3 attempts`);
+    }
+
+    // Update progress
+    if (progress) {
+      const pct = Math.round((done / total) * 100);
+      progress.innerHTML = `
+        <div style="margin-bottom:8px">
+          <div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle;margin-right:6px"></div>
+          Se importă... <strong>${done}/${total}</strong> (${pct}%)
+          ${errors > 0 ? `<span style="color:var(--red);margin-left:8px">⚠ ${errors} erori</span>` : ''}
+        </div>
+        <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:3px;transition:width 0.3s"></div>
+        </div>`;
+    }
+
+    // Pauza intre batch-uri — Firestore free tier are limita de scrieri
+    await sleep(200);
   }
 
-  if (progress) progress.innerHTML = `✅ Import complet! ${total} reclamații adăugate în Firestore.`;
-  toast(`✓ ${total} reclamații importate din ODS!`);
-  setTimeout(() => {
-    document.getElementById('import-modal').style.display = 'none';
-    loadReclamatii();
-  }, 2000);
+  if (progress) {
+    progress.innerHTML = errors > 0
+      ? `⚠ Import parțial: ${done} importate, ${errors} erori. Reîncearcă pentru cele rămase.`
+      : `✅ Import complet! ${done} reclamații adăugate în Firestore.`;
+  }
+  toast(errors > 0
+    ? `Import parțial: ${done}/${total} reclamații (${errors} erori)`
+    : `✓ ${done} reclamații importate din ODS!`
+  );
+
+  if (errors === 0) {
+    setTimeout(() => {
+      document.getElementById('import-modal').style.display = 'none';
+      loadReclamatii();
+    }, 2000);
+  } else {
+    // Lasa modalul deschis si ofera optiunea de a relua
+    const btn2 = document.getElementById('btn-do-import');
+    if (btn2) {
+      btn2.disabled = false;
+      btn2.textContent = '🔄 Reîncearcă cele rămase';
+      // Elimina din coada ce s-a importat deja
+      importQueue = importQueue.slice(done);
+    }
+  }
 }
 
 
