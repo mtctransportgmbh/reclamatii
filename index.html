@@ -880,16 +880,16 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.4.0';
-const APP_VERSION_DATE = '25.06.2026';
-const APP_VERSION_NOTES = 'Luna curentă statistici · Locație auto din tură · Deduplicare alerte · Import ODS · Server parser · Mihaela 30 zile';
+const APP_VERSION = '2.4.1';
+const APP_VERSION_DATE = '26.06.2026';
+
 
 function showVersionInfo() {
   const m = document.createElement('div');
   m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
   m.onclick = e => { if(e.target===m) m.remove(); };
   m.innerHTML = `
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;max-width:420px;width:100%">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;max-width:360px;width:100%">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
         <div>
           <div style="font-size:16px;font-weight:800">📋 Reclamații MTC Transport</div>
@@ -897,22 +897,37 @@ function showVersionInfo() {
         </div>
         <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
       </div>
-      <div style="background:var(--bg3);border-radius:8px;padding:12px 14px;margin-bottom:14px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <span style="font-size:13px;font-weight:700">Versiunea curentă</span>
-          <span style="font-family:var(--mono);font-size:14px;font-weight:800;color:var(--accent)">${APP_VERSION}</span>
-        </div>
-        <div style="font-size:11px;color:var(--text3)">Actualizat: ${APP_VERSION_DATE}</div>
+      <div style="background:var(--bg3);border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Versiunea curentă</div>
+        <div style="font-family:var(--mono);font-size:28px;font-weight:900;color:var(--accent)">${APP_VERSION}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">${APP_VERSION_DATE}</div>
       </div>
-      <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text2)">Ce e nou în această versiune:</div>
-      <div style="font-size:11px;color:var(--text3);line-height:1.8">
-        ${APP_VERSION_NOTES.split(' · ').map(n => '✓ ' + n).join('<br>')}
-      </div>
-      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-size:10px;color:var(--text3);text-align:center">
-        Stack: Firebase Firestore · GitHub Pages · Render.com (parser server)
+      <div style="margin-top:14px;font-size:10px;color:var(--text3);text-align:center">
+        Firebase · GitHub Pages · Render.com
       </div>
     </div>`;
   document.body.appendChild(m);
+  // Marcam versiunea ca vazuta
+  localStorage.setItem('seenVersion', APP_VERSION);
+  // Ascundem notificarea
+  const notif = document.getElementById('version-notif');
+  if (notif) notif.style.display = 'none';
+}
+
+// Verifica la incarcare daca e versiune noua nevazuta
+function checkVersionNotification() {
+  const seen = localStorage.getItem('seenVersion');
+  if (seen !== APP_VERSION) {
+    // Versiune noua — afisam notificare
+    const badge = document.getElementById('version-badge-text');
+    if (badge) {
+      badge.style.color = 'var(--accent)';
+      badge.style.fontWeight = '700';
+    }
+    // Adaugam punct rosu de notificare
+    const dot = document.getElementById('version-dot');
+    if (dot) dot.style.display = 'block';
+  }
 }
 
 
@@ -1327,6 +1342,7 @@ function enterApp() {
   showPage(startPage);
   loadReclamatii();
   loadSoferi();
+  setTimeout(checkVersionNotification, 800);
 
   // Date greeting
   const now = new Date();
@@ -1656,8 +1672,8 @@ function reclItemHTML(r, compact) {
           const diffDays = Math.round((terminDate - today) / 86400000);
           const terminStr = terminDate.toLocaleDateString('de-DE');
 
-          if (r.status === 'rezolvata') {
-            // Rezolvata — termin nu mai conteaza, arata subtil
+          if (r.status === 'rezolvata' || r.status === 'nerezolvata') {
+            // Rezolvata sau Nerezolvata — termin nu mai conteaza, arata subtil
             return `<span style="color:var(--text3);text-decoration:line-through;font-size:11px">⏱ ${terminStr}</span>`;
           } else if (diffDays < 0) {
             // DEPASIT — rosu aprins, pulsating
@@ -5456,10 +5472,11 @@ initTheme();
 buildUserGrid();
 </script>
 <!-- Version badge -->
-<div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.6;transition:opacity 0.2s"
-  onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'"
-  onclick="showVersionInfo()">
-  v2.4.0
+<div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
+  onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
+  onclick="showVersionInfo()" id="version-badge">
+  <span id="version-badge-text">v2.4.1</span>
+  <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
 </html>
