@@ -402,6 +402,7 @@ textarea{resize:vertical;min-height:80px}
 .badge-red{background:var(--red-bg);color:var(--red);border:1px solid rgba(248,113,113,0.2)}
 .badge-yellow{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-border)}
 .badge-blue{background:var(--blue-bg);color:var(--blue);border:1px solid rgba(96,165,250,0.2)}
+@keyframes pulse-red{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,0.4)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0)}}
 .badge-gray{background:var(--bg4);color:var(--text2);border:1px solid var(--border)}
 
 /* ── ICON BUTTON ── */
@@ -767,7 +768,8 @@ textarea{resize:vertical;min-height:80px}
         </div>
         <!-- Tabs -->
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0" id="stats-tabs">
-          <button class="stats-tab active" data-tab="general" onclick="switchStatsTab('general',this)">📊 General</button>
+          <button class="stats-tab active" data-tab="luna-curenta" onclick="switchStatsTab('luna-curenta',this)">📅 Luna curentă</button>
+          <button class="stats-tab" data-tab="general" onclick="switchStatsTab('general',this)">📊 General</button>
           <button class="stats-tab" data-tab="soferi" onclick="switchStatsTab('soferi',this)">🚚 Per șofer</button>
           <button class="stats-tab" data-tab="persoane" onclick="switchStatsTab('persoane',this)">👤 Per client</button>
           <button class="stats-tab" data-tab="zile" onclick="switchStatsTab('zile',this)">📅 Per zi / lună</button>
@@ -777,7 +779,8 @@ textarea{resize:vertical;min-height:80px}
           <button class="stats-tab" data-tab="adrese" onclick="switchStatsTab('adrese',this)">📍 Per adresă</button>
           <button class="stats-tab" data-tab="alerte" onclick="switchStatsTab('alerte',this)" id="tab-alerte">⚠ Alerte</button>
         </div>
-        <div id="stats-general" class="stats-panel"></div>
+        <div id="stats-luna-curenta" class="stats-panel"></div>
+        <div id="stats-general" class="stats-panel" style="display:none"></div>
         <div id="stats-soferi" class="stats-panel" style="display:none"></div>
         <div id="stats-persoane" class="stats-panel" style="display:none"></div>
         <div id="stats-zile" class="stats-panel" style="display:none"></div>
@@ -874,6 +877,45 @@ textarea{resize:vertical;min-height:80px}
 <div class="toast-container" id="toast-container"></div>
 
 <script>
+// ════════════════════════════════════════════════════════
+// VERSION
+// ════════════════════════════════════════════════════════
+const APP_VERSION = '2.4.0';
+const APP_VERSION_DATE = '25.06.2026';
+const APP_VERSION_NOTES = 'Luna curentă statistici · Locație auto din tură · Deduplicare alerte · Import ODS · Server parser · Mihaela 30 zile';
+
+function showVersionInfo() {
+  const m = document.createElement('div');
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = e => { if(e.target===m) m.remove(); };
+  m.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;max-width:420px;width:100%">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div>
+          <div style="font-size:16px;font-weight:800">📋 Reclamații MTC Transport</div>
+          <div style="font-size:12px;color:var(--text3)">MTC Transport GmbH · Passau</div>
+        </div>
+        <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
+      </div>
+      <div style="background:var(--bg3);border-radius:8px;padding:12px 14px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:13px;font-weight:700">Versiunea curentă</span>
+          <span style="font-family:var(--mono);font-size:14px;font-weight:800;color:var(--accent)">${APP_VERSION}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3)">Actualizat: ${APP_VERSION_DATE}</div>
+      </div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text2)">Ce e nou în această versiune:</div>
+      <div style="font-size:11px;color:var(--text3);line-height:1.8">
+        ${APP_VERSION_NOTES.split(' · ').map(n => '✓ ' + n).join('<br>')}
+      </div>
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-size:10px;color:var(--text3);text-align:center">
+        Stack: Firebase Firestore · GitHub Pages · Render.com (parser server)
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+}
+
+
 // ════════════════════════════════════════════════════════
 // FIREBASE CONFIG — înlocuiește cu datele tale!
 // ════════════════════════════════════════════════════════
@@ -1597,6 +1639,37 @@ function reclItemHTML(r, compact) {
         <span>📅 ${fmtDate(r.createdAt)}</span>
         ${(r.strada||r.adresaClient)?`<span>📍 ${[r.strada||r.adresaClient, r.plz, r.ort].filter(Boolean).join(' ')}</span>`:''}
         ${r.adaugatDeNume||r.adaugatDe?`<span style="color:var(--text3)">👤 ${r.adaugatDeNume||r.adaugatDe}</span>`:''}
+        ${(() => {
+          if (!r.termin) return '';
+          // Parse termin date - format YYYY-MM-DD sau DD.MM.YYYY
+          let terminDate = null;
+          if (/^\d{4}-\d{2}-\d{2}$/.test(r.termin)) {
+            terminDate = new Date(r.termin);
+          } else if (/^\d{2}\.\d{2}\.\d{4}$/.test(r.termin)) {
+            const p = r.termin.split('.');
+            terminDate = new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+          }
+          if (!terminDate || isNaN(terminDate)) return '';
+
+          const today = new Date(); today.setHours(0,0,0,0);
+          terminDate.setHours(0,0,0,0);
+          const diffDays = Math.round((terminDate - today) / 86400000);
+          const terminStr = terminDate.toLocaleDateString('de-DE');
+
+          if (r.status === 'rezolvata') {
+            // Rezolvata — termin nu mai conteaza, arata subtil
+            return `<span style="color:var(--text3);text-decoration:line-through;font-size:11px">⏱ ${terminStr}</span>`;
+          } else if (diffDays < 0) {
+            // DEPASIT — rosu aprins, pulsating
+            return `<span style="color:#fff;background:#dc2626;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11px;animation:pulse-red 1.5s infinite">🚨 Termen depășit cu ${Math.abs(diffDays)} zile!</span>`;
+          } else if (diffDays === 0) {
+            return `<span style="color:#fff;background:#ea580c;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11px;animation:pulse-red 1.5s infinite">🚨 Termen AZI!</span>`;
+          } else if (diffDays <= 2) {
+            return `<span style="color:#fff;background:#d97706;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11px">⚠ Termen în ${diffDays} zile (${terminStr})</span>`;
+          } else {
+            return `<span style="color:var(--text3)">⏱ Termin: ${terminStr}</span>`;
+          }
+        })()}
       </div>
       ${r.descriere?`<div style="font-size:12px;color:var(--text3);margin-top:4px;font-style:italic">"${r.descriere}"</div>`:''}
     </div>
@@ -2198,6 +2271,7 @@ async function renderStatistici() {
     renderStatsSoferi(statsCache);
     renderStatsPersoane(statsCache);
     renderStatsZile(statsCache);
+    renderStatsLunaCurenta(statsCache);
     renderStatsLunar(statsCache);
     renderStatsAnual(statsCache);
     renderStatsAdrese(statsCache);
@@ -2222,10 +2296,11 @@ async function renderStatistici() {
 function switchStatsTab(tab, btn) {
   document.querySelectorAll('.stats-tab').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.stats-panel').forEach(p=>p.style.display='none');
-  btn.classList.add('active');
+  if(btn) btn.classList.add('active');
   const panel = document.getElementById('stats-'+tab);
   if (panel) panel.style.display = 'block';
   if (tab === 'harta' && hartaMap) setTimeout(() => hartaMap.invalidateSize(), 150);
+  if (tab === 'luna-curenta' && statsCache) renderStatsLunaCurenta(statsCache);
 }
 
 // ── TAB 1: GENERAL ──
@@ -2314,6 +2389,244 @@ function showReclamatiiModal(title, reclamatii) {
 
   document.body.appendChild(m);
 }
+
+// ════════════════════════════════════════════════════════
+// TAB: LUNA CURENTA — cu comutare luna si filtre locatie
+// ════════════════════════════════════════════════════════
+const MONTHS_FULL = ['Ianuarie','Februarie','Martie','Aprilie','Mai','Iunie','Iulie','August','Septembrie','Octombrie','Noiembrie','Decembrie'];
+let lcSelectedYear = new Date().getFullYear();
+let lcSelectedMonth = new Date().getMonth(); // 0-11
+let lcSelectedLoc = 'total'; // 'total' | 'Ruhstorf' | 'Eiselfing'
+
+function lcNavigate(dir) {
+  lcSelectedMonth += dir;
+  if (lcSelectedMonth > 11) { lcSelectedMonth = 0; lcSelectedYear++; }
+  if (lcSelectedMonth < 0)  { lcSelectedMonth = 11; lcSelectedYear--; }
+  renderStatsLunaCurenta(statsCache);
+}
+
+function lcSetLoc(loc) {
+  lcSelectedLoc = loc;
+  renderStatsLunaCurenta(statsCache);
+}
+
+function renderStatsLunaCurenta(d) {
+  const el = document.getElementById('stats-luna-curenta');
+  if (!el || !d) return;
+
+  const seeAll = d.seeAll; // admin + tania
+  const monthLabel = MONTHS_FULL[lcSelectedMonth] + ' ' + lcSelectedYear;
+  const lunaKey = lcSelectedYear + '-' + String(lcSelectedMonth+1).padStart(2,'0');
+  const isCurrentMonth = lcSelectedYear === new Date().getFullYear() && lcSelectedMonth === new Date().getMonth();
+
+  // Filtreaza reclamatiile din aceasta luna
+  let reclamatii = d.toateReclamatiile.filter(r => {
+    let dd = r.dataReclamatie instanceof Date ? r.dataReclamatie
+      : r.dataReclamatie?.toDate ? r.dataReclamatie.toDate()
+      : r.createdAt?.toDate ? r.createdAt.toDate() : null;
+    if (!dd) return false;
+    return dd.getFullYear() === lcSelectedYear && dd.getMonth() === lcSelectedMonth;
+  });
+
+  // Filtru locatie (doar pentru admin/tania)
+  if (seeAll && lcSelectedLoc !== 'total') {
+    reclamatii = reclamatii.filter(r => (r.locatie||'') === lcSelectedLoc);
+  }
+
+  const total = reclamatii.length;
+  const rezolvate = reclamatii.filter(r=>r.status==='rezolvata').length;
+  const nerezolvate = reclamatii.filter(r=>r.status==='nerezolvata').length;
+  const neprelucrat = reclamatii.filter(r=>r.status==='neprelucrat').length;
+  const suma = reclamatii.reduce((s,r)=>s+(r.forderung||0),0);
+
+  // Top soferi
+  const soferiMap = {};
+  reclamatii.forEach(r => {
+    const t = String(r.turaSofer||r.tour||'—');
+    if (!soferiMap[t]) soferiMap[t] = { tura:t, numeSofer: d.perSofer[t]?.numeSofer||'', count:0, suma:0, reclamatii:[] };
+    soferiMap[t].count++;
+    soferiMap[t].suma += r.forderung||0;
+    soferiMap[t].reclamatii.push(r);
+  });
+  const topSoferi = Object.values(soferiMap).sort((a,b)=>b.count-a.count).slice(0,10);
+
+  // Top clienti
+  const clientiMap = {};
+  reclamatii.forEach(r => {
+    const n = (r.numeClient||r.name||'—').trim();
+    if (!clientiMap[n]) clientiMap[n] = { nume:n, count:0, suma:0, reclamatii:[] };
+    clientiMap[n].count++;
+    clientiMap[n].suma += r.forderung||0;
+    clientiMap[n].reclamatii.push(r);
+  });
+  const topClienti = Object.values(clientiMap).sort((a,b)=>b.count-a.count).slice(0,10);
+
+  // Top adrese
+  const adreseMap = {};
+  reclamatii.forEach(r => {
+    const a = [r.strada||r.strasse, r.plz, r.ort].filter(Boolean).join(', ') || r.adresaClient || '—';
+    if (!adreseMap[a]) adreseMap[a] = { adresa:a, count:0, reclamatii:[] };
+    adreseMap[a].count++;
+    adreseMap[a].reclamatii.push(r);
+  });
+  const topAdrese = Object.values(adreseMap).filter(a=>a.adresa!=='—').sort((a,b)=>b.count-a.count).slice(0,10);
+
+  // Ruhstorf vs Eiselfing split (pentru admin/tania)
+  const ruhCount = seeAll ? reclamatii.filter(r=>r.locatie==='Ruhstorf').length : null;
+  const eisCount = seeAll ? reclamatii.filter(r=>r.locatie==='Eiselfing').length : null;
+
+  el.innerHTML = `
+    <!-- Header cu navigare luna -->
+    <div class="card" style="margin-bottom:14px;padding:14px 16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px">
+          <button onclick="lcNavigate(-1)" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;width:32px;height:32px;cursor:pointer;color:var(--text);font-size:16px;display:flex;align-items:center;justify-content:center">‹</button>
+          <div style="text-align:center">
+            <div style="font-size:18px;font-weight:900;color:var(--accent)">${monthLabel}</div>
+            ${isCurrentMonth ? '<div style="font-size:10px;color:var(--green);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Luna curentă</div>' : ''}
+          </div>
+          <button onclick="lcNavigate(1)" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;width:32px;height:32px;cursor:pointer;color:var(--text);font-size:16px;display:flex;align-items:center;justify-content:center">›</button>
+        </div>
+        ${seeAll ? `
+        <div style="display:flex;gap:6px">
+          <button onclick="lcSetLoc('total')" class="filter-btn ${lcSelectedLoc==='total'?'active':''}" style="font-size:11px;padding:5px 12px">🌐 Total</button>
+          <button onclick="lcSetLoc('Ruhstorf')" class="filter-btn ${lcSelectedLoc==='Ruhstorf'?'active':''}" style="font-size:11px;padding:5px 12px">📦 Ruhstorf</button>
+          <button onclick="lcSetLoc('Eiselfing')" class="filter-btn ${lcSelectedLoc==='Eiselfing'?'active':''}" style="font-size:11px;padding:5px 12px">📦 Eiselfing</button>
+        </div>` : ''}
+      </div>
+    </div>
+
+    <!-- Carduri sumar -->
+    <div class="stats-grid" style="margin-bottom:14px">
+      <div class="stat-card" style="--stat-color:var(--accent);cursor:pointer" onclick="showReclamatiiModal('📅 ${monthLabel} — toate (${total})', ${JSON.stringify([]).replace(/"/g,'&quot;')})">
+        <div class="stat-icon" style="background:var(--accent-bg);color:var(--accent)">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/></svg>
+        </div>
+        <div class="stat-val" style="color:var(--accent)">${total}</div>
+        <div class="stat-label">Total reclamații</div>
+      </div>
+      <div class="stat-card" style="--stat-color:var(--green);cursor:pointer" onclick="showReclamatiiModal('✓ ${monthLabel} — rezolvate', [])">
+        <div class="stat-icon" style="background:var(--green-bg);color:var(--green)">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+        </div>
+        <div class="stat-val" style="color:var(--green)">${rezolvate}</div>
+        <div class="stat-label">Rezolvate ${total>0?'('+Math.round(rezolvate/total*100)+'%)':''}</div>
+      </div>
+      <div class="stat-card" style="--stat-color:var(--red);cursor:pointer" onclick="showReclamatiiModal('✗ ${monthLabel} — nerezolvate', [])">
+        <div class="stat-icon" style="background:var(--red-bg);color:var(--red)">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </div>
+        <div class="stat-val" style="color:var(--red)">${nerezolvate}</div>
+        <div class="stat-label">Nerezolvate</div>
+      </div>
+      <div class="stat-card" style="--stat-color:#f59e0b">
+        <div class="stat-icon" style="background:rgba(245,158,11,0.1);color:#f59e0b">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div class="stat-val" style="color:#f59e0b">${neprelucrat}</div>
+        <div class="stat-label">Neprelucrate</div>
+      </div>
+      ${suma > 0 ? `<div class="stat-card" style="--stat-color:#f472b6">
+        <div class="stat-icon" style="background:rgba(244,114,182,0.1);color:#f472b6">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.25 7.756a4.5 4.5 0 100 8.488M7.5 10.5h5.25m-5.25 3h5.25M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div class="stat-val" style="color:#f472b6">€${suma.toFixed(0)}</div>
+        <div class="stat-label">Sumă facturată</div>
+      </div>` : ''}
+      ${seeAll && lcSelectedLoc==='total' && ruhCount!==null ? `
+      <div class="stat-card" style="--stat-color:var(--blue)">
+        <div class="stat-icon" style="background:var(--blue-bg);color:var(--blue)">📦</div>
+        <div class="stat-val" style="color:var(--blue)">${ruhCount}</div>
+        <div class="stat-label">Ruhstorf</div>
+      </div>
+      <div class="stat-card" style="--stat-color:var(--accent)">
+        <div class="stat-icon" style="background:var(--accent-bg);color:var(--accent)">📦</div>
+        <div class="stat-val" style="color:var(--accent)">${eisCount}</div>
+        <div class="stat-label">Eiselfing</div>
+      </div>` : ''}
+    </div>
+
+    <!-- Top 3 coloane -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px">
+
+      <!-- Top Soferi -->
+      <div class="card">
+        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">🚚 Top șoferi</div>
+        ${topSoferi.length===0 ? '<div style="font-size:12px;color:var(--text3);padding:8px 0">Nicio reclamație</div>' :
+          topSoferi.map((s,i) => `
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer"
+            onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+            onclick="showReclamatiiModal('🚚 Tura '+${JSON.stringify(s.tura)}+' — '+${JSON.stringify(s.numeSofer)}+' · ${monthLabel}', statsCache._lcReclamatii.filter(r=>String(r.turaSofer||r.tour)===${JSON.stringify(s.tura)}))">
+            <span style="width:16px;height:16px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
+            <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">T.${s.tura} ${s.numeSofer}</span>
+            <span style="font-weight:700;font-size:12px;color:${s.count>=5?'var(--red)':'var(--text2)'}">${s.count}</span>
+          </div>`).join('')}
+      </div>
+
+      <!-- Top Clienti -->
+      <div class="card">
+        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">👤 Top clienți</div>
+        ${topClienti.length===0 ? '<div style="font-size:12px;color:var(--text3);padding:8px 0">Nicio reclamație</div>' :
+          topClienti.map((c,i) => `
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer"
+            onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+            onclick="showReclamatiiModal('👤 '+${JSON.stringify(c.nume)}+' · ${monthLabel}', statsCache._lcReclamatii.filter(r=>(r.numeClient||r.name||'').trim()===${JSON.stringify(c.nume)}))">
+            <span style="width:16px;height:16px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
+            <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.nume}</span>
+            <span style="font-weight:700;font-size:12px;color:${c.count>=2?'var(--accent)':'var(--text2)'}">${c.count}x</span>
+          </div>`).join('')}
+      </div>
+
+      <!-- Top Adrese -->
+      <div class="card">
+        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">📍 Top adrese</div>
+        ${topAdrese.length===0 ? '<div style="font-size:12px;color:var(--text3);padding:8px 0">Nicio reclamație</div>' :
+          topAdrese.map((a,i) => `
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+            <span style="width:16px;height:16px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
+            <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.adresa}">${a.adresa}</span>
+            <span style="font-weight:700;font-size:12px;color:${a.count>=2?'var(--accent)':'var(--text2)'}">${a.count}x</span>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Lista completa clickabila -->
+    ${total > 0 ? `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px">📋 Toate reclamațiile — ${monthLabel}</div>
+        <button class="btn btn-ghost" style="font-size:11px;padding:5px 12px"
+          onclick="showReclamatiiModal('📅 ${monthLabel}${lcSelectedLoc!=='total'?' — '+lcSelectedLoc:''}', statsCache._lcReclamatii||[])">
+          Deschide tot (${total})
+        </button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto">
+        ${reclamatii.slice(0,15).map(r => {
+          const statusCol = r.status==='rezolvata'?'var(--green)':r.status==='nerezolvata'?'var(--red)':'#f59e0b';
+          const d2 = r.dataReclamatie instanceof Date ? r.dataReclamatie : r.dataReclamatie?.toDate?.() || new Date(0);
+          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg3);border-radius:6px;font-size:11px">
+            <div style="width:6px;height:6px;border-radius:50%;background:${statusCol};flex-shrink:0"></div>
+            <span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.numeClient||r.name||'—'}</span>
+            <span style="color:var(--text3)">T.${r.turaSofer||r.tour||'—'}</span>
+            <span style="color:var(--text3)">${d2 instanceof Date && !isNaN(d2)?d2.toLocaleDateString('de-DE'):''}</span>
+            ${r.forderung>0?`<span style="font-family:var(--mono);font-weight:700;color:var(--accent)">€${r.forderung.toFixed(0)}</span>`:''}
+          </div>`;
+        }).join('')}
+        ${total > 15 ? `<div style="font-size:11px;color:var(--text3);text-align:center;padding:4px">... și ${total-15} mai multe — click "Deschide tot"</div>` : ''}
+      </div>
+    </div>` : `
+    <div class="card" style="text-align:center;padding:32px">
+      <div style="font-size:32px;margin-bottom:8px">📭</div>
+      <div style="font-weight:700;margin-bottom:4px">Nicio reclamație în ${monthLabel}</div>
+      <div style="font-size:12px;color:var(--text3)">Navighează la altă lună sau adaugă reclamații noi</div>
+    </div>`}
+  `;
+
+  // Salvam reclamatiile filtrate pentru modal
+  if (!statsCache._lcReclamatii) statsCache._lcReclamatii = [];
+  statsCache._lcReclamatii = reclamatii;
+}
+
 
 function renderStatsGeneral(d) {
   const el = document.getElementById('stats-general');
@@ -5142,5 +5455,11 @@ function initTheme() {
 initTheme();
 buildUserGrid();
 </script>
+<!-- Version badge -->
+<div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.6;transition:opacity 0.2s"
+  onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'"
+  onclick="showVersionInfo()">
+  v2.4.0
+</div>
 </body>
 </html>
