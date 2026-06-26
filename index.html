@@ -854,6 +854,9 @@ textarea{resize:vertical;min-height:80px}
             <button class="btn btn-ghost" onclick="fixLocatiiDupaTura()" style="padding:8px 14px;font-size:12px">
               📍 Corectează locații
             </button>
+            <button class="btn btn-ghost" onclick="forcePublishVersion()" style="padding:8px 14px;font-size:12px;color:var(--accent)">
+              📢 Publică v${APP_VERSION}
+            </button>
           </div>
         </div>
         <div class="card" style="border-color:rgba(232,197,71,0.2);background:var(--accent-bg);margin-bottom:16px">
@@ -880,7 +883,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.4.3';
+const APP_VERSION = '2.4.4';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -922,41 +925,52 @@ async function showVersionInfo() {
 // Admin: la primul login scrie versiunea noua in Firestore
 // Useri: citesc versiunea din Firestore si compara cu localStorage
 // ─────────────────────────────────────────────────────
+async function forcePublishVersion() {
+  if (!confirm('Publici versiunea v' + APP_VERSION + '?\n\nToți utilizatorii vor fi notificați să dea refresh la următorul login.')) return;
+  try {
+    await db.collection('config').doc('versiune').set({
+      version: APP_VERSION,
+      date: APP_VERSION_DATE,
+      publishedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      publishedBy: currentUser?.name || 'admin'
+    });
+    localStorage.setItem('seenVersion', APP_VERSION);
+    toast('✓ Versiunea v' + APP_VERSION + ' publicată! Userii vor fi notificați la următorul login.');
+  } catch(e) {
+    toast('Eroare: ' + e.message, 'error');
+  }
+}
+
+
 async function checkVersionNotification() {
   try {
     const snap = await db.collection('config').doc('versiune').get();
     const liveVersion = snap.exists ? snap.data().version : null;
 
     if (currentUser?.role === 'admin') {
-      if (!liveVersion || liveVersion !== APP_VERSION) {
-        // Admin a incarcat versiunea noua — o publicam in Firestore
-        await db.collection('config').doc('versiune').set({
-          version: APP_VERSION,
-          date: APP_VERSION_DATE,
-          publishedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          publishedBy: currentUser.name || 'admin'
-        });
-        // Adminul marcheaza versiunea ca vazuta imediat
-        localStorage.setItem('seenVersion', APP_VERSION);
-        console.log('✓ Versiune noua publicata:', APP_VERSION);
-      } else {
-        localStorage.setItem('seenVersion', APP_VERSION);
-      }
+      // Admin: intotdeauna publica versiunea curenta in Firestore
+      // Asta activeaza notificarea la toti userii
+      await db.collection('config').doc('versiune').set({
+        version: APP_VERSION,
+        date: APP_VERSION_DATE,
+        publishedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        publishedBy: currentUser.name || 'admin'
+      });
+      localStorage.setItem('seenVersion', APP_VERSION);
+      console.log('✓ Versiune publicata:', APP_VERSION);
     } else {
-      // User normal — compara versiunea live cu ce a vazut el
+      // User normal — compara versiunea live din Firestore cu ce are in localStorage
       if (liveVersion) {
         const seen = localStorage.getItem('seenVersion');
-        if (seen && seen !== liveVersion) {
-          // Versiune noua pe care nu a vazut-o inca — blocam
+        // Blocam daca versiunea live e diferita de ce a vazut userul
+        // (indiferent daca seen e null sau o versiune veche)
+        if (seen !== liveVersion) {
           showVersionBlocker(liveVersion);
-        } else if (!seen) {
-          // Prima deschidere — marcam ca vazuta
-          localStorage.setItem('seenVersion', liveVersion);
         }
       }
     }
 
-    // Actualizam badge
+    // Badge dot
     const dot = document.getElementById('version-dot');
     const seenNow = localStorage.getItem('seenVersion');
     if (dot && liveVersion && seenNow !== liveVersion) dot.style.display = 'block';
@@ -5559,7 +5573,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v2.4.3</span>
+  <span id="version-badge-text">v2.4.4</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
