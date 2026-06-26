@@ -880,11 +880,11 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.4.1';
+const APP_VERSION = '2.4.3';
 const APP_VERSION_DATE = '26.06.2026';
 
 
-function showVersionInfo() {
+async function showVersionInfo() {
   const m = document.createElement('div');
   m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
   m.onclick = e => { if(e.target===m) m.remove(); };
@@ -908,26 +908,92 @@ function showVersionInfo() {
     </div>`;
   document.body.appendChild(m);
   // Marcam versiunea ca vazuta
-  localStorage.setItem('seenVersion', APP_VERSION);
-  // Ascundem notificarea
-  const notif = document.getElementById('version-notif');
-  if (notif) notif.style.display = 'none';
+  // Marcam versiunea live ca vazuta
+  const vSnap = await db.collection('config').doc('versiune').get().catch(()=>null);
+  const lv = vSnap?.exists ? vSnap.data().version : APP_VERSION;
+  localStorage.setItem('seenVersion', lv);
+  const dot = document.getElementById('version-dot');
+  if (dot) dot.style.display = 'none';
 }
 
 // Verifica la incarcare daca e versiune noua nevazuta
-function checkVersionNotification() {
-  const seen = localStorage.getItem('seenVersion');
-  if (seen !== APP_VERSION) {
-    // Versiune noua — afisam notificare
-    const badge = document.getElementById('version-badge-text');
-    if (badge) {
-      badge.style.color = 'var(--accent)';
-      badge.style.fontWeight = '700';
+// ─────────────────────────────────────────────────────
+// VERSION SYSTEM — Firestore-based, exact ca la prezenta
+// Admin: la primul login scrie versiunea noua in Firestore
+// Useri: citesc versiunea din Firestore si compara cu localStorage
+// ─────────────────────────────────────────────────────
+async function checkVersionNotification() {
+  try {
+    const snap = await db.collection('config').doc('versiune').get();
+    const liveVersion = snap.exists ? snap.data().version : null;
+
+    if (currentUser?.role === 'admin') {
+      if (!liveVersion || liveVersion !== APP_VERSION) {
+        // Admin a incarcat versiunea noua — o publicam in Firestore
+        await db.collection('config').doc('versiune').set({
+          version: APP_VERSION,
+          date: APP_VERSION_DATE,
+          publishedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          publishedBy: currentUser.name || 'admin'
+        });
+        // Adminul marcheaza versiunea ca vazuta imediat
+        localStorage.setItem('seenVersion', APP_VERSION);
+        console.log('✓ Versiune noua publicata:', APP_VERSION);
+      } else {
+        localStorage.setItem('seenVersion', APP_VERSION);
+      }
+    } else {
+      // User normal — compara versiunea live cu ce a vazut el
+      if (liveVersion) {
+        const seen = localStorage.getItem('seenVersion');
+        if (seen && seen !== liveVersion) {
+          // Versiune noua pe care nu a vazut-o inca — blocam
+          showVersionBlocker(liveVersion);
+        } else if (!seen) {
+          // Prima deschidere — marcam ca vazuta
+          localStorage.setItem('seenVersion', liveVersion);
+        }
+      }
     }
-    // Adaugam punct rosu de notificare
+
+    // Actualizam badge
     const dot = document.getElementById('version-dot');
-    if (dot) dot.style.display = 'block';
+    const seenNow = localStorage.getItem('seenVersion');
+    if (dot && liveVersion && seenNow !== liveVersion) dot.style.display = 'block';
+
+  } catch(e) {
+    console.warn('Version check failed:', e.message);
   }
+}
+
+function showVersionBlocker(newVersion) {
+  const v = newVersion || APP_VERSION;
+  const overlay = document.createElement('div');
+  overlay.id = 'version-blocker';
+  overlay.style.cssText = [
+    'position:fixed', 'inset:0', 'z-index:99999',
+    'background:rgba(0,0,0,0.85)', 'backdrop-filter:blur(6px)',
+    'display:flex', 'align-items:center', 'justify-content:center',
+    'padding:20px'
+  ].join(';');
+  overlay.onclick = e => e.stopPropagation();
+  overlay.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--accent-border);border-radius:var(--radius);padding:32px;max-width:380px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+      <div style="font-size:40px;margin-bottom:12px">🔄</div>
+      <div style="font-size:18px;font-weight:900;margin-bottom:6px">Versiune nouă disponibilă</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:20px">
+        Aplicația a fost actualizată la
+        <span style="font-family:var(--mono);font-weight:700;color:var(--accent)">v${v}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:24px;padding:10px 14px;background:var(--bg3);border-radius:8px">
+        Trebuie să reîncărcați pagina pentru a folosi versiunea nouă.
+      </div>
+      <button onclick="localStorage.setItem('seenVersion','${v}');window.location.reload()"
+        style="width:100%;padding:12px;background:var(--accent);color:#000;border:none;border-radius:var(--radius-sm);font-size:15px;font-weight:800;cursor:pointer;letter-spacing:0.3px">
+        🔄 Reîncarcă acum
+      </button>
+    </div>`;
+  document.body.appendChild(overlay);
 }
 
 
@@ -2426,6 +2492,20 @@ function lcSetLoc(loc) {
   renderStatsLunaCurenta(statsCache);
 }
 
+function lcShowSofer(el) {
+  const tura = el.dataset.tura;
+  const recl = (statsCache._lcReclamatii||[]).filter(r => String(r.turaSofer||r.tour||'') === tura);
+  const sofer = allSoferi.find(s => String(s.tura) === tura);
+  showReclamatiiModal('🚚 Tura ' + tura + (sofer?' — '+sofer.numeSofer:''), recl);
+}
+
+function lcShowClient(el) {
+  const nume = el.dataset.nume;
+  const recl = (statsCache._lcReclamatii||[]).filter(r => (r.numeClient||r.name||'').trim() === nume);
+  showReclamatiiModal('👤 ' + nume, recl);
+}
+
+
 function renderStatsLunaCurenta(d) {
   const el = document.getElementById('stats-luna-curenta');
   if (!el || !d) return;
@@ -2491,6 +2571,9 @@ function renderStatsLunaCurenta(d) {
   const ruhCount = seeAll ? reclamatii.filter(r=>r.locatie==='Ruhstorf').length : null;
   const eisCount = seeAll ? reclamatii.filter(r=>r.locatie==='Eiselfing').length : null;
 
+  // Salvam INAINTE de a genera HTML-ul — ca onclick-urile sa gaseasca datele
+  statsCache._lcReclamatii = reclamatii;
+
   el.innerHTML = `
     <!-- Header cu navigare luna -->
     <div class="card" style="margin-bottom:14px;padding:14px 16px">
@@ -2514,21 +2597,21 @@ function renderStatsLunaCurenta(d) {
 
     <!-- Carduri sumar -->
     <div class="stats-grid" style="margin-bottom:14px">
-      <div class="stat-card" style="--stat-color:var(--accent);cursor:pointer" onclick="showReclamatiiModal('📅 ${monthLabel} — toate (${total})', ${JSON.stringify([]).replace(/"/g,'&quot;')})">
+      <div class="stat-card" style="--stat-color:var(--accent);cursor:pointer" onclick="showReclamatiiModal('📅 Toate', statsCache._lcReclamatii||[])">
         <div class="stat-icon" style="background:var(--accent-bg);color:var(--accent)">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/></svg>
         </div>
         <div class="stat-val" style="color:var(--accent)">${total}</div>
         <div class="stat-label">Total reclamații</div>
       </div>
-      <div class="stat-card" style="--stat-color:var(--green);cursor:pointer" onclick="showReclamatiiModal('✓ ${monthLabel} — rezolvate', [])">
+      <div class="stat-card" style="--stat-color:var(--green);cursor:pointer" onclick="showReclamatiiModal('✓ Rezolvate', (statsCache._lcReclamatii||[]).filter(r=>r.status==='rezolvata'))">
         <div class="stat-icon" style="background:var(--green-bg);color:var(--green)">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
         </div>
         <div class="stat-val" style="color:var(--green)">${rezolvate}</div>
         <div class="stat-label">Rezolvate ${total>0?'('+Math.round(rezolvate/total*100)+'%)':''}</div>
       </div>
-      <div class="stat-card" style="--stat-color:var(--red);cursor:pointer" onclick="showReclamatiiModal('✗ ${monthLabel} — nerezolvate', [])">
+      <div class="stat-card" style="--stat-color:var(--red);cursor:pointer" onclick="showReclamatiiModal('✗ Nerezolvate', (statsCache._lcReclamatii||[]).filter(r=>r.status==='nerezolvata'))">
         <div class="stat-icon" style="background:var(--red-bg);color:var(--red)">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
         </div>
@@ -2569,28 +2652,32 @@ function renderStatsLunaCurenta(d) {
       <div class="card">
         <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">🚚 Top șoferi</div>
         ${topSoferi.length===0 ? '<div style="font-size:12px;color:var(--text3);padding:8px 0">Nicio reclamație</div>' :
-          topSoferi.map((s,i) => `
-          <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer"
-            onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
-            onclick="showReclamatiiModal('🚚 Tura '+${JSON.stringify(s.tura)}+' — '+${JSON.stringify(s.numeSofer)}+' · ${monthLabel}', statsCache._lcReclamatii.filter(r=>String(r.turaSofer||r.tour)===${JSON.stringify(s.tura)}))">
-            <span style="width:16px;height:16px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
-            <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">T.${s.tura} ${s.numeSofer}</span>
-            <span style="font-weight:700;font-size:12px;color:${s.count>=5?'var(--red)':'var(--text2)'}">${s.count}</span>
-          </div>`).join('')}
+          topSoferi.map((s,i) => {
+            const tura = s.tura;
+            return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer"
+              onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+              onclick="lcShowSofer(this);" data-tura="${tura}">
+              <span style="width:16px;height:16px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
+              <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">T.${s.tura} ${s.numeSofer}</span>
+              <span style="font-weight:700;font-size:12px;color:${s.count>=5?'var(--red)':'var(--text2)'}">${s.count}</span>
+            </div>`;
+          }).join('')}
       </div>
 
       <!-- Top Clienti -->
       <div class="card">
         <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">👤 Top clienți</div>
         ${topClienti.length===0 ? '<div style="font-size:12px;color:var(--text3);padding:8px 0">Nicio reclamație</div>' :
-          topClienti.map((c,i) => `
-          <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer"
-            onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
-            onclick="showReclamatiiModal('👤 '+${JSON.stringify(c.nume)}+' · ${monthLabel}', statsCache._lcReclamatii.filter(r=>(r.numeClient||r.name||'').trim()===${JSON.stringify(c.nume)}))">
-            <span style="width:16px;height:16px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
-            <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.nume}</span>
-            <span style="font-weight:700;font-size:12px;color:${c.count>=2?'var(--accent)':'var(--text2)'}">${c.count}x</span>
-          </div>`).join('')}
+          topClienti.map((c,i) => {
+            const numeEsc = (c.nume||'').replace(/"/g,'&quot;');
+            return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer"
+              onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+              onclick="lcShowClient(this);" data-nume="${numeEsc}">
+              <span style="width:16px;height:16px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
+              <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.nume}</span>
+              <span style="font-weight:700;font-size:12px;color:${c.count>=2?'var(--accent)':'var(--text2)'}">${c.count}x</span>
+            </div>`;
+          }).join('')}
       </div>
 
       <!-- Top Adrese -->
@@ -2612,7 +2699,7 @@ function renderStatsLunaCurenta(d) {
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px">📋 Toate reclamațiile — ${monthLabel}</div>
         <button class="btn btn-ghost" style="font-size:11px;padding:5px 12px"
-          onclick="showReclamatiiModal('📅 ${monthLabel}${lcSelectedLoc!=='total'?' — '+lcSelectedLoc:''}', statsCache._lcReclamatii||[])">
+          onclick="showReclamatiiModal('📅 ' + (new Date(lcSelectedYear, lcSelectedMonth).toLocaleDateString('ro-RO',{month:'long',year:'numeric'})), statsCache._lcReclamatii||[])">
           Deschide tot (${total})
         </button>
       </div>
@@ -2638,9 +2725,6 @@ function renderStatsLunaCurenta(d) {
     </div>`}
   `;
 
-  // Salvam reclamatiile filtrate pentru modal
-  if (!statsCache._lcReclamatii) statsCache._lcReclamatii = [];
-  statsCache._lcReclamatii = reclamatii;
 }
 
 
@@ -5475,7 +5559,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v2.4.1</span>
+  <span id="version-badge-text">v2.4.3</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
