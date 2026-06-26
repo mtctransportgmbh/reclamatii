@@ -854,8 +854,8 @@ textarea{resize:vertical;min-height:80px}
             <button class="btn btn-ghost" onclick="fixLocatiiDupaTura()" style="padding:8px 14px;font-size:12px">
               📍 Corectează locații
             </button>
-            <button class="btn btn-ghost" onclick="forcePublishVersion()" style="padding:8px 14px;font-size:12px;color:var(--accent)">
-              📢 Publică v${APP_VERSION}
+            <button class="btn btn-ghost" id="btn-publish-version" onclick="forcePublishVersion()" style="padding:8px 14px;font-size:12px;color:var(--accent)">
+              📢 Publică versiunea
             </button>
           </div>
         </div>
@@ -5452,6 +5452,9 @@ async function savePachete() {
 // UTILIZATORI
 // ════════════════════════════════════════════════════════
 async function renderUtilizatori() {
+  // Actualizam textul butonului cu versiunea curenta
+  const btnPub = document.getElementById('btn-publish-version');
+  if (btnPub) btnPub.innerHTML = '📢 Publică v' + APP_VERSION;
   const el=document.getElementById('users-list');
   el.innerHTML=`<div class="loading-page"><div class="spinner"></div></div>`;
   const infos={};
