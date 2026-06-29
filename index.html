@@ -692,6 +692,9 @@ textarea{resize:vertical;min-height:80px}
           <div class="sidebar-user-name" id="sidebar-user-name"></div>
           <div class="sidebar-user-role" id="sidebar-user-role"></div>
         </div>
+        <button onclick="showGlobalSearch()" title="Căutare globală (Ctrl+K)" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:6px;border-radius:8px;transition:var(--transition);display:flex;align-items:center;justify-content:center" onmouseover="this.style.background='var(--bg3)';this.style.color='var(--accent)'" onmouseout="this.style.background='none';this.style.color='var(--text3)'">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+        </button>
         <button class="btn-logout" onclick="logout()" title="Deconectare">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/></svg>
         </button>
@@ -851,6 +854,9 @@ textarea{resize:vertical;min-height:80px}
             <button class="btn btn-ghost" id="btn-dedup" onclick="deduplicateImport()" style="padding:8px 14px;font-size:12px">
               🧹 Deduplicare import
             </button>
+            <button class="btn btn-ghost" id="btn-dedup-rechn" onclick="deduplicateRechnunguri()" style="padding:8px 14px;font-size:12px">
+              🧹 Deduplicare rechnunguri
+            </button>
             <button class="btn btn-ghost" onclick="fixLocatiiDupaTura()" style="padding:8px 14px;font-size:12px">
               📍 Corectează locații
             </button>
@@ -883,7 +889,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.4.4';
+const APP_VERSION = '2.5.1';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -1685,11 +1691,17 @@ function renderReclamatii() {
   if (search) list = list.filter(r=>
     (r.numeClient||'').toLowerCase().includes(search) ||
     (r.numarPachet||'').toLowerCase().includes(search) ||
+    (r.identnummer||'').toLowerCase().includes(search) ||
+    (r.belegNr||'').toLowerCase().includes(search) ||
     (r.numePachet||'').toLowerCase().includes(search) ||
+    (r.atg||'').toLowerCase().includes(search) ||
     (r.adresaClient||'').toLowerCase().includes(search) ||
-             (r.strada||'').toLowerCase().includes(search) ||
-             (r.plz||'').toLowerCase().includes(search) ||
-             (r.ort||'').toLowerCase().includes(search)
+    (r.strada||'').toLowerCase().includes(search) ||
+    (r.strasse||'').toLowerCase().includes(search) ||
+    (r.plz||'').toLowerCase().includes(search) ||
+    (r.ort||'').toLowerCase().includes(search) ||
+    (r.turaSofer||r.tour||'').toString().includes(search) ||
+    (r.descriere||'').toLowerCase().includes(search)
   );
   document.getElementById('recl-count').textContent = list.length+' înregistrări';
   const el = document.getElementById('recl-list');
@@ -1731,6 +1743,7 @@ function reclItemHTML(r, compact) {
       <div class="recl-meta">
         <span>📦 ${r.numePachet||'—'}</span>
         ${r.numarPachet ? `<span style="font-family:var(--mono);font-size:11px;background:var(--bg3);padding:1px 6px;border-radius:4px;letter-spacing:0.3px" title="Număr pachet / Sendungs-ID">#${r.numarPachet}</span>` : ''}
+        ${r.belegNr ? `<span style="font-family:var(--mono);font-size:11px;background:rgba(232,197,71,0.12);color:var(--accent);padding:1px 6px;border-radius:4px" title="Nr. Rechnung Hermes">📄${r.belegNr}</span>` : ''}
         <span>🚚 Tura ${r.turaSofer||'—'}</span>
         <span>📅 ${fmtDate(r.createdAt)}</span>
         ${(r.strada||r.adresaClient)?`<span>📍 ${[r.strada||r.adresaClient, r.plz, r.ort].filter(Boolean).join(' ')}</span>`:''}
@@ -2168,26 +2181,30 @@ async function loadStatsData() {
   // Total reclamatii = deduplicate (rechnung e sursa de adevar)
   // Daca o reclamatie manuala coincide cu una din rechnung => pastram doar din rechnung
   const toateReclamatiile = [];
-  const rechnKeys = new Set(rechnPozitii.map(p => {
-    const name = (p.name||'').toLowerCase().trim().split(/\s+/).slice(-1)[0]; // ultimul cuvant din nume
-    return String(p.tour) + '_' + name;
-  }));
 
-  // Adauga manuala DOAR daca nu are corespondent in rechnung
+  // Construim un set de numere de pachet din rechnunguri (sursa de adevar)
+  // Folosim identnummer complet (nu trunchiat) pentru match precis
+  const rechnIdentSet = new Set(
+    rechnPozitii
+      .map(p => (p.identnummer||'').replace(/\s/g,'').toLowerCase())
+      .filter(s => s.length >= 8)
+  );
+
+  // Adauga reclamatii manuale DOAR daca nu au corespondent exact in rechnung
   reclManuale.forEach(r => {
-    const nameKey = (r.numeClient||'').toLowerCase().trim().split(/\s+/).slice(-1)[0];
-    const key = String(r.turaSofer) + '_' + nameKey;
-    // Verifica si dupa numar pachet
-    const hasMatchByPachet = rechnPozitii.some(p =>
-      p.identnummer && r.numarPachet && p.identnummer.includes(r.numarPachet.slice(-6))
+    const rmNr = (r.numarPachet||'').replace(/\s/g,'').toLowerCase();
+    // Match precis: numarul de pachet din reclamatie trebuie sa fie in set-ul rechnungurilor
+    const matchByPachet = rmNr.length >= 8 && (
+      rechnIdentSet.has(rmNr) ||
+      [...rechnIdentSet].some(id => id.endsWith(rmNr) || rmNr.endsWith(id))
     );
-    if (!rechnKeys.has(key) && !hasMatchByPachet) {
+    if (!matchByPachet) {
       toateReclamatiile.push(r);
     }
-    // daca coincide, cel din rechnung va fi adaugat mai jos
+    // daca coincide cu un rechnung, cel din rechnung e sursa de adevar si va fi adaugat mai jos
   });
 
-  // Adauga toate din rechnung (ele sunt sursa de adevar)
+  // Adauga toate din rechnung
   rechnPozitii.forEach(p => toateReclamatiile.push({...p, id:'rechn_'+p.tour+'_'+Math.random()}));
 
   // Pachete per tura
@@ -3802,6 +3819,8 @@ function renderStatsAlerte(d) {
 
 
 async function renderRechnunguri() {
+  // Expunem pentru cautarea globala
+  window.allRechnunguri = rechnunguriData;
   const snap = await db.collection('rechnunguri').orderBy('uploadedAt','desc').get();
   rechnunguriData = snap.docs.map(d=>({id:d.id,...d.data()}));
   const el = document.getElementById('rechn-list');
@@ -4698,6 +4717,79 @@ let importQueue = [];
 // ════════════════════════════════════════════════════════
 // DEDUPLICARE — sterge duplicatele din import ODS
 // ════════════════════════════════════════════════════════
+async function deduplicateRechnunguri() {
+  const btn = document.getElementById('btn-dedup-rechn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Se verifică...'; }
+
+  try {
+    const snap = await db.collection('rechnunguri').get();
+    if (snap.empty) { toast('Nu există rechnunguri', 'info'); return; }
+
+    // Grupeaza dupa belegNr
+    const groups = {};
+    snap.docs.forEach(doc => {
+      const nr = (doc.data().belegNr || '').trim();
+      const key = nr || ('no-beleg-' + doc.id); // daca lipseste belegNr, fiecare e unic
+      if (!groups[key]) groups[key] = [];
+      groups[key].push({ id: doc.id, ...doc.data() });
+    });
+
+    // Gasim duplicatele (acelasi belegNr, mai mult de 1)
+    const toDelete = [];
+    let uniqueKept = 0;
+    for (const [nr, docs] of Object.entries(groups)) {
+      if (docs.length > 1 && !nr.startsWith('no-beleg-')) {
+        // Pastram cel cu cele mai multe pozitii (sau primul daca egal)
+        docs.sort((a,b) => (b.pozitii?.length||0) - (a.pozitii?.length||0));
+        toDelete.push(...docs.slice(1).map(d => ({ id:d.id, belegNr:d.belegNr, pozitii:d.pozitii?.length||0 })));
+        uniqueKept++;
+      }
+    }
+
+    if (toDelete.length === 0) {
+      toast('✓ Nu s-au găsit rechnunguri duplicate!', 'info');
+      if (btn) { btn.disabled = false; btn.innerHTML = '🧹 Deduplicare rechnunguri'; }
+      return;
+    }
+
+    const preview = toDelete.slice(0,5).map(d =>
+      '• Nr. ' + d.belegNr + ' (' + d.pozitii + ' poziții)'
+    ).join('\n');
+    const extra = toDelete.length > 5 ? ('\n... și ' + (toDelete.length-5) + ' mai multe') : '';
+
+    const ok = confirm(
+      `S-au găsit ${toDelete.length} rechnunguri DUPLICATE din ${snap.docs.length} total:
+
+${preview}${extra}
+
+Se păstrează câte unul per Nr. Beleg (cel cu cele mai multe poziții).
+
+Ștergi duplicatele?`
+    );
+    if (!ok) { if (btn) { btn.disabled = false; btn.innerHTML = '🧹 Deduplicare rechnunguri'; } return; }
+
+    // Sterge in batch-uri
+    let deleted = 0;
+    for (let i = 0; i < toDelete.length; i += 20) {
+      const chunk = toDelete.slice(i, i+20);
+      const batch = db.batch();
+      chunk.forEach(r => batch.delete(db.collection('rechnunguri').doc(r.id)));
+      await batch.commit();
+      deleted += chunk.length;
+      if (btn) btn.textContent = `Se șterge... ${deleted}/${toDelete.length}`;
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    toast(`✓ ${deleted} rechnunguri duplicate șterse! Au rămas ${snap.docs.length - deleted} unice.`);
+    renderRechnunguri();
+  } catch(e) {
+    toast('Eroare: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '🧹 Deduplicare rechnunguri'; }
+  }
+}
+
+
 async function deduplicateImport() {
   if (!confirm('Această operație va șterge DUPLICATELE din importul ODS.\n\nPăstrează o singură copie per reclamație (după nume + tură + dată).\n\nContinui?')) return;
 
@@ -5059,6 +5151,155 @@ async function doImportODS() {
     }
   }
 }
+
+
+// ════════════════════════════════════════════════════════
+// CAUTARE GLOBALA — cauta in reclamatii + rechnunguri dupa orice
+// ════════════════════════════════════════════════════════
+function showGlobalSearch() {
+  const existing = document.getElementById('global-search-modal');
+  if (existing) { existing.querySelector('input').focus(); return; }
+
+  const m = document.createElement('div');
+  m.id = 'global-search-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9998;display:flex;align-items:flex-start;justify-content:center;padding:80px 16px 16px';
+  m.onclick = e => { if(e.target===m) m.remove(); };
+
+  m.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:640px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;color:var(--text3);flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+        <input id="global-search-input" type="text" placeholder="Caută client, nr. pachet, rechnung, adresă, tură..."
+          style="flex:1;background:none;border:none;outline:none;font-size:15px;color:var(--text)"
+          oninput="globalSearchRender(this.value)" onkeydown="if(event.key==='Escape')document.getElementById('global-search-modal').remove()"/>
+        <kbd style="font-size:10px;color:var(--text3);background:var(--bg3);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">ESC</kbd>
+      </div>
+      <div id="global-search-results" style="overflow-y:auto;flex:1;padding:8px">
+        <div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Scrie cel puțin 2 caractere pentru a căuta</div>
+      </div>
+    </div>`;
+
+  document.body.appendChild(m);
+  setTimeout(() => m.querySelector('input').focus(), 50);
+}
+
+function globalSearchRender(query) {
+  const el = document.getElementById('global-search-results');
+  if (!el) return;
+  const q = query.trim().toLowerCase();
+
+  if (q.length < 2) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Scrie cel puțin 2 caractere pentru a căuta</div>';
+    return;
+  }
+
+  // Cauta in reclamatii manuale
+  const allRecs = allReclamatii || [];
+  const matchRecs = allRecs.filter(r =>
+    (r.numeClient||'').toLowerCase().includes(q) ||
+    (r.numarPachet||'').toLowerCase().includes(q) ||
+    (r.identnummer||'').toLowerCase().includes(q) ||
+    (r.belegNr||'').toLowerCase().includes(q) ||
+    (r.numePachet||r.atg||'').toLowerCase().includes(q) ||
+    (r.strada||r.strasse||r.adresaClient||'').toLowerCase().includes(q) ||
+    (r.plz||'').includes(q) ||
+    (r.ort||'').toLowerCase().includes(q) ||
+    (r.turaSofer||r.tour||'').toString().includes(q) ||
+    (r.descriere||'').toLowerCase().includes(q)
+  ).slice(0, 20);
+
+  // Cauta in rechnunguri (belegNr + pozitii)
+  const rechnunguri = window.allRechnunguri || [];
+  const matchRechn = [];
+  rechnunguri.forEach(r => {
+    if ((r.belegNr||'').includes(q) || (r.dataEmitere||'').includes(q)) {
+      matchRechn.push({ type:'rechnung', r });
+    }
+    (r.pozitii||[]).forEach(p => {
+      if (
+        (p.name||'').toLowerCase().includes(q) ||
+        (p.identnummer||'').toLowerCase().includes(q) ||
+        (p.atg||'').toLowerCase().includes(q) ||
+        (p.strasse||'').toLowerCase().includes(q) ||
+        (p.plz||'').includes(q) || (p.ort||'').toLowerCase().includes(q)
+      ) {
+        matchRechn.push({ type:'pozitie', r, p });
+      }
+    });
+  });
+
+  const total = matchRecs.length + matchRechn.slice(0,10).length;
+  if (total === 0) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Niciun rezultat pentru <strong>' + query + '</strong></div>';
+    return;
+  }
+
+  const statusColor = s => s==='rezolvata'?'var(--green)':s==='nerezolvata'?'var(--red)':'#f59e0b';
+  const statusIcon = s => s==='rezolvata'?'✓':s==='nerezolvata'?'✗':'⏳';
+
+  let html = '';
+
+  if (matchRecs.length > 0) {
+    html += `<div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;padding:8px 10px 4px">📋 Reclamații (${matchRecs.length})</div>`;
+    html += matchRecs.map(r => `
+      <div style="padding:8px 10px;border-radius:7px;cursor:pointer;transition:background 0.15s"
+        onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+        onclick="document.getElementById('global-search-modal').remove();showPage('reclamatii');setTimeout(()=>{const el=document.getElementById('search-input');if(el){el.value='${(r.numeClient||r.numarPachet||'').replace(/'/g,'')}';renderReclamatii();}},200)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+          <span style="width:16px;height:16px;background:${statusColor(r.status)};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;font-weight:700;flex-shrink:0">${statusIcon(r.status)}</span>
+          <span style="font-weight:600;font-size:13px">${r.numeClient||r.name||'—'}</span>
+          ${r.belegNr?`<span style="font-family:var(--mono);font-size:10px;color:var(--accent);background:rgba(232,197,71,0.1);padding:1px 5px;border-radius:3px">📄${r.belegNr}</span>`:''}
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-left:24px;display:flex;gap:10px;flex-wrap:wrap">
+          <span>T.${r.turaSofer||r.tour||'—'}</span>
+          ${r.numarPachet?`<span style="font-family:var(--mono)">#${r.numarPachet}</span>`:''}
+          ${r.numePachet||r.atg?`<span>${r.numePachet||r.atg}</span>`:''}
+          ${r.strada||r.strasse?`<span>${r.strada||r.strasse}</span>`:''}
+          <span>${r.locatie||''}</span>
+        </div>
+      </div>`).join('');
+  }
+
+  if (matchRechn.length > 0) {
+    html += `<div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;padding:8px 10px 4px;margin-top:4px">📄 Rechnunguri (${matchRechn.length})</div>`;
+    html += matchRechn.slice(0,10).map(item => {
+      if (item.type === 'rechnung') {
+        return `<div style="padding:8px 10px;border-radius:7px;cursor:pointer;transition:background 0.15s"
+          onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+          onclick="document.getElementById('global-search-modal').remove();showPage('rechnunguri')">
+          <div style="font-weight:600;font-size:13px">📄 Rechnung Nr. ${item.r.belegNr||'—'}</div>
+          <div style="font-size:11px;color:var(--text3)">${item.r.dataEmitere||''} · €${parseFloat(item.r.suma||0).toFixed(2)} · ${(item.r.pozitii||[]).length} poziții</div>
+        </div>`;
+      } else {
+        return `<div style="padding:8px 10px;border-radius:7px;cursor:pointer;transition:background 0.15s"
+          onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+          onclick="document.getElementById('global-search-modal').remove();showPage('rechnunguri')">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+            <span style="font-weight:600;font-size:13px">${item.p.name||'—'}</span>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--accent);background:rgba(232,197,71,0.1);padding:1px 5px;border-radius:3px">📄${item.r.belegNr||'—'}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text3);display:flex;gap:10px;flex-wrap:wrap">
+            <span>T.${item.p.tour||'—'}</span>
+            ${item.p.identnummer?`<span style="font-family:var(--mono)">#${item.p.identnummer}</span>`:''}
+            <span>${item.p.atg||''}</span>
+            <span>${item.p.strasse||''} ${item.p.plz||''} ${item.p.ort||''}</span>
+            <span>€${(item.p.forderung||0).toFixed(2)}</span>
+          </div>
+        </div>`;
+      }
+    }).join('');
+  }
+
+  el.innerHTML = html;
+}
+
+// Ctrl+K shortcut pentru cautare globala
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    showGlobalSearch();
+  }
+});
 
 
 // SOFERI — lista pre-populata
@@ -5576,7 +5817,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v2.4.4</span>
+  <span id="version-badge-text">v2.5.1</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
