@@ -889,7 +889,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.5.1';
+const APP_VERSION = '2.6.0';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -2414,6 +2414,7 @@ function switchStatsTab(tab, btn) {
   if (panel) panel.style.display = 'block';
   if (tab === 'harta' && hartaMap) setTimeout(() => hartaMap.invalidateSize(), 150);
   if (tab === 'luna-curenta' && statsCache) renderStatsLunaCurenta(statsCache);
+  if (tab === 'harta' && statsCache) loadFirestoreGeocodeCache().then(() => renderStatsHarta(statsCache));
 }
 
 // ── TAB 1: GENERAL ──
@@ -2565,6 +2566,9 @@ function renderStatsLunaCurenta(d) {
   const nerezolvate = reclamatii.filter(r=>r.status==='nerezolvata').length;
   const neprelucrat = reclamatii.filter(r=>r.status==='neprelucrat').length;
   const suma = reclamatii.reduce((s,r)=>s+(r.forderung||0),0);
+  const sumaRechn = reclamatii.filter(r=>r.sursa==='rechnung').reduce((s,r)=>s+(r.forderung||0),0);
+  const nrRechn = reclamatii.filter(r=>r.sursa==='rechnung').length;
+  const nrManual = reclamatii.filter(r=>r.sursa!=='rechnung').length;
 
   // Top soferi
   const soferiMap = {};
@@ -2656,13 +2660,20 @@ function renderStatsLunaCurenta(d) {
         <div class="stat-val" style="color:#f59e0b">${neprelucrat}</div>
         <div class="stat-label">Neprelucrate</div>
       </div>
-      ${suma > 0 ? `<div class="stat-card" style="--stat-color:#f472b6">
+      ${sumaRechn > 0 ? `<div class="stat-card" style="--stat-color:#f472b6">
         <div class="stat-icon" style="background:rgba(244,114,182,0.1);color:#f472b6">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.25 7.756a4.5 4.5 0 100 8.488M7.5 10.5h5.25m-5.25 3h5.25M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         </div>
-        <div class="stat-val" style="color:#f472b6">€${suma.toFixed(0)}</div>
-        <div class="stat-label">Sumă facturată</div>
+        <div class="stat-val" style="color:#f472b6">€${sumaRechn.toFixed(0)}</div>
+        <div class="stat-label">Facturat Hermes (${nrRechn} rechn.)</div>
       </div>` : ''}
+      <div class="stat-card" style="--stat-color:var(--blue)">
+        <div class="stat-icon" style="background:var(--blue-bg);color:var(--blue)">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z"/></svg>
+        </div>
+        <div class="stat-val" style="color:var(--blue)">${nrManual}</div>
+        <div class="stat-label">Introduse manual</div>
+      </div>
       ${seeAll && lcSelectedLoc==='total' && ruhCount!==null ? `
       <div class="stat-card" style="--stat-color:var(--blue)">
         <div class="stat-icon" style="background:var(--blue-bg);color:var(--blue)">📦</div>
@@ -2860,9 +2871,99 @@ function renderStatsGeneral(d) {
 }
 
 // ── TAB 2: PER SOFER — expandabil cu detalii ──
+function renderSoferiGroup(items, label, color, d, reclPerTura) {
+  if (!items.length) return '';
+  const cards = items.map(([tura, s]) => {
+    const total = s.manual + s.rechnung;
+    if (!total) return '';
+    const pachete = d.pachetePerTura[tura] || 0;
+    const medie = pachete > 0 ? ((total/pachete)*100).toFixed(2) : null;
+    const hasAlerta = d.alerte.some(a=>String(a.rechnPoz?.tour)===String(tura));
+    const reclTura = reclPerTura[tura] || [];
+    const cardId = 'sofer-stat-' + tura;
+    const rezolvate = reclTura.filter(r=>r.status==='rezolvata').length;
+    const nerezolvate = reclTura.filter(r=>r.status==='nerezolvata').length;
+    const suma = reclTura.reduce((acc,r)=>acc+(r.forderung||0),0);
+
+    // Build table rows for details
+    const tableRows = reclTura.map(r => {
+      const dt = r.dataReclamatie instanceof Date ? r.dataReclamatie
+        : r.dataReclamatie?.toDate ? r.dataReclamatie.toDate()
+        : r.createdAt?.toDate ? r.createdAt.toDate() : null;
+      const dtStr = dt ? dt.toLocaleDateString('de-DE') : '—';
+      const stBadge = r.status==='rezolvata'?'badge-green':r.status==='nerezolvata'?'badge-red':'badge-gray';
+      const stLabel = r.status==='rezolvata'?'✓':r.status==='nerezolvata'?'✗':'⏳';
+      return '<tr>'
+        + '<td style="font-weight:600">' + (r.numeClient||r.name||'—') + '</td>'
+        + '<td style="color:var(--text2)">' + (r.numePachet||r.atg||'') + (r.numarPachet?' #'+r.numarPachet:'') + '</td>'
+        + '<td style="color:var(--text3)">' + (r.adresaClient||[r.strasse,r.plz,r.ort].filter(Boolean).join(' ')||'—') + '</td>'
+        + '<td style="font-family:var(--mono)">' + dtStr + '</td>'
+        + '<td style="text-align:right;font-family:var(--mono);color:' + (r.forderung?'var(--accent)':'var(--text3)') + '">' + (r.forderung?'€'+r.forderung.toFixed(2):'—') + '</td>'
+        + '<td><span class="badge ' + (r.sursa==='rechnung'?'badge-red':'badge-blue') + '" style="font-size:10px">' + (r.sursa==='rechnung'?'Rechn.':'Manual') + '</span></td>'
+        + '<td><span class="badge ' + stBadge + '" style="font-size:10px">' + stLabel + '</span></td>'
+        + '</tr>';
+    }).join('');
+
+    return `<div class="card" style="margin-bottom:8px;border:1px solid ${hasAlerta?'var(--accent-border)':'var(--border)'}">
+      <div style="display:flex;align-items:center;gap:12px;cursor:pointer" onclick="toggleSoferStat('${tura}')">
+        <div style="width:42px;height:42px;background:var(--accent-bg);border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:800;font-size:14px;color:var(--accent);flex-shrink:0">${tura}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">
+            <span style="font-weight:700;font-size:14px">${s.numeSofer||'—'}</span>
+            ${hasAlerta ? '<span class="badge badge-yellow">⚠ dispută</span>' : ''}
+          </div>
+          <div style="font-size:11px;color:var(--text3);display:flex;gap:12px;flex-wrap:wrap">
+            <span>Total: <strong style="color:var(--text)">${total}</strong></span>
+            <span style="color:var(--blue)">Manual: ${s.manual}</span>
+            <span style="color:var(--red)">Rechn.: ${s.rechnung}</span>
+            <span style="color:var(--green)">✓ ${rezolvate}</span>
+            <span style="color:var(--red)">✗ ${nerezolvate}</span>
+            ${suma > 0 ? '<span style="color:var(--accent)">€'+suma.toFixed(2)+'</span>' : ''}
+            ${medie ? '<span>⚠ '+medie+'% din ture</span>' : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+          <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="event.stopPropagation();lcShowSoferByTura('${tura}')">📋 Listă</button>
+          <div id="${cardId}-arrow" style="color:var(--text3);transition:transform 0.2s">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+        </div>
+      </div>
+      <div id="${cardId}-details" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+        ${reclTura.length > 0 ? `<div style="overflow-x:auto"><table class="data-table" style="font-size:11px;min-width:550px">
+          <thead><tr><th>Nume</th><th>Pachet</th><th>Adresă</th><th>Data</th><th style="text-align:right">€</th><th>Sursă</th><th>Status</th></tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table></div>` : '<p style="color:var(--text3);font-size:12px">Nicio reclamație</p>'}
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.5px;margin:12px 0 8px;padding:6px 10px;background:var(--bg3);border-radius:6px;display:flex;justify-content:space-between">
+      <span>${label}</span>
+      <span>${items.length} șoferi · ${items.reduce((s,[,x])=>s+x.manual+x.rechnung,0)} reclamații</span>
+    </div>
+    ${cards}`;
+}
+
+function lcShowSoferByTura(tura) {
+  const recl = statsCache ? statsCache.toateReclamatiile.filter(r=>String(r.turaSofer||r.tour||'')===String(tura)) : [];
+  const sofer = allSoferi.find(s=>String(s.tura)===String(tura));
+  showReclamatiiModal('🚚 Tura '+tura+(sofer?' — '+sofer.numeSofer:''), recl);
+}
+
+
 function renderStatsSoferi(d) {
   const el = document.getElementById('stats-soferi');
-  const sorted = Object.entries(d.perSofer).sort((a,b)=>(b[1].manual+b[1].rechnung)-(a[1].manual+a[1].rechnung));
+  // Sortat dupa numarul turei (numeric), grupat pe locatie
+  const sorted = Object.entries(d.perSofer)
+    .filter(([t,s]) => (s.manual+s.rechnung) > 0)
+    .sort((a,b) => parseInt(a[0]||0) - parseInt(b[0]||0));
+
+  // Grupeaza pe depozit
+  const ruhstorf = sorted.filter(([t,s]) => (s.locatie||'') === 'Ruhstorf');
+  const eiselfing = sorted.filter(([t,s]) => (s.locatie||'') === 'Eiselfing');
+  const altele = sorted.filter(([t,s]) => !['Ruhstorf','Eiselfing'].includes(s.locatie||''));
 
   // Grupeaza reclamatiile per tura
   const reclPerTura = {};
@@ -2886,7 +2987,10 @@ function renderStatsSoferi(d) {
       ${years.map(y => `<button class="filter-btn" onclick="filterSoferiYear('${y}',this)">${y}</button>`).join('')}
     </div>
     <div id="soferi-stats-list">
-      ${sorted.filter(([t])=>t).map(([tura,s],i) => {
+      ${renderSoferiGroup(ruhstorf, '📦 Ruhstorf', 'var(--blue)', d, reclPerTura)}
+      ${renderSoferiGroup(eiselfing, '📦 Eiselfing', 'var(--accent)', d, reclPerTura)}
+      ${altele.length ? renderSoferiGroup(altele, '📦 Altele', 'var(--text3)', d, reclPerTura) : ''}
+      ${[].map(([tura,s],i) => {
         const total = s.manual + s.rechnung;
         if (!total) return '';
         const pachete = d.pachetePerTura[tura] || 0;
@@ -3391,30 +3495,56 @@ const PLZ_COORDS = {
   "84437":[48.2167,12.6333],"84439":[48.1667,12.6167]
 };
 
-// ── Smart geocode: PLZ table first (instant), then Nominatim with batch ──
+// ── Geocode cache: memorie → localStorage → Firestore → PLZ table → Nominatim ──
+// Firestore: colectia 'geocode_cache', doc = hash(key), camp {lat,lon,approximate}
+// Asta asigura ca adresele geocodate raman stocate permanent intre sesiuni si useri
+
+async function loadFirestoreGeocodeCache() {
+  // Preincarca tot cache-ul din Firestore in memorie la pornirea hartii
+  try {
+    const snap = await db.collection('geocode_cache').limit(500).get();
+    snap.docs.forEach(doc => {
+      const d = doc.data();
+      if (d.key && d.lat) geocodeCache[d.key] = { lat: d.lat, lon: d.lon, approximate: d.approximate||false };
+    });
+    console.log('Geocode cache loaded:', Object.keys(geocodeCache).length, 'entries');
+  } catch(e) { console.warn('Geocode cache load failed:', e.message); }
+}
+
+async function saveGeocodeToFirestore(key, coords) {
+  try {
+    const docId = key.replace(/[^a-zA-Z0-9]/g,'_').slice(0,100);
+    await db.collection('geocode_cache').doc(docId).set({
+      key, lat: coords.lat, lon: coords.lon, approximate: coords.approximate||false,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch(e) { /* silently fail */ }
+}
+
 async function geocodeAddress(plz, ort, strada) {
   const key = [strada||'', plz||'', ort||''].join('|').toLowerCase().trim();
   const plzKey = (plz||'').trim();
 
+  // 1. Memory cache (instant)
   if (geocodeCache[key]) return geocodeCache[key];
 
-  // 1. Check localStorage cache
+  // 2. localStorage cache
   const stored = localStorage.getItem('geo_' + key);
   if (stored) {
     try { const r=JSON.parse(stored); geocodeCache[key]=r; return r; } catch {}
   }
 
-  // 2. PLZ lookup table (instant, no network)
+  // 3. PLZ lookup table (instant, no network)
   if (PLZ_COORDS[plzKey]) {
     const [lat,lon] = PLZ_COORDS[plzKey];
     const r = { lat, lon, approximate: !strada };
     geocodeCache[key] = r;
-    // Also try to refine with street via Nominatim in background (no await)
+    localStorage.setItem('geo_'+key, JSON.stringify(r));
     if (strada) refineGeocode(key, strada, plz, ort);
     return r;
   }
 
-  // 3. Nominatim fallback for unknown PLZ (with cache)
+  // 4. Nominatim (cu rate limiting)
   const plzCacheKey = 'plz_' + plzKey;
   const plzStored = localStorage.getItem(plzCacheKey);
   if (plzStored) {
@@ -3422,6 +3552,7 @@ async function geocodeAddress(plz, ort, strada) {
   }
 
   try {
+    await new Promise(r=>setTimeout(r,300)); // rate limit Nominatim
     const q = [plzKey, ort, 'Deutschland'].filter(Boolean).join(' ');
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`;
     const resp = await fetch(url, {headers:{'Accept-Language':'de','User-Agent':'ReclamationApp/1.0'}});
@@ -3431,16 +3562,17 @@ async function geocodeAddress(plz, ort, strada) {
       geocodeCache[key] = r;
       localStorage.setItem(plzCacheKey, JSON.stringify(r));
       localStorage.setItem('geo_'+key, JSON.stringify(r));
+      // Salveaza in Firestore pentru persistenta cross-device
+      saveGeocodeToFirestore(key, r);
       return r;
     }
-  } catch(e) { console.warn('Nominatim fallback failed:', e.message); }
+  } catch(e) { console.warn('Nominatim failed:', e.message); }
 
   return null;
 }
 
-// Background refinement — updates marker position after PLZ approximation
 async function refineGeocode(key, strada, plz, ort) {
-  await new Promise(r=>setTimeout(r,200)); // small delay
+  await new Promise(r=>setTimeout(r,500));
   try {
     const q = [strada, plz, ort, 'Deutschland'].filter(Boolean).join(', ');
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`;
@@ -3450,6 +3582,7 @@ async function refineGeocode(key, strada, plz, ort) {
       const r = { lat:parseFloat(data[0].lat), lon:parseFloat(data[0].lon), approximate:false };
       geocodeCache[key] = r;
       localStorage.setItem('geo_'+key, JSON.stringify(r));
+      saveGeocodeToFirestore(key, r);
     }
   } catch {}
 }
@@ -3819,10 +3952,10 @@ function renderStatsAlerte(d) {
 
 
 async function renderRechnunguri() {
-  // Expunem pentru cautarea globala
-  window.allRechnunguri = rechnunguriData;
   const snap = await db.collection('rechnunguri').orderBy('uploadedAt','desc').get();
   rechnunguriData = snap.docs.map(d=>({id:d.id,...d.data()}));
+  // Expunem pentru cautarea globala (dupa fetch)
+  window.allRechnunguri = rechnunguriData;
   const el = document.getElementById('rechn-list');
   if (rechnunguriData.length===0) {
     el.innerHTML=`<div class="empty"><div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg></div><div class="empty-title">Niciun rechnung uploadat</div><div class="empty-sub">Uploadează primul rechnung Hermes</div></div>`;
@@ -5817,7 +5950,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v2.5.1</span>
+  <span id="version-badge-text">v2.6.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
