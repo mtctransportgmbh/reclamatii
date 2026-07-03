@@ -889,7 +889,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.6.1';
+const APP_VERSION = '2.7.1';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -1893,27 +1893,44 @@ function toggleForm(data) {
 }
 
 // Verifica daca numarul de pachet/nume+tura coincide cu o pozitie deja existenta in rechnunguri
-async function checkDuplicateInRechnunguri(numarPachet, numeClient, tura) {
+async function checkDuplicateInRechnunguri(numarPachet, numeClient, tura, strada, plz) {
   try {
     const snap = await db.collection('rechnunguri').get();
 
-    // Match STRICT dupa numarul de pachet:
-    // - trebuie sa fie identic pe ultimele 8+ caractere (nu doar 6)
-    // - OR match exact pe intreg sirul (daca e acelasi format)
+    // VERIFICARE TRIPLĂ — avertizam DOAR daca coincid toate 3:
+    // 1. Numarul de pachet COMPLET identic (nu doar sufixul — sufixele Hermes
+    //    de tip ...601032 sunt comune intre pachete diferite!)
+    // 2. Numele clientului (cel putin un cuvant identic)
+    // 3. Adresa (PLZ identic sau strada similara)
     const cleanNr = (numarPachet||'').replace(/\s/g,'').toLowerCase();
-    const lastDigits = cleanNr.slice(-8); // minim 8 caractere pentru precizie
+    const cleanNume = (numeClient||'').toLowerCase().trim();
+    const numeWords = new Set(cleanNume.split(/\s+/).filter(w => w.length > 2));
+    const cleanPlz = (plz||'').trim();
+    const cleanStrada = (strada||'').toLowerCase().replace(/\s/g,'');
+
+    if (cleanNr.length < 8) return { found: false }; // numar prea scurt, nu putem verifica sigur
 
     for (const doc of snap.docs) {
       const r = doc.data();
       for (const p of (r.pozitii||[])) {
         const pIdent = (p.identnummer || p.sendungsnummer || '').replace(/\s/g,'').toLowerCase();
 
-        // Match STRICT: doar daca numerele se suprapun substantial (min 8 caractere finale identice)
-        const matchByPachet = lastDigits.length >= 8 &&
-          pIdent.length >= 8 &&
-          pIdent.endsWith(lastDigits);
+        // CONDITIA 1 (obligatorie): numarul COMPLET identic
+        const matchNumar = pIdent.length >= 8 && pIdent === cleanNr;
+        if (!matchNumar) continue;
 
-        if (matchByPachet) {
+        // CONDITIA 2: numele — cel putin un cuvant identic
+        const pNumeWords = (p.name||'').toLowerCase().trim().split(/\s+/).filter(w => w.length > 2);
+        const matchNume = pNumeWords.some(w => numeWords.has(w));
+
+        // CONDITIA 3: adresa — PLZ identic SAU strada similara
+        const matchPlz = cleanPlz && (p.plz||'').trim() === cleanPlz;
+        const pStrada = (p.strasse||'').toLowerCase().replace(/\s/g,'');
+        const matchStrada = cleanStrada && pStrada && (pStrada.includes(cleanStrada) || cleanStrada.includes(pStrada));
+        const matchAdresa = matchPlz || matchStrada;
+
+        // Avertizare DOAR daca toate 3 coincid
+        if (matchNumar && matchNume && matchAdresa) {
           return { found: true, belegNr: r.belegNr, dataEmitere: r.dataEmitere, pozitie: p, rechnId: doc.id };
         }
       }
@@ -2006,8 +2023,12 @@ async function saveReclamatie() {
   if (!numeClient || !numarPachet || !tura) { toast('Completează câmpurile obligatorii (*)','error'); return; }
 
   // Verificare duplicat cu rechnunguri deja incarcate (doar la adaugare noua, nu la editare)
-  if (!editingId) {
-    const dup = await checkDuplicateInRechnunguri(numarPachet, numeClient, tura);
+  // Mihaela (operator_limited) NU primeste avertizarea — introduce liber,
+  // suprapunerile apar automat la Statistici → Alerte pentru admin
+  if (!editingId && !isLimited(currentUser)) {
+    const stradaVal = document.getElementById('f-strada')?.value.trim() || '';
+    const plzVal = document.getElementById('f-plz')?.value.trim() || '';
+    const dup = await checkDuplicateInRechnunguri(numarPachet, numeClient, tura, stradaVal, plzVal);
     if (dup.found) {
       const ok = confirm(
         '⚠ ATENȚIE — Acest pachet apare deja într-un Rechnung!\n\n' +
@@ -2388,8 +2409,10 @@ async function renderStatistici() {
     renderStatsLunar(statsCache);
     renderStatsAnual(statsCache);
     renderStatsAdrese(statsCache);
-    renderStatsHarta(statsCache);
     renderStatsAlerte(statsCache);
+    // Harta: incarcam cache-ul Firestore de geocodare INAINTE de a randa,
+    // ca sa nu reinterogam Nominatim de fiecare data
+    loadFirestoreGeocodeCache().then(() => renderStatsHarta(statsCache));
   } catch(e) {
     const isPermission = e.message && (e.message.includes('permission') || e.message.includes('Permission'));
     el.innerHTML = `<div class="empty">
@@ -2412,9 +2435,9 @@ function switchStatsTab(tab, btn) {
   if(btn) btn.classList.add('active');
   const panel = document.getElementById('stats-'+tab);
   if (panel) panel.style.display = 'block';
+  // La switch pe tab harta: doar resize, datele sunt deja incarcate de la renderStatistici()
   if (tab === 'harta' && hartaMap) setTimeout(() => hartaMap.invalidateSize(), 150);
   if (tab === 'luna-curenta' && statsCache) renderStatsLunaCurenta(statsCache);
-  if (tab === 'harta' && statsCache) loadFirestoreGeocodeCache().then(() => renderStatsHarta(statsCache));
 }
 
 // ── TAB 1: GENERAL ──
@@ -2884,6 +2907,8 @@ function renderSoferiGroup(items, label, color, d, reclPerTura) {
     const rezolvate = reclTura.filter(r=>r.status==='rezolvata').length;
     const nerezolvate = reclTura.filter(r=>r.status==='nerezolvata').length;
     const suma = reclTura.reduce((acc,r)=>acc+(r.forderung||0),0);
+    const procentRezolvare = total > 0 ? Math.round((rezolvate/total)*100) : 0;
+    const procentColor = procentRezolvare>=70?'var(--green)':procentRezolvare>=40?'#f59e0b':'var(--red)';
 
     // Build table rows for details
     const tableRows = reclTura.map(r => {
@@ -2918,6 +2943,7 @@ function renderSoferiGroup(items, label, color, d, reclPerTura) {
             <span style="color:var(--red)">Rechn.: ${s.rechnung}</span>
             <span style="color:var(--green)">✓ ${rezolvate}</span>
             <span style="color:var(--red)">✗ ${nerezolvate}</span>
+            <span style="color:${procentColor};font-weight:700">${procentRezolvare}% rezolvate</span>
             ${suma > 0 ? '<span style="color:var(--accent)">€'+suma.toFixed(2)+'</span>' : ''}
             ${medie ? '<span>⚠ '+medie+'% din ture</span>' : ''}
           </div>
@@ -3540,7 +3566,14 @@ async function geocodeAddress(plz, ort, strada) {
     const r = { lat, lon, approximate: !strada };
     geocodeCache[key] = r;
     localStorage.setItem('geo_'+key, JSON.stringify(r));
-    if (strada) refineGeocode(key, strada, plz, ort);
+    // Salvam si in Firestore (persistenta cross-device/cross-user)
+    saveGeocodeToFirestore(key, r);
+    // Refine cu strada DOAR daca nu am incercat deja (marcam tentativa ca sa nu repetam)
+    const refineKey = 'refine_' + key;
+    if (strada && !localStorage.getItem(refineKey)) {
+      localStorage.setItem(refineKey, '1'); // marcam IMEDIAT ca sa evitam request-uri duplicate
+      refineGeocode(key, strada, plz, ort);
+    }
     return r;
   }
 
@@ -5638,15 +5671,42 @@ function parseSachverhaltPDF(pdfData) {
   y = findLabelY('Auftragsnummer');
   if (y !== null) result.auftragsnummer = atY(y, 200).map(v=>v.text).join(' ');
 
-  // Zustelladresse: header, apoi nume (-13), strada (-36), plz/ort (-47) — toate MAI JOS = Y MAI MIC
-  const headerItem = items.find(it => it.text === 'Zustelladresse');
+  // Adresa de livrare: header poate fi "Zustelladresse" SAU "Ablageort" (variante PDF Hermes)
+  // Colectam DINAMIC toate randurile de sub header pana la "Quelle:" — nu folosim offset fix,
+  // pentru ca unele PDF-uri au un rand extra (ex: numar apartament/etaj "118") intre nume si strada
+  const headerItem = items.find(it => it.text === 'Zustelladresse' || it.text === 'Ablageort');
   if (headerItem) {
     const yh = headerItem.y;
-    result.name = atY(yh-13, 250, 420).map(v=>v.text).join(' ').trim();
-    result.strasse = atY(yh-36, 250, 420).map(v=>v.text).join(' ').trim();
-    const plzText = atY(yh-47, 250, 420).map(v=>v.text).join(' ').trim();
-    const plzM = plzText.match(/^(\d{5})\s*(.+)/);
+    const xmin = 250, xmax = 420;
+
+    // Gasim Y-ul liniei "Quelle:" care marcheaza sfarsitul blocului de adresa
+    const quelleItem = items.find(it => it.text.startsWith('Quelle') && it.x >= xmin && it.x <= 420 && it.y < yh);
+    const yBottom = quelleItem ? quelleItem.y : yh - 60;
+
+    // Colectam toate Y-urile distincte din coloana dreapta, intre header si Quelle (exclusiv)
+    const rowYs = [...new Set(
+      items.filter(it => it.x >= xmin && it.x <= xmax && it.y < yh && it.y > yBottom)
+        .map(it => it.y)
+    )].sort((a,b) => b - a); // descrescator = de sus in jos pe pagina
+
+    // Construim liniile de text pentru fiecare Y
+    const lines = rowYs.map(y => atY(y, xmin, xmax, 2).map(v=>v.text).join(' ').trim()).filter(Boolean);
+
+    // Identificam linia cu PLZ (5 cifre la inceput) — de obicei ultima
+    let plzLineIdx = lines.findIndex(l => /^\d{5}\s+/.test(l));
+    if (plzLineIdx === -1) plzLineIdx = lines.length - 1;
+
+    const plzLine = lines[plzLineIdx] || '';
+    const plzM = plzLine.match(/^(\d{5})\s*(.+)/);
     if (plzM) { result.plz = plzM[1]; result.ort = plzM[2]; }
+
+    // Prima linie = numele (contine de obicei o virgula "Nachname , Vorname")
+    result.name = lines[0] || '';
+
+    // Liniile dintre nume si PLZ = strada (eventual cu rand de numar/etaj separat)
+    // Sarim liniile care sunt DOAR cifre (ex: "118" = numar apartament/identificator, nu strada utila)
+    const stradaLines = lines.slice(1, plzLineIdx).filter(l => !/^\d+$/.test(l.trim()));
+    result.strasse = stradaLines.join(' ').trim();
   }
 
   // Split name into Vorname/Nachname — format Hermes: "Nachname , Vorname"
@@ -5954,7 +6014,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v2.6.1</span>
+  <span id="version-badge-text">v2.7.1</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
