@@ -889,7 +889,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.8.0';
+const APP_VERSION = '2.8.1';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -2234,14 +2234,14 @@ async function loadStatsData() {
 
   // Per sofer stats
   const perSofer = {};
-  soferi.forEach(s => { perSofer[s.tura]={numeSofer:s.numeSofer,locatie:s.locatie,manual:0,rechnung:0,rezolvate:0,nerezolvate:0,suma:0,angajatDe:s.angajatDe||null}; });
+  soferi.forEach(s => { perSofer[s.tura]={numeSofer:s.numeSofer,locatie:s.locatie,manual:0,rechnung:0,rezolvate:0,nerezolvate:0,activ:0,suma:0,angajatDe:s.angajatDe||null}; });
   toateReclamatiile.forEach(r => {
     const t = String(r.turaSofer);
     if (!perSofer[t]) return;
     if (r.sursa==='rechnung') { perSofer[t].rechnung++; perSofer[t].suma+=(r.forderung||0); }
     else { perSofer[t].manual++; }
     if (r.status==='rezolvata') perSofer[t].rezolvate++;
-    else perSofer[t].nerezolvate++;
+    else { perSofer[t].nerezolvate++; perSofer[t].activ++; } // activ = nerezolvat SAU neprelucrat (nu rezolvat)
   });
 
   // Per persoana reclamanta
@@ -2249,9 +2249,10 @@ async function loadStatsData() {
   toateReclamatiile.forEach(r => {
     const key = (r.numeClient||r.name||'').toLowerCase().trim();
     if (!key || key.length < 2) return;
-    if (!perPersoana[key]) perPersoana[key]={nume:r.numeClient||r.name,total:0,rezolvate:0,sumaRechn:0,ture:[],adrese:[],plz:[],orte:[]};
+    if (!perPersoana[key]) perPersoana[key]={nume:r.numeClient||r.name,total:0,rezolvate:0,activ:0,sumaRechn:0,ture:[],adrese:[],plz:[],orte:[]};
     perPersoana[key].total++;
     if(r.status==='rezolvata') perPersoana[key].rezolvate++;
+    else perPersoana[key].activ++;
     if(r.sursa==='rechnung') perPersoana[key].sumaRechn+=(r.forderung||0);
     if(r.turaSofer&&!perPersoana[key].ture.includes(String(r.turaSofer))) perPersoana[key].ture.push(String(r.turaSofer));
     const strada=(r.strada||r.strasse||'').trim();
@@ -2596,27 +2597,31 @@ function renderStatsLunaCurenta(d) {
   const nrRechn = reclamatii.filter(r=>r.sursa==='rechnung').length;
   const nrManual = reclamatii.filter(r=>r.sursa!=='rechnung').length;
 
-  // Top soferi
+  // Top soferi — DOAR reclamatii active (nu rezolvate)
   const soferiMap = {};
   reclamatii.forEach(r => {
     const t = String(r.turaSofer||r.tour||'—');
     if (!soferiMap[t]) soferiMap[t] = { tura:t, numeSofer: d.perSofer[t]?.numeSofer||'', count:0, suma:0, reclamatii:[] };
-    soferiMap[t].count++;
-    soferiMap[t].suma += r.forderung||0;
-    soferiMap[t].reclamatii.push(r);
+    if (r.status !== 'rezolvata') {
+      soferiMap[t].count++;
+      soferiMap[t].suma += r.forderung||0;
+    }
+    soferiMap[t].reclamatii.push(r); // pastram toate pt modal, dar count doar activele
   });
-  const topSoferi = Object.values(soferiMap).sort((a,b)=>b.count-a.count).slice(0,10);
+  const topSoferi = Object.values(soferiMap).filter(s=>s.count>0).sort((a,b)=>b.count-a.count).slice(0,10);
 
-  // Top clienti
+  // Top clienti — DOAR reclamatii active (nu rezolvate)
   const clientiMap = {};
   reclamatii.forEach(r => {
     const n = (r.numeClient||r.name||'—').trim();
     if (!clientiMap[n]) clientiMap[n] = { nume:n, count:0, suma:0, reclamatii:[] };
-    clientiMap[n].count++;
-    clientiMap[n].suma += r.forderung||0;
+    if (r.status !== 'rezolvata') {
+      clientiMap[n].count++;
+      clientiMap[n].suma += r.forderung||0;
+    }
     clientiMap[n].reclamatii.push(r);
   });
-  const topClienti = Object.values(clientiMap).sort((a,b)=>b.count-a.count).slice(0,10);
+  const topClienti = Object.values(clientiMap).filter(c=>c.count>0).sort((a,b)=>b.count-a.count).slice(0,10);
 
   // Top adrese
   const adreseMap = {};
@@ -2851,28 +2856,30 @@ function renderStatsGeneral(d) {
     <!-- Top 5 soferi + Top 5 persoane side by side -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div class="card">
-        <div style="font-size:13px;font-weight:700;margin-bottom:10px">🚚 Top 5 șoferi (reclamații totale)</div>
-        ${Object.entries(d.perSofer).sort((a,b)=>(b[1].manual+b[1].rechnung)-(a[1].manual+a[1].rechnung)).slice(0,5).map(([tura,s],i)=>`
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px">🚚 Top 5 șoferi (reclamații active)</div>
+        ${Object.entries(d.perSofer).filter(([,s])=>s.activ>0).sort((a,b)=>b[1].activ-a[1].activ).slice(0,5).map(([tura,s],i)=>`
           <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:6px;padding-left:4px;transition:background 0.15s"
             onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
-            onclick="showReclamatiiModal('🚚 Tura ${tura} — ${s.numeSofer||''}', statsCache.toateReclamatiile.filter(r=>String(r.turaSofer||r.tour)==='${tura}'))">
+            onclick="showReclamatiiModal('🚚 Tura ${tura} — ${s.numeSofer||''}', statsCache.toateReclamatiile.filter(r=>String(r.turaSofer||r.tour)==='${tura}'&&r.status!=='rezolvata'))">
             <span style="width:20px;height:20px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
             <span style="flex:1;font-size:12px;font-weight:500">Tura ${tura} — ${s.numeSofer||''}</span>
-            <span style="font-size:12px;font-weight:700;color:var(--red)">${s.manual+s.rechnung}</span>
+            <span style="font-size:12px;font-weight:700;color:var(--red)">${s.activ}</span>
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;color:var(--text3)"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
           </div>`).join('')}
+        ${Object.entries(d.perSofer).filter(([,s])=>s.activ>0).length===0?'<div style="font-size:12px;color:var(--text3);padding:8px 0">🎉 Toate reclamațiile sunt rezolvate!</div>':''}
       </div>
       <div class="card">
-        <div style="font-size:13px;font-weight:700;margin-bottom:10px">👤 Top 5 persoane reclamante</div>
-        ${Object.values(d.perPersoana).sort((a,b)=>b.total-a.total).slice(0,5).map((p,i)=>`
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px">👤 Top 5 persoane reclamante (active)</div>
+        ${Object.values(d.perPersoana).filter(p=>p.activ>0).sort((a,b)=>b.activ-a.activ).slice(0,5).map((p,i)=>`
           <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:6px;padding-left:4px;transition:background 0.15s"
             onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
-            onclick="showReclamatiiModal('👤 ${p.nume}', statsCache.toateReclamatiile.filter(r=>(r.numeClient||r.name||'').toLowerCase().trim()==='${p.nume.toLowerCase().trim()}'))">
+            onclick="showReclamatiiModal('👤 ${p.nume}', statsCache.toateReclamatiile.filter(r=>(r.numeClient||r.name||'').toLowerCase().trim()==='${p.nume.toLowerCase().trim()}'&&r.status!=='rezolvata'))">
             <span style="width:20px;height:20px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
             <span style="flex:1;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.nume}</span>
-            <span style="font-size:12px;font-weight:700;color:var(--accent)">${p.total}x</span>
+            <span style="font-size:12px;font-weight:700;color:var(--accent)">${p.activ}x</span>
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;color:var(--text3)"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
           </div>`).join('')}
+        ${Object.values(d.perPersoana).filter(p=>p.activ>0).length===0?'<div style="font-size:12px;color:var(--text3);padding:8px 0">🎉 Toate reclamațiile sunt rezolvate!</div>':''}
       </div>
     </div>
   `;
@@ -2927,7 +2934,7 @@ function renderSoferiGroup(items, label, color, d, reclPerTura) {
         + '<td style="color:var(--text3)">' + (r.adresaClient||[r.strasse,r.plz,r.ort].filter(Boolean).join(' ')||'—') + '</td>'
         + '<td style="font-family:var(--mono)">' + dtStr + '</td>'
         + '<td style="text-align:right;font-family:var(--mono);color:' + (r.forderung?'var(--accent)':'var(--text3)') + '">' + (r.forderung?'€'+r.forderung.toFixed(2):'—') + '</td>'
-        + '<td><span class="badge ' + (r.sursa==='rechnung'?'badge-red':'badge-blue') + '" style="font-size:10px">' + (r.sursa==='rechnung'?'Rechn.':'Manual') + '</span></td>'
+        + '<td><span class="badge ' + (r.sursa==='rechnung'?'badge-red':'badge-blue') + '" style="font-size:10px">' + (r.sursa==='rechnung'?'Rechn.':'Manual') + '</span>' + (r.sursa==='rechnung'&&r.belegNr?' <span style="font-family:var(--mono);font-size:9px;color:var(--accent);background:rgba(232,197,71,0.1);padding:1px 4px;border-radius:3px;white-space:nowrap">📄'+r.belegNr+'</span>':'') + '</td>'
         + '<td><span class="badge ' + stBadge + '" style="font-size:10px">' + stLabel + '</span></td>'
         + '</tr>';
     }).join('');
@@ -3078,7 +3085,7 @@ function renderStatsSoferi(d) {
                         + '<td style="color:var(--text3);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (r.adresaClient||[r.strasse,r.plz,r.ort].filter(Boolean).join(' ')||'—') + '</td>'
                         + '<td style="font-family:var(--mono);white-space:nowrap">' + dtStr + '</td>'
                         + '<td style="text-align:right;font-family:var(--mono);color:' + (r.forderung?'var(--accent)':'var(--text3)') + '">' + (r.forderung?'€'+r.forderung.toFixed(2):'—') + '</td>'
-                        + '<td><span class="badge ' + (r.sursa==='rechnung'?'badge-red':'badge-blue') + '" style="font-size:10px">' + (r.sursa==='rechnung'?'Rechn.':'Manual') + '</span></td>'
+                        + '<td><span class="badge ' + (r.sursa==='rechnung'?'badge-red':'badge-blue') + '" style="font-size:10px">' + (r.sursa==='rechnung'?'Rechn.':'Manual') + '</span>' + (r.sursa==='rechnung'&&r.belegNr?' <span style="font-family:var(--mono);font-size:9px;color:var(--accent);background:rgba(232,197,71,0.1);padding:1px 4px;border-radius:3px;white-space:nowrap">📄'+r.belegNr+'</span>':'') + '</td>'
                         + '<td><span class="badge ' + stBadge + '" style="font-size:10px">' + stLabel + '</span></td>'
                         + '</tr>';
                     }).join('')}
@@ -6071,7 +6078,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v2.8.0</span>
+  <span id="version-badge-text">v2.8.1</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
