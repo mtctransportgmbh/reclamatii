@@ -587,11 +587,11 @@ textarea{resize:vertical;min-height:80px}
 }
 </style>
 </head>
-<body>
+<body class="light">
 
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <!-- Theme toggle -->
-<button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Schimbă tema">
+<button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Schimbă tema" style="display:none">
   <svg id="theme-icon-moon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/></svg>
   <svg id="theme-icon-sun" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z"/></svg>
 </button>
@@ -710,7 +710,7 @@ textarea{resize:vertical;min-height:80px}
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:#0a0b0f"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/></svg>
       </div>
       <span class="mobile-header-title" id="mobile-page-title">Panou principal</span>
-      <button onclick="toggleTheme()" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:4px;border-radius:8px;display:flex;align-items:center;transition:var(--transition)" title="Temă">
+      <button onclick="toggleTheme()" style="display:none" title="Temă">
         <svg id="mob-icon-moon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/></svg>
         <svg id="mob-icon-sun" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z"/></svg>
       </button>
@@ -889,7 +889,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.7.1';
+const APP_VERSION = '2.8.0';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -2518,7 +2518,10 @@ function showReclamatiiModal(title, reclamatii) {
                   </div>
                   ${r.descriere ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;font-style:italic">"${r.descriere}"</div>` : ''}
                 </div>
-                ${r.forderung > 0 ? `<div style="font-weight:800;font-family:var(--mono);color:var(--accent);white-space:nowrap">€${r.forderung.toFixed(2)}</div>` : ''}
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
+                  ${r.forderung > 0 ? `<div style="font-weight:800;font-family:var(--mono);color:var(--accent);white-space:nowrap">€${r.forderung.toFixed(2)}</div>` : ''}
+                  ${r.belegNr ? `<span style="font-family:var(--mono);font-size:10px;background:rgba(232,197,71,0.12);color:var(--accent);padding:1px 6px;border-radius:4px;white-space:nowrap" title="Nr. Rechnung Hermes">📄 ${r.belegNr}</span>` : ''}
+                </div>
               </div>
             </div>`).join('')}
       </div>
@@ -3997,6 +4000,29 @@ async function renderRechnunguri() {
   el.innerHTML = rechnunguriData.map(r => renderRechnCard(r)).join('');
 }
 
+async function assignTuraToRechnPozitie(rechnId, pozIdx, tura) {
+  if (!tura) return;
+  try {
+    const rechnRef = db.collection('rechnunguri').doc(rechnId);
+    const doc = await rechnRef.get();
+    if (!doc.exists) { toast('Rechnung negăsit', 'error'); return; }
+
+    const data = doc.data();
+    const pozitii = data.pozitii || [];
+    if (pozIdx < 0 || pozIdx >= pozitii.length) { toast('Poziție invalidă', 'error'); return; }
+
+    const sofer = allSoferi.find(s => String(s.tura) === String(tura));
+    pozitii[pozIdx] = { ...pozitii[pozIdx], tour: tura };
+
+    await rechnRef.update({ pozitii, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    toast('✓ Tura ' + tura + (sofer?' ('+sofer.numeSofer+')':'') + ' asignată!');
+    renderRechnunguri();
+  } catch(e) {
+    toast('Eroare: ' + e.message, 'error');
+  }
+}
+
+
 function renderRechnCard(r) {
   const reclLuna = allReclamatii.filter(x => {
     const d = x.createdAt?.toDate ? x.createdAt.toDate() : new Date(x.createdAt||0);
@@ -4079,12 +4105,19 @@ function renderRechnCard(r) {
                 <tr><th>Tour</th><th>Firmă</th><th>Tip</th><th>Nume</th><th>Adresă</th><th>PLZ Localitate</th><th>Data</th><th style="text-align:right">€</th><th>Status</th></tr>
               </thead>
               <tbody>
-                ${matchuri.map(m => {
+                ${matchuri.map((m, mIdx) => {
                   const isCont = m.reclamatie && m.reclamatie.status === 'rezolvata';
                   const hasR = !!m.reclamatie;
                   const sc = (m.schadenart||'').includes('Verlust') ? 'var(--red)' : 'var(--accent)';
+                  const soferOptsForAssign = allSoferi.filter(s=>s.tura).sort((a,b)=>parseInt(a.tura||0)-parseInt(b.tura||0))
+                    .map(s=>'<option value="'+s.tura+'">'+s.tura+' — '+s.numeSofer+'</option>').join('');
+                  const tourCell = m.tour
+                    ? '<span style="font-family:var(--mono);font-weight:700;color:var(--accent)">' + m.tour + '</span>'
+                    : (currentUser?.role === 'admin'
+                        ? '<select onclick="event.stopPropagation()" onchange="assignTuraToRechnPozitie(\''+r.id+'\','+mIdx+',this.value)" style="font-size:11px;padding:3px 6px;border-radius:5px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);font-weight:600;cursor:pointer"><option value="">— asignează —</option>'+soferOptsForAssign+'</select>'
+                        : '<span style="font-family:var(--mono);font-weight:700;color:var(--text3)">fără tură</span>');
                   return '<tr style="' + (isCont?'background:rgba(232,197,71,0.04)':'') + '">'
-                    + '<td><span style="font-family:var(--mono);font-weight:700;color:' + (m.tour?'var(--accent)':'var(--text3)') + '">' + (m.tour||'fără tură') + '</span></td>'
+                    + '<td>' + tourCell + '</td>'
                     + '<td style="font-size:11px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (m.atg||'') + '">' + (m.atg||'—') + '</td>'
                     + '<td style="font-size:11px;color:' + sc + ';font-weight:600">' + (m.schadenart||'—') + '</td>'
                     + '<td style="font-weight:500">' + (m.name||'—') + '</td>'
@@ -5349,7 +5382,8 @@ function showGlobalSearch() {
   setTimeout(() => m.querySelector('input').focus(), 50);
 }
 
-function globalSearchRender(query) {
+let globalSearchDebounce = null;
+async function globalSearchRender(query) {
   const el = document.getElementById('global-search-results');
   if (!el) return;
   const q = query.trim().toLowerCase();
@@ -5359,8 +5393,36 @@ function globalSearchRender(query) {
     return;
   }
 
-  // Cauta in reclamatii manuale
-  const allRecs = allReclamatii || [];
+  // Debounce usor pentru fetch-uri Firestore (evitam spam la fiecare litera)
+  clearTimeout(globalSearchDebounce);
+  el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">🔍 Se caută...</div>';
+
+  globalSearchDebounce = setTimeout(async () => {
+    await globalSearchExecute(q, el);
+  }, 250);
+}
+
+async function globalSearchExecute(q, el) {
+  // Asiguram ca avem date — daca allReclamatii e gol, incarcam direct din Firestore
+  let allRecs = allReclamatii || [];
+  if (allRecs.length === 0) {
+    try {
+      const snap = await db.collection('reclamatii').get();
+      allRecs = snap.docs.map(d => ({id:d.id, ...d.data()}));
+      allReclamatii = allRecs; // cache pentru urmatoarea cautare
+    } catch(e) { console.warn('Global search: fetch reclamatii failed', e.message); }
+  }
+
+  // Acelasi lucru pentru rechnunguri
+  let rechnunguri = window.allRechnunguri || [];
+  if (rechnunguri.length === 0) {
+    try {
+      const snap = await db.collection('rechnunguri').get();
+      rechnunguri = snap.docs.map(d => ({id:d.id, ...d.data()}));
+      window.allRechnunguri = rechnunguri;
+    } catch(e) { console.warn('Global search: fetch rechnunguri failed', e.message); }
+  }
+
   const matchRecs = allRecs.filter(r =>
     (r.numeClient||'').toLowerCase().includes(q) ||
     (r.numarPachet||'').toLowerCase().includes(q) ||
@@ -5374,8 +5436,7 @@ function globalSearchRender(query) {
     (r.descriere||'').toLowerCase().includes(q)
   ).slice(0, 20);
 
-  // Cauta in rechnunguri (belegNr + pozitii)
-  const rechnunguri = window.allRechnunguri || [];
+  // Cauta in rechnunguri (belegNr + pozitii) — rechnunguri deja definit mai sus
   const matchRechn = [];
   rechnunguri.forEach(r => {
     if ((r.belegNr||'').includes(q) || (r.dataEmitere||'').includes(q)) {
@@ -5991,17 +6052,13 @@ function syncThemeIcons(isLight) {
 }
 
 function toggleTheme() {
-  const isLight = document.body.classList.toggle('light');
-  localStorage.setItem('reclamatii_theme', isLight ? 'light' : 'dark');
-  syncThemeIcons(isLight);
+  // Doar tema light e disponibila — functia ramane pentru compatibilitate dar nu face nimic
 }
 
 function initTheme() {
-  const saved = localStorage.getItem('reclamatii_theme');
-  if (saved === 'light') {
-    document.body.classList.add('light');
-    syncThemeIcons(true);
-  }
+  // Forteaza mereu tema light
+  document.body.classList.add('light');
+  syncThemeIcons(true);
 }
 
 // ════════════════════════════════════════════════════════
@@ -6014,7 +6071,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v2.7.1</span>
+  <span id="version-badge-text">v2.8.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
