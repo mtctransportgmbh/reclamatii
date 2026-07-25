@@ -893,7 +893,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.9.3';
+const APP_VERSION = '2.9.4';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -2787,21 +2787,21 @@ function renderStatsLunaCurenta(d) {
         <div class="stat-val" style="color:var(--red)">${nerezolvate}</div>
         <div class="stat-label">Nerezolvate</div>
       </div>
-      <div class="stat-card" style="--stat-color:#f59e0b">
+      <div class="stat-card" style="--stat-color:#f59e0b;cursor:pointer" onclick="showReclamatiiModal('⏳ Neprelucrate', (statsCache._lcReclamatii||[]).filter(r=>r.status==='neprelucrat'))">
         <div class="stat-icon" style="background:rgba(245,158,11,0.1);color:#f59e0b">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         </div>
         <div class="stat-val" style="color:#f59e0b">${neprelucrat}</div>
         <div class="stat-label">Neprelucrate</div>
       </div>
-      ${sumaRechn > 0 ? `<div class="stat-card" style="--stat-color:#f472b6">
+      ${sumaRechn > 0 ? `<div class="stat-card" style="--stat-color:#f472b6;cursor:pointer" onclick="showReclamatiiModal('📄 Facturat Hermes', (statsCache._lcReclamatii||[]).filter(r=>r.sursa==='rechnung'))">
         <div class="stat-icon" style="background:rgba(244,114,182,0.1);color:#f472b6">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.25 7.756a4.5 4.5 0 100 8.488M7.5 10.5h5.25m-5.25 3h5.25M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         </div>
         <div class="stat-val" style="color:#f472b6">€${sumaRechn.toFixed(0)}</div>
         <div class="stat-label">Facturat Hermes (${nrRechn} rechn.)</div>
       </div>` : ''}
-      <div class="stat-card" style="--stat-color:var(--blue)">
+      <div class="stat-card" style="--stat-color:var(--blue);cursor:pointer" onclick="showReclamatiiModal('✏️ Introduse manual', (statsCache._lcReclamatii||[]).filter(r=>r.sursa!=='rechnung'))">
         <div class="stat-icon" style="background:var(--blue-bg);color:var(--blue)">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z"/></svg>
         </div>
@@ -2809,12 +2809,12 @@ function renderStatsLunaCurenta(d) {
         <div class="stat-label">Introduse manual</div>
       </div>
       ${seeAll && lcSelectedLoc==='total' && ruhCount!==null ? `
-      <div class="stat-card" style="--stat-color:var(--blue)">
+      <div class="stat-card" style="--stat-color:var(--blue);cursor:pointer" onclick="showReclamatiiModal('📦 Ruhstorf', (statsCache._lcReclamatii||[]).filter(r=>r.locatie==='Ruhstorf'))">
         <div class="stat-icon" style="background:var(--blue-bg);color:var(--blue)">📦</div>
         <div class="stat-val" style="color:var(--blue)">${ruhCount}</div>
         <div class="stat-label">Ruhstorf</div>
       </div>
-      <div class="stat-card" style="--stat-color:var(--accent)">
+      <div class="stat-card" style="--stat-color:var(--accent);cursor:pointer" onclick="showReclamatiiModal('📦 Eiselfing', (statsCache._lcReclamatii||[]).filter(r=>r.locatie==='Eiselfing'))">
         <div class="stat-icon" style="background:var(--accent-bg);color:var(--accent)">📦</div>
         <div class="stat-val" style="color:var(--accent)">${eisCount}</div>
         <div class="stat-label">Eiselfing</div>
@@ -6274,7 +6274,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v2.9.3</span>
+  <span id="version-badge-text">v2.9.4</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
