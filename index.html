@@ -893,7 +893,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.9.2';
+const APP_VERSION = '2.9.3';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -4155,14 +4155,17 @@ function renderFaraTuraSection() {
         <div style="overflow-x:auto">
           <table class="data-table" style="font-size:12px;min-width:700px">
             <thead>
-              <tr><th>Nume</th><th>Adresă</th><th>Firmă</th><th>Nr. Pachet</th><th>Rechnung</th><th style="text-align:right">€</th><th>Asignează tura</th></tr>
+              <tr><th>Nume</th><th>Adresă</th><th>Firmă</th><th>Tip</th><th>Nr. Pachet</th><th>Rechnung</th><th style="text-align:right">€</th><th>Asignează tura</th></tr>
             </thead>
             <tbody>
-              ${faraTura.map((p, i) => `
+              ${faraTura.map((p, i) => {
+                const sc = (p.schadenart||'').includes('Verlust') ? 'var(--red)' : 'var(--accent)';
+                return `
                 <tr>
                   <td style="font-weight:600">${p.name||'—'}</td>
                   <td style="color:var(--text2);font-size:11px">${[p.strasse,p.plz,p.ort].filter(Boolean).join(' ')||'—'}</td>
                   <td style="font-size:11px;color:var(--text3)">${p.atg||'—'}</td>
+                  <td style="font-size:11px;color:${sc};font-weight:600;white-space:nowrap">${p.schadenart||'—'}</td>
                   <td style="font-family:var(--mono);font-size:10px;color:var(--text3)">${p.identnummer||p.sendungsnummer||'—'}</td>
                   <td>
                     <span style="font-family:var(--mono);font-size:10px;background:var(--bg3);padding:1px 6px;border-radius:4px" title="${p.dataEmitere||''}">📄${p.belegNr||'—'}</span>
@@ -4174,7 +4177,8 @@ function renderFaraTuraSection() {
                       ${soferOpts}
                     </select>
                   </td>
-                </tr>`).join('')}
+                </tr>`;
+              }).join('')}
             </tbody>
           </table>
         </div>
@@ -6270,7 +6274,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v2.9.2</span>
+  <span id="version-badge-text">v2.9.3</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
