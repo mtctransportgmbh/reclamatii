@@ -726,6 +726,7 @@ textarea{resize:vertical;min-height:80px}
           <div class="page-title" id="dash-greeting">Bună ziua 👋</div>
           <div class="page-sub" id="dash-date"></div>
         </div>
+        <div id="dash-termin-urgent-banner"></div>
         <div class="stats-grid" id="dash-stats"></div>
         <div class="card" style="margin-bottom:16px" id="dash-quick-action"></div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -749,6 +750,8 @@ textarea{resize:vertical;min-height:80px}
         </div>
 
         <div id="recl-form" style="display:none"></div>
+
+        <div id="termin-urgent-banner"></div>
 
         <div class="filters">
           <div class="search-wrap">
@@ -807,6 +810,7 @@ textarea{resize:vertical;min-height:80px}
           </button>
         </div>
         <div id="rechn-form" style="display:none"></div>
+        <div id="rechn-fara-tura-section"></div>
         <div id="rechn-list"></div>
       </div>
 
@@ -889,7 +893,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.8.1';
+const APP_VERSION = '2.9.2';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -1598,6 +1602,7 @@ function loadSoferi() {
 // ════════════════════════════════════════════════════════
 function renderDashboard() {
   if (currentPage !== 'dashboard') return;
+  renderTerminUrgentBanner('dash-termin-urgent-banner');
   const now = new Date();
   const todayStr = now.toDateString();
   const thisMonth = now.getMonth(), thisYear = now.getFullYear();
@@ -1684,7 +1689,105 @@ function setFilter(btn, val) {
   renderReclamatii();
 }
 
+// ════════════════════════════════════════════════════════
+// BANNER TERMIN URGENT — vizibil sus, pentru reclamatii cu
+// termin AZI sau DEPASIT care sunt inca neprelucrate
+// ════════════════════════════════════════════════════════
+function renderTerminUrgentBanner(containerId) {
+  containerId = containerId || 'termin-urgent-banner';
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  const urgent = (allReclamatii||[]).filter(r => {
+    if (r.status !== 'neprelucrat' || !r.termin) return false;
+    let terminDate = null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(r.termin)) terminDate = new Date(r.termin);
+    else if (/^\d{2}\.\d{2}\.\d{4}$/.test(r.termin)) {
+      const p = r.termin.split('.');
+      terminDate = new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+    }
+    if (!terminDate || isNaN(terminDate)) return false;
+    terminDate.setHours(0,0,0,0);
+    return terminDate <= today; // azi SAU depasit
+  });
+
+  if (urgent.length === 0) { el.innerHTML = ''; return; }
+
+  const azi = urgent.filter(r => {
+    const p = r.termin.split('.');
+    const td = /^\d{4}-\d{2}-\d{2}$/.test(r.termin) ? new Date(r.termin) : new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0]));
+    td.setHours(0,0,0,0);
+    return td.getTime() === today.getTime();
+  });
+  const depasit = urgent.length - azi.length;
+
+  // Sortam: cele depasite primele (cele mai vechi = cele mai urgente), apoi cele de azi
+  urgent.sort((a,b) => {
+    const getTd = r => {
+      const p = r.termin.split('.');
+      return /^\d{4}-\d{2}-\d{2}$/.test(r.termin) ? new Date(r.termin) : new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0]));
+    };
+    return getTd(a) - getTd(b);
+  });
+
+  el.innerHTML = `
+    <div style="background:linear-gradient(135deg,#dc2626,#ea580c);border-radius:var(--radius-sm);padding:14px 18px;margin-bottom:16px;box-shadow:0 4px 16px rgba(220,38,38,0.3);animation:pulse-red 2s infinite">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div style="font-size:24px;flex-shrink:0">🚨</div>
+        <div style="color:#fff">
+          <div style="font-size:15px;font-weight:800">
+            ${urgent.length} reclamați${urgent.length===1?'e':'i'} cu termen critic!
+          </div>
+          <div style="font-size:11px;opacity:0.9">
+            ${azi.length>0?`⏰ ${azi.length} cu termen AZI`:''}${azi.length>0&&depasit>0?' · ':''}${depasit>0?`❗ ${depasit} depăș${depasit===1?'it':'ite'}`:''}
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${urgent.slice(0,8).map(r => {
+          const p = r.termin.split('.');
+          const td = /^\d{4}-\d{2}-\d{2}$/.test(r.termin) ? new Date(r.termin) : new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0]));
+          td.setHours(0,0,0,0);
+          const isAzi = td.getTime() === today.getTime();
+          const diffDays = Math.round((today - td) / 86400000);
+          return `<div style="background:rgba(255,255,255,0.15);border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:background 0.15s"
+            onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'"
+            onclick="openReclamatieDirect('${r.id}')">
+            <span style="font-size:11px;font-weight:800;color:#fff;background:rgba(0,0,0,0.25);padding:2px 8px;border-radius:5px;white-space:nowrap">${isAzi?'AZI':diffDays+'z întârziere'}</span>
+            <span style="color:#fff;font-weight:700;font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.numeClient||r.name||'—'}</span>
+            <span style="color:rgba(255,255,255,0.85);font-size:11px;white-space:nowrap">🚚 T.${r.turaSofer||r.tour||'—'}</span>
+            ${r.numarPachet?`<span style="color:rgba(255,255,255,0.7);font-size:10px;font-family:var(--mono);white-space:nowrap">#${r.numarPachet.slice(-8)}</span>`:''}
+          </div>`;
+        }).join('')}
+        ${urgent.length > 8 ? `<div style="text-align:center;padding:4px;cursor:pointer;color:#fff;font-size:11px;font-weight:600;opacity:0.9" onclick="goToUrgentTermin()">+ încă ${urgent.length-8} — vezi toate</div>` : ''}
+      </div>
+    </div>`;
+}
+
+function openReclamatieDirect(id) {
+  const r = allReclamatii.find(x => x.id === id);
+  if (!r) { goToUrgentTermin(); return; }
+  showPage('reclamatii');
+  setTimeout(() => {
+    const btn = document.querySelector('[data-filter="neprelucrat"]');
+    if (btn) setFilter(btn, 'neprelucrat');
+    setTimeout(() => editReclamatie(id), 150);
+  }, 100);
+}
+
+function goToUrgentTermin() {
+  showPage('reclamatii');
+  setTimeout(() => {
+    const btn = document.querySelector('[data-filter="neprelucrat"]');
+    if (btn) setFilter(btn, 'neprelucrat');
+    document.getElementById('recl-list')?.scrollIntoView({behavior:'smooth', block:'start'});
+  }, 100);
+}
+
 function renderReclamatii() {
+  renderTerminUrgentBanner('termin-urgent-banner');
   const search = (document.getElementById('search-input')?.value||'').toLowerCase();
   let list = allReclamatii;
   if (activeFilter!=='all') list = list.filter(r=>r.status===activeFilter);
@@ -3999,12 +4102,101 @@ async function renderRechnunguri() {
   rechnunguriData = snap.docs.map(d=>({id:d.id,...d.data()}));
   // Expunem pentru cautarea globala (dupa fetch)
   window.allRechnunguri = rechnunguriData;
+
+  renderFaraTuraSection();
+
   const el = document.getElementById('rechn-list');
   if (rechnunguriData.length===0) {
     el.innerHTML=`<div class="empty"><div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg></div><div class="empty-title">Niciun rechnung uploadat</div><div class="empty-sub">Uploadează primul rechnung Hermes</div></div>`;
     return;
   }
   el.innerHTML = rechnunguriData.map(r => renderRechnCard(r)).join('');
+}
+
+// ════════════════════════════════════════════════════════
+// SECTIUNE "FARA TURA" — colecteaza toate pozitiile fara tura
+// din toate rechnungurile, intr-un singur loc usor de gasit
+// ════════════════════════════════════════════════════════
+function renderFaraTuraSection() {
+  const el = document.getElementById('rechn-fara-tura-section');
+  if (!el) return;
+
+  // Colectam toate pozitiile fara tura, cu referinta la rechnung + index
+  const faraTura = [];
+  rechnunguriData.forEach(r => {
+    (r.pozitii||[]).forEach((p, idx) => {
+      if (!p.tour || String(p.tour).trim()==='') {
+        faraTura.push({ ...p, rechnId: r.id, belegNr: r.belegNr, dataEmitere: r.dataEmitere, pozIdx: idx });
+      }
+    });
+  });
+
+  if (faraTura.length === 0) {
+    el.innerHTML = '';
+    return;
+  }
+
+  const soferOpts = allSoferi.filter(s=>s.tura).sort((a,b)=>parseInt(a.tura||0)-parseInt(b.tura||0))
+    .map(s=>'<option value="'+s.tura+'">'+s.tura+' — '+s.numeSofer+'</option>').join('');
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:16px;border:1px solid var(--accent-border);background:var(--accent-bg)">
+      <div style="display:flex;align-items:center;gap:10px;cursor:pointer" onclick="toggleFaraTuraList()">
+        <div style="width:36px;height:36px;background:rgba(232,197,71,0.2);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px">⚠️</div>
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:800;color:var(--accent)">${faraTura.length} poziți${faraTura.length===1?'e':'i'} fără tură asignată</div>
+          <div style="font-size:11px;color:var(--text3)">Click pentru a le vedea și a asigna tura corectă</div>
+        </div>
+        <div id="fara-tura-arrow" style="color:var(--accent);transition:transform 0.2s">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </div>
+      </div>
+      <div id="fara-tura-list" style="display:none;margin-top:14px;border-top:1px solid var(--accent-border);padding-top:14px">
+        <div style="overflow-x:auto">
+          <table class="data-table" style="font-size:12px;min-width:700px">
+            <thead>
+              <tr><th>Nume</th><th>Adresă</th><th>Firmă</th><th>Nr. Pachet</th><th>Rechnung</th><th style="text-align:right">€</th><th>Asignează tura</th></tr>
+            </thead>
+            <tbody>
+              ${faraTura.map((p, i) => `
+                <tr>
+                  <td style="font-weight:600">${p.name||'—'}</td>
+                  <td style="color:var(--text2);font-size:11px">${[p.strasse,p.plz,p.ort].filter(Boolean).join(' ')||'—'}</td>
+                  <td style="font-size:11px;color:var(--text3)">${p.atg||'—'}</td>
+                  <td style="font-family:var(--mono);font-size:10px;color:var(--text3)">${p.identnummer||p.sendungsnummer||'—'}</td>
+                  <td>
+                    <span style="font-family:var(--mono);font-size:10px;background:var(--bg3);padding:1px 6px;border-radius:4px" title="${p.dataEmitere||''}">📄${p.belegNr||'—'}</span>
+                  </td>
+                  <td style="text-align:right;font-weight:700;font-family:var(--mono)">€${(p.forderung||0).toFixed(2)}</td>
+                  <td>
+                    <select onchange="assignTuraFromFaraTuraList(this,'${p.rechnId}',${p.pozIdx})" style="font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid var(--accent-border);background:#fff;color:var(--accent);font-weight:600;cursor:pointer;min-width:160px">
+                      <option value="">— selectează tura —</option>
+                      ${soferOpts}
+                    </select>
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+function toggleFaraTuraList() {
+  const list = document.getElementById('fara-tura-list');
+  const arrow = document.getElementById('fara-tura-arrow');
+  if (!list) return;
+  const isOpen = list.style.display !== 'none';
+  list.style.display = isOpen ? 'none' : 'block';
+  if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(180deg)';
+}
+
+async function assignTuraFromFaraTuraList(selectEl, rechnId, pozIdx) {
+  const tura = selectEl.value;
+  if (!tura) return;
+  selectEl.disabled = true;
+  await assignTuraToRechnPozitie(rechnId, pozIdx, tura);
+  // renderRechnunguri() e apelat deja din assignTuraToRechnPozitie, care re-randeaza tot
 }
 
 async function assignTuraToRechnPozitie(rechnId, pozIdx, tura) {
@@ -6078,7 +6270,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v2.8.1</span>
+  <span id="version-badge-text">v2.9.2</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
