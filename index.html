@@ -762,12 +762,6 @@ textarea{resize:vertical;min-height:80px}
           <button class="filter-btn active" data-filter="neprelucrat" onclick="setFilter(this,'neprelucrat')">⏳ Neprelucrate</button>
           <button class="filter-btn" data-filter="nerezolvata" onclick="setFilter(this,'nerezolvata')">✗ Nerezolvate</button>
           <button class="filter-btn" data-filter="rezolvata" onclick="setFilter(this,'rezolvata')">✓ Rezolvate</button>
-          <select id="filter-tip" onchange="renderReclamatii()" style="font-size:12px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);cursor:pointer">
-            <option value="">Tip daună — toate</option>
-          </select>
-          <select id="filter-firma" onchange="renderReclamatii()" style="font-size:12px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);cursor:pointer">
-            <option value="">Firmă — toate</option>
-          </select>
         </div>
         <div id="recl-list" class="recl-list"></div>
       </div>
@@ -789,6 +783,7 @@ textarea{resize:vertical;min-height:80px}
           <button class="stats-tab" data-tab="anual" onclick="switchStatsTab('anual',this)">🗓 Anual</button>
           <button class="stats-tab" data-tab="harta" onclick="switchStatsTab('harta',this)">🗺 Hartă</button>
           <button class="stats-tab" data-tab="adrese" onclick="switchStatsTab('adrese',this)">📍 Per adresă</button>
+          <button class="stats-tab" data-tab="firme" onclick="switchStatsTab('firme',this)">🏢 Firme & Tip daună</button>
           <button class="stats-tab" data-tab="alerte" onclick="switchStatsTab('alerte',this)" id="tab-alerte">⚠ Alerte</button>
         </div>
         <div id="stats-luna-curenta" class="stats-panel"></div>
@@ -800,6 +795,7 @@ textarea{resize:vertical;min-height:80px}
         <div id="stats-anual" class="stats-panel" style="display:none"></div>
         <div id="stats-harta" class="stats-panel" style="display:none"></div>
         <div id="stats-adrese" class="stats-panel" style="display:none"></div>
+        <div id="stats-firme" class="stats-panel" style="display:none"></div>
         <div id="stats-alerte" class="stats-panel" style="display:none"></div>
       </div>
 
@@ -899,7 +895,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.9.5';
+const APP_VERSION = '3.0.0';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -1802,54 +1798,56 @@ function normTipDauna(r) {
   return null;
 }
 
-// Normalizeaza firma/marca pachetului
+// Normalizeaza firma/marca pachetului — extrage brandul recognoscibil
+// dintr-un text ATG murdar (poate contine cod numeric, ID-uri Hermes lipite, etc.)
+// Ex: "0008 Otto GmbH & Co. KGaA H1023700097383502032" -> "Otto"
+//     "0020 bon prix Handelsgesellschaft mbH 11175132011135" -> "Bonprix"
+//     "4784 Zalando SE" -> "Zalando"
+const FIRMA_KNOWN_BRANDS = [
+  'otto','bonprix','bon prix','zalando','flaconi','decathlon','xxxlutz','frankonia',
+  'birkenstock','arvato','deinsportsfreund','witt','josef witt','baur','vinted',
+  'shein','privatservice','qvc','limango','sf express','postnl','cbp','arvato',
+  'mönchengladbach','zal deu','lahr','otto.de','h&m','dorsten'
+];
+
 function normFirma(r) {
-  const f = (r.numePachet || r.atg || '').trim();
-  return f || null;
+  let raw = (r.numePachet || r.atg || '').trim();
+  if (!raw) return null;
+
+  // 1. Elimina orice token care e cod Hermes (litere+cifre lungi, tip H1023700097383502032)
+  //    sau pur numeric (coduri interne, tip 0008, 37177132005570)
+  let cleaned = raw
+    .replace(/\bH\d{10,}\b/gi, '')      // ID-uri Hermes: H urmat de 10+ cifre
+    .replace(/\b\d{6,}\b/g, '')          // orice secventa de 6+ cifre consecutive (coduri interne)
+    .replace(/\b\d{4}\b/g, '')           // coduri scurte de 4 cifre (ex: "0008", "4784")
+    .replace(/[,&]/g, ' ')
+    .replace(/\b(GmbH|Co\.?|KGaA|SE|mbH|Handelsgesellschaft|Ltd\.?|Inc\.?|Group|Advanced|Reseller|Retoure|Services|Limited|Main)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return null;
+
+  // 2. Verificam daca vreun brand cunoscut e continut in textul curatat
+  const lowerCleaned = cleaned.toLowerCase();
+  for (const brand of FIRMA_KNOWN_BRANDS) {
+    if (lowerCleaned.includes(brand)) {
+      // Capitalizam frumos (prima litera mare)
+      return brand.split(' ').map(w => w.charAt(0).toUpperCase()+w.slice(1)).join(' ');
+    }
+  }
+
+  // 3. Fallback: primul cuvant semnificativ (min 3 litere) din textul curatat
+  const firstWord = cleaned.split(' ').find(w => w.length >= 3);
+  if (firstWord) return firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase();
+
+  return cleaned || null;
 }
 
-function populateReclFilters() {
-  const tipSel = document.getElementById('filter-tip');
-  const firmaSel = document.getElementById('filter-firma');
-  if (!tipSel || !firmaSel) return;
-
-  const curTip = tipSel.value;
-  const curFirma = firmaSel.value;
-
-  const tipuri = new Set();
-  const firme = new Set();
-  (allReclamatii||[]).forEach(r => {
-    const t = normTipDauna(r);
-    if (t) tipuri.add(t);
-    const f = normFirma(r);
-    if (f) firme.add(f);
-  });
-
-  tipSel.innerHTML = '<option value="">Tip daună — toate</option>' +
-    [...tipuri].sort().map(t => '<option value="'+t.replace(/"/g,'&quot;')+'">'+t+'</option>').join('');
-  firmaSel.innerHTML = '<option value="">Firmă — toate</option>' +
-    [...firme].sort().map(f => '<option value="'+f.replace(/"/g,'&quot;')+'">'+f+'</option>').join('');
-
-  tipSel.value = curTip;
-  firmaSel.value = curFirma;
-}
-
-let _lastFilterOptionsCount = 0;
 function renderReclamatii() {
   renderTerminUrgentBanner('termin-urgent-banner');
-  // Populam dropdown-urile doar daca s-a schimbat numarul de reclamatii
-  // (evita regenerare inutila la fiecare litera tastata in search)
-  if ((allReclamatii||[]).length !== _lastFilterOptionsCount) {
-    populateReclFilters();
-    _lastFilterOptionsCount = (allReclamatii||[]).length;
-  }
   const search = (document.getElementById('search-input')?.value||'').toLowerCase();
-  const filtruTip = document.getElementById('filter-tip')?.value || '';
-  const filtruFirma = document.getElementById('filter-firma')?.value || '';
   let list = allReclamatii;
   if (activeFilter!=='all') list = list.filter(r=>r.status===activeFilter);
-  if (filtruTip) list = list.filter(r => normTipDauna(r) === filtruTip);
-  if (filtruFirma) list = list.filter(r => normFirma(r) === filtruFirma);
   if (search) list = list.filter(r=>
     (r.numeClient||'').toLowerCase().includes(search) ||
     (r.numarPachet||'').toLowerCase().includes(search) ||
@@ -2572,6 +2570,7 @@ async function renderStatistici() {
     renderStatsLunar(statsCache);
     renderStatsAnual(statsCache);
     renderStatsAdrese(statsCache);
+    renderStatsFirme(statsCache);
     renderStatsAlerte(statsCache);
     // Harta: incarcam cache-ul Firestore de geocodare INAINTE de a randa,
     // ca sa nu reinterogam Nominatim de fiecare data
@@ -4008,7 +4007,154 @@ async function refreshHarta() {
 // Hooked via the existing switchStatsTab below — don't redefine it
 
 
-// ── TAB: PER ADRESĂ ──
+// ── TAB: PER ADRESĂ ──// ════════════════════════════════════════════════════════
+// TAB: FIRME & TIP DAUNA — statistici agregate + filtre combinate
+// ════════════════════════════════════════════════════════
+let firmeSelectedTip = '';
+let firmeSelectedFirma = '';
+
+function renderStatsFirme(d) {
+  const el = document.getElementById('stats-firme');
+  if (!el || !d) return;
+
+  const toate = d.toateReclamatiile || [];
+
+  // Construim listele unice pentru dropdown-uri
+  const tipuriSet = new Set();
+  const firmeSet = new Set();
+  toate.forEach(r => {
+    const t = normTipDauna(r);
+    if (t) tipuriSet.add(t);
+    const f = normFirma(r);
+    if (f) firmeSet.add(f);
+  });
+  const tipuri = [...tipuriSet].sort();
+  const firme = [...firmeSet].sort();
+
+  // Aplicam filtrele curente
+  let filtrate = toate;
+  if (firmeSelectedTip) filtrate = filtrate.filter(r => normTipDauna(r) === firmeSelectedTip);
+  if (firmeSelectedFirma) filtrate = filtrate.filter(r => normFirma(r) === firmeSelectedFirma);
+
+  const total = filtrate.length;
+  const rezolvate = filtrate.filter(r=>r.status==='rezolvata').length;
+  const nerezolvate = filtrate.filter(r=>r.status==='nerezolvata').length;
+  const neprelucrat = filtrate.filter(r=>r.status==='neprelucrat').length;
+  const suma = filtrate.reduce((s,r)=>s+(r.forderung||0),0);
+
+  // Statistici agregate per firma (pe setul filtrat de tip, daca exista)
+  const perFirma = {};
+  (firmeSelectedTip ? toate.filter(r=>normTipDauna(r)===firmeSelectedTip) : toate).forEach(r => {
+    const f = normFirma(r);
+    if (!f) return;
+    if (!perFirma[f]) perFirma[f] = { nume:f, count:0, suma:0 };
+    perFirma[f].count++;
+    perFirma[f].suma += r.forderung||0;
+  });
+  const topFirme = Object.values(perFirma).sort((a,b)=>b.count-a.count).slice(0,15);
+
+  // Statistici agregate per tip (pe setul filtrat de firma, daca exista)
+  const perTip = {};
+  (firmeSelectedFirma ? toate.filter(r=>normFirma(r)===firmeSelectedFirma) : toate).forEach(r => {
+    const t = normTipDauna(r);
+    if (!t) return;
+    if (!perTip[t]) perTip[t] = { nume:t, count:0, suma:0 };
+    perTip[t].count++;
+    perTip[t].suma += r.forderung||0;
+  });
+  const topTipuri = Object.values(perTip).sort((a,b)=>b.count-a.count);
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <select id="firme-filter-tip" onchange="setFirmeFilter('tip', this.value)" style="font-size:12px;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);cursor:pointer;min-width:180px">
+          <option value="">Tip daună — toate</option>
+          ${tipuri.map(t => `<option value="${t.replace(/"/g,'&quot;')}" ${firmeSelectedTip===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+        <select id="firme-filter-firma" onchange="setFirmeFilter('firma', this.value)" style="font-size:12px;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);cursor:pointer;min-width:180px">
+          <option value="">Firmă — toate</option>
+          ${firme.map(f => `<option value="${f.replace(/"/g,'&quot;')}" ${firmeSelectedFirma===f?'selected':''}>${f}</option>`).join('')}
+        </select>
+        ${(firmeSelectedTip || firmeSelectedFirma) ? `<button class="btn btn-ghost" style="font-size:12px;padding:8px 14px" onclick="resetFirmeFilters()">✕ Resetează filtre</button>` : ''}
+      </div>
+    </div>
+
+    ${(firmeSelectedTip || firmeSelectedFirma) ? `
+    <div class="stats-grid" style="margin-bottom:14px">
+      <div class="stat-card" style="--stat-color:var(--accent);cursor:pointer" onclick="showReclamatiiModal('📦 ${firmeSelectedFirma||''} ${firmeSelectedTip||''}'.trim(), statsCache._firmeFiltrate||[])">
+        <div class="stat-icon" style="background:var(--accent-bg);color:var(--accent)">📦</div>
+        <div class="stat-val" style="color:var(--accent)">${total}</div>
+        <div class="stat-label">Total filtrat</div>
+      </div>
+      <div class="stat-card" style="--stat-color:var(--green);cursor:pointer" onclick="showReclamatiiModal('✓ Rezolvate', (statsCache._firmeFiltrate||[]).filter(r=>r.status==='rezolvata'))">
+        <div class="stat-icon" style="background:var(--green-bg);color:var(--green)">✓</div>
+        <div class="stat-val" style="color:var(--green)">${rezolvate}</div>
+        <div class="stat-label">Rezolvate</div>
+      </div>
+      <div class="stat-card" style="--stat-color:var(--red);cursor:pointer" onclick="showReclamatiiModal('✗ Nerezolvate', (statsCache._firmeFiltrate||[]).filter(r=>r.status==='nerezolvata'))">
+        <div class="stat-icon" style="background:var(--red-bg);color:var(--red)">✗</div>
+        <div class="stat-val" style="color:var(--red)">${nerezolvate}</div>
+        <div class="stat-label">Nerezolvate</div>
+      </div>
+      <div class="stat-card" style="--stat-color:#f59e0b;cursor:pointer" onclick="showReclamatiiModal('⏳ Neprelucrate', (statsCache._firmeFiltrate||[]).filter(r=>r.status==='neprelucrat'))">
+        <div class="stat-icon" style="background:rgba(245,158,11,0.1);color:#f59e0b">⏳</div>
+        <div class="stat-val" style="color:#f59e0b">${neprelucrat}</div>
+        <div class="stat-label">Neprelucrate</div>
+      </div>
+      ${suma > 0 ? `<div class="stat-card" style="--stat-color:#f472b6">
+        <div class="stat-icon" style="background:rgba(244,114,182,0.1);color:#f472b6">💶</div>
+        <div class="stat-val" style="color:#f472b6">€${suma.toFixed(0)}</div>
+        <div class="stat-label">Sumă totală</div>
+      </div>` : ''}
+    </div>` : ''}
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="card">
+        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:12px">🏢 Top firme${firmeSelectedTip?' ('+firmeSelectedTip+')':''}</div>
+        ${topFirme.length===0 ? '<div style="font-size:12px;color:var(--text3)">Nicio dată</div>' : topFirme.map((f,i) => `
+          <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
+            onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+            onclick="setFirmeFilter('firma','${f.nume.replace(/'/g,"\\\\'")}')">
+            <span style="width:20px;height:20px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
+            <span style="flex:1;font-size:13px;font-weight:600">${f.nume}</span>
+            ${f.suma>0?`<span style="font-size:11px;color:var(--accent);font-family:var(--mono)">€${f.suma.toFixed(0)}</span>`:''}
+            <span style="font-size:13px;font-weight:800;color:var(--red);min-width:24px;text-align:right">${f.count}</span>
+          </div>`).join('')}
+      </div>
+
+      <div class="card">
+        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:12px">📋 Top tipuri daună${firmeSelectedFirma?' ('+firmeSelectedFirma+')':''}</div>
+        ${topTipuri.length===0 ? '<div style="font-size:12px;color:var(--text3)">Nicio dată</div>' : topTipuri.map((t,i) => {
+          const isVerlust = t.nume.toLowerCase().includes('verlust') || t.nume.toLowerCase().includes('pierdut');
+          return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
+            onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+            onclick="setFirmeFilter('tip','${t.nume.replace(/'/g,"\\\\'")}')">
+            <span style="width:20px;height:20px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text3);flex-shrink:0">${i+1}</span>
+            <span style="flex:1;font-size:13px;font-weight:600;color:${isVerlust?'var(--red)':'var(--text)'}">${t.nume}</span>
+            ${t.suma>0?`<span style="font-size:11px;color:var(--accent);font-family:var(--mono)">€${t.suma.toFixed(0)}</span>`:''}
+            <span style="font-size:13px;font-weight:800;color:var(--red);min-width:24px;text-align:right">${t.count}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+
+  statsCache._firmeFiltrate = filtrate;
+}
+
+function setFirmeFilter(type, value) {
+  if (type === 'tip') firmeSelectedTip = value;
+  if (type === 'firma') firmeSelectedFirma = value;
+  renderStatsFirme(statsCache);
+}
+
+function resetFirmeFilters() {
+  firmeSelectedTip = '';
+  firmeSelectedFirma = '';
+  renderStatsFirme(statsCache);
+}
+
+
 function renderStatsAdrese(d) {
   const el = document.getElementById('stats-adrese');
   if (!el) return;
@@ -6333,7 +6479,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v2.9.5</span>
+  <span id="version-badge-text">v3.0.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
