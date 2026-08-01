@@ -762,6 +762,12 @@ textarea{resize:vertical;min-height:80px}
           <button class="filter-btn active" data-filter="neprelucrat" onclick="setFilter(this,'neprelucrat')">⏳ Neprelucrate</button>
           <button class="filter-btn" data-filter="nerezolvata" onclick="setFilter(this,'nerezolvata')">✗ Nerezolvate</button>
           <button class="filter-btn" data-filter="rezolvata" onclick="setFilter(this,'rezolvata')">✓ Rezolvate</button>
+          <select id="filter-tip" onchange="renderReclamatii()" style="font-size:12px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);cursor:pointer">
+            <option value="">Tip daună — toate</option>
+          </select>
+          <select id="filter-firma" onchange="renderReclamatii()" style="font-size:12px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);cursor:pointer">
+            <option value="">Firmă — toate</option>
+          </select>
         </div>
         <div id="recl-list" class="recl-list"></div>
       </div>
@@ -893,7 +899,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '2.9.4';
+const APP_VERSION = '2.9.5';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -1786,11 +1792,64 @@ function goToUrgentTermin() {
   }, 100);
 }
 
+// Normalizeaza tipul de dauna intr-o eticheta unificata pentru afisare/filtrare
+function normTipDauna(r) {
+  if (r.schadenart) return r.schadenart.trim(); // Totalverlust, Teilverlust, Totalschaden (din rechnung)
+  if (r.tipReclamatie) {
+    const map = { livrare:'Livrare', deteriorare:'Deteriorare', pierdut:'Pierdut', 'adresa gresita':'Adresă greșită', altele:'Altele' };
+    return map[r.tipReclamatie] || r.tipReclamatie;
+  }
+  return null;
+}
+
+// Normalizeaza firma/marca pachetului
+function normFirma(r) {
+  const f = (r.numePachet || r.atg || '').trim();
+  return f || null;
+}
+
+function populateReclFilters() {
+  const tipSel = document.getElementById('filter-tip');
+  const firmaSel = document.getElementById('filter-firma');
+  if (!tipSel || !firmaSel) return;
+
+  const curTip = tipSel.value;
+  const curFirma = firmaSel.value;
+
+  const tipuri = new Set();
+  const firme = new Set();
+  (allReclamatii||[]).forEach(r => {
+    const t = normTipDauna(r);
+    if (t) tipuri.add(t);
+    const f = normFirma(r);
+    if (f) firme.add(f);
+  });
+
+  tipSel.innerHTML = '<option value="">Tip daună — toate</option>' +
+    [...tipuri].sort().map(t => '<option value="'+t.replace(/"/g,'&quot;')+'">'+t+'</option>').join('');
+  firmaSel.innerHTML = '<option value="">Firmă — toate</option>' +
+    [...firme].sort().map(f => '<option value="'+f.replace(/"/g,'&quot;')+'">'+f+'</option>').join('');
+
+  tipSel.value = curTip;
+  firmaSel.value = curFirma;
+}
+
+let _lastFilterOptionsCount = 0;
 function renderReclamatii() {
   renderTerminUrgentBanner('termin-urgent-banner');
+  // Populam dropdown-urile doar daca s-a schimbat numarul de reclamatii
+  // (evita regenerare inutila la fiecare litera tastata in search)
+  if ((allReclamatii||[]).length !== _lastFilterOptionsCount) {
+    populateReclFilters();
+    _lastFilterOptionsCount = (allReclamatii||[]).length;
+  }
   const search = (document.getElementById('search-input')?.value||'').toLowerCase();
+  const filtruTip = document.getElementById('filter-tip')?.value || '';
+  const filtruFirma = document.getElementById('filter-firma')?.value || '';
   let list = allReclamatii;
   if (activeFilter!=='all') list = list.filter(r=>r.status===activeFilter);
+  if (filtruTip) list = list.filter(r => normTipDauna(r) === filtruTip);
+  if (filtruFirma) list = list.filter(r => normFirma(r) === filtruFirma);
   if (search) list = list.filter(r=>
     (r.numeClient||'').toLowerCase().includes(search) ||
     (r.numarPachet||'').toLowerCase().includes(search) ||
@@ -6274,7 +6333,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v2.9.4</span>
+  <span id="version-badge-text">v2.9.5</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
