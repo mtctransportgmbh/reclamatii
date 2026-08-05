@@ -695,6 +695,9 @@ textarea{resize:vertical;min-height:80px}
         <button onclick="showGlobalSearch()" title="Căutare globală (Ctrl+K)" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:6px;border-radius:8px;transition:var(--transition);display:flex;align-items:center;justify-content:center" onmouseover="this.style.background='var(--bg3)';this.style.color='var(--accent)'" onmouseout="this.style.background='none';this.style.color='var(--text3)'">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
         </button>
+        <button id="test-mode-btn" onclick="showTestModeMenu()" title="Mod Test — vezi ca alt user" style="display:none;background:none;border:none;cursor:pointer;color:var(--text3);padding:6px;border-radius:8px;transition:var(--transition);align-items:center;justify-content:center" onmouseover="this.style.background='var(--bg3)';this.style.color='var(--accent)'" onmouseout="this.style.background='none';this.style.color='var(--text3)'">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42"/></svg>
+        </button>
         <button class="btn-logout" onclick="logout()" title="Deconectare">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/></svg>
         </button>
@@ -726,6 +729,7 @@ textarea{resize:vertical;min-height:80px}
           <div class="page-title" id="dash-greeting">Bună ziua 👋</div>
           <div class="page-sub" id="dash-date"></div>
         </div>
+        <div id="dash-rechnung-notif-banner"></div>
         <div id="dash-termin-urgent-banner"></div>
         <div class="stats-grid" id="dash-stats"></div>
         <div class="card" style="margin-bottom:16px" id="dash-quick-action"></div>
@@ -835,12 +839,38 @@ textarea{resize:vertical;min-height:80px}
         <div id="sofer-form" style="display:none"></div>
         <div id="pachete-form" style="display:none"></div>
         <div id="soferi-search" style="margin-bottom:12px;display:none">
-          <div class="search-wrap">
-            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
-            <input type="text" placeholder="Caută șofer..." id="soferi-search-input" oninput="renderSoferi()" style="max-width:300px"/>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <div class="search-wrap">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+              <input type="text" placeholder="Caută șofer..." id="soferi-search-input" oninput="renderSoferi()" style="max-width:300px"/>
+            </div>
+            <button class="btn btn-ghost" id="soferi-arhiva-btn" onclick="showPage('arhiva-soferi')" style="font-size:12px;padding:8px 14px;display:none">
+              📦 Arhivă
+            </button>
           </div>
         </div>
         <div id="soferi-list"></div>
+      </div>
+
+      <!-- ARHIVA SOFERI -->
+      <div class="page" id="page-arhiva-soferi">
+        <div class="page-header">
+          <div>
+            <button onclick="showPage('soferi')" style="background:none;border:none;color:var(--text3);cursor:pointer;display:flex;align-items:center;gap:4px;font-size:12px;margin-bottom:6px;padding:0">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>
+              Înapoi la Șoferi
+            </button>
+            <div class="page-title">📦 Arhivă Șoferi</div>
+            <div class="page-sub" id="arhiva-soferi-count"></div>
+          </div>
+        </div>
+        <div id="arhiva-soferi-search" style="margin-bottom:12px">
+          <div class="search-wrap" style="max-width:300px">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+            <input type="text" placeholder="Caută în arhivă..." id="arhiva-soferi-search-input" oninput="renderArhivaSoferi()"/>
+          </div>
+        </div>
+        <div id="arhiva-soferi-list"></div>
       </div>
 
       <!-- UTILIZATORI -->
@@ -895,7 +925,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '3.0.0';
+const APP_VERSION = '3.4.1';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -1526,6 +1556,7 @@ function showPage(id) {
   if (id==='statistici') renderStatistici();
   if (id==='rechnunguri') renderRechnunguri();
   if (id==='soferi') renderSoferi();
+  if (id==='arhiva-soferi') renderArhivaSoferi();
   if (id==='utilizatori') renderUtilizatori();
   if (id==='dashboard') renderDashboard();
 }
@@ -1537,6 +1568,14 @@ function updateSidebarUser() {
   av.textContent = u.avatar;
   document.getElementById('sidebar-user-name').textContent = u.name;
   document.getElementById('sidebar-user-role').textContent = u.role==='admin'?'Administrator':u.role==='tania'?'Toate locațiile':u.location;
+
+  // Buton Mod Test — vizibil doar cand contul REAL este admin
+  // (chiar daca simulam alt user, adminul real e in realAdminUser)
+  const testBtn = document.getElementById('test-mode-btn');
+  if (testBtn) {
+    const isRealAdmin = u.role === 'admin' || (realAdminUser && realAdminUser.role === 'admin');
+    testBtn.style.display = isRealAdmin ? 'flex' : 'none';
+  }
 }
 
 // ════════════════════════════════════════════════════════
@@ -1602,8 +1641,177 @@ function loadSoferi() {
 // ════════════════════════════════════════════════════════
 // RENDER — DASHBOARD
 // ════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
+// NOTIFICARE FACTURI INCARCATE — Tania, Raluca, Madalina vad
+// un banner pe Dashboard pana verifica Alertele
+// (Mihaela exclusa — nu are acces la rechnunguri)
+// ════════════════════════════════════════════════════════
+async function publishRechnungNotification(luna, an, belegNumbers) {
+  try {
+    await db.collection('notificari').doc('facturi_incarcate').set({
+      luna, an,
+      lunaLabel: MONTHS_RO[luna-1] + ' ' + an,
+      belegNumbers: belegNumbers || [],
+      uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      uploadedBy: currentUser?.name || 'admin',
+      // Resetam lista de useri care au vazut/rezolvat notificarea
+      vazutDe: []
+    });
+  } catch(e) { console.warn('Notificare facturi failed:', e.message); }
+}
+
+async function markRechnungNotificationSeen() {
+  if (!currentUser) return;
+  try {
+    await db.collection('notificari').doc('facturi_incarcate').update({
+      vazutDe: firebase.firestore.FieldValue.arrayUnion(currentUser.id)
+    });
+    const banner = document.getElementById('dash-rechnung-notif-banner');
+    if (banner) banner.innerHTML = '';
+  } catch(e) { console.warn('Mark seen failed:', e.message); }
+}
+
+async function renderRechnungNotifBanner() {
+  const el = document.getElementById('dash-rechnung-notif-banner');
+  if (!el) return;
+
+  // Mihaela nu vede aceasta notificare — nu are acces la rechnunguri
+  if (isLimited(currentUser)) { el.innerHTML = ''; return; }
+  // Adminul care a incarcat nu are nevoie de notificare pentru sine
+  if (currentUser?.role === 'admin') { el.innerHTML = ''; return; }
+
+  try {
+    const doc = await db.collection('notificari').doc('facturi_incarcate').get();
+    if (!doc.exists) { el.innerHTML = ''; return; }
+    const data = doc.data();
+    const vazutDe = data.vazutDe || [];
+
+    if (vazutDe.includes(currentUser.id)) { el.innerHTML = ''; return; }
+
+    const nrRechn = (data.belegNumbers||[]).length;
+    el.innerHTML = `
+      <div style="background:linear-gradient(135deg,#7c3aed,#a855f7);border-radius:var(--radius-sm);padding:16px 18px;margin-bottom:16px;box-shadow:0 4px 16px rgba(124,58,237,0.3)">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="font-size:26px;flex-shrink:0">📄</div>
+          <div style="flex:1;color:#fff">
+            <div style="font-size:14px;font-weight:800">
+              Facturi noi încărcate pentru ${data.lunaLabel}!
+            </div>
+            <div style="font-size:12px;opacity:0.92;margin-top:2px">
+              ${nrRechn} factur${nrRechn===1?'ă':'i'} noi · Verificați dacă apar dispute în Statistici → Alerte
+            </div>
+          </div>
+          <button onclick="goToAlerteFromNotif()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);color:#fff;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+            Verifică Alerte
+          </button>
+        </div>
+      </div>`;
+  } catch(e) { console.warn('Render rechnung notif failed:', e.message); el.innerHTML=''; }
+}
+
+function goToAlerteFromNotif() {
+  showPage('statistici');
+  setTimeout(() => {
+    const btn = document.querySelector('[data-tab="alerte"]');
+    if (btn) switchStatsTab('alerte', btn);
+    // Marcam ca vazuta DOAR cand userul chiar ajunge pe tab-ul Alerte
+    markRechnungNotificationSeen();
+  }, 150);
+}
+
+
+// ════════════════════════════════════════════════════════
+// MOD TEST/SIMULARE — doar pentru admin, simuleaza alt user
+// fara sa scrie nimic in Firestore, doar UI-ul se schimba local
+// ════════════════════════════════════════════════════════
+let realAdminUser = null; // pastram adminul real cat timp simulam
+
+function showTestModeMenu() {
+  const existing = document.getElementById('test-mode-modal');
+  if (existing) { existing.remove(); return; }
+
+  const simulatable = USERS.filter(u => u.id !== 'admin');
+
+  const m = document.createElement('div');
+  m.id = 'test-mode-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = e => { if(e.target===m) m.remove(); };
+
+  m.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:22px;max-width:360px;width:100%">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="font-size:15px;font-weight:800">🧪 Mod Test</div>
+        <button onclick="document.getElementById('test-mode-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:14px">
+        Vezi aplicația exact cum o vede fiecare user, fără să te delogezi. Nimic nu se salvează diferit — doar interfața se schimbă local pentru tine.
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${simulatable.map(u => `
+          <button onclick="startTestMode('${u.id}')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;cursor:pointer;text-align:left;color:var(--text)"
+            onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+            <div style="width:32px;height:32px;border-radius:50%;background:${u.bg};color:${u.color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${u.avatar}</div>
+            <div>
+              <div style="font-weight:700;font-size:13px">${u.name}</div>
+              <div style="font-size:11px;color:var(--text3)">${u.role}${u.location?' · '+u.location:''}</div>
+            </div>
+          </button>`).join('')}
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+}
+
+function startTestMode(userId) {
+  document.getElementById('test-mode-modal')?.remove();
+  const targetUser = USERS.find(u => u.id === userId);
+  if (!targetUser) return;
+
+  realAdminUser = currentUser; // salvam adminul real
+  currentUser = targetUser;
+
+  renderTestModeBanner();
+  updateSidebarUser();
+  const startPage = (currentUser?.role === 'operator' || isLimited(currentUser)) ? 'reclamatii' : 'dashboard';
+  showPage(startPage);
+  loadReclamatii();
+  loadSoferi();
+
+  toast('🧪 Simulezi acum: ' + targetUser.name);
+}
+
+function exitTestMode() {
+  if (!realAdminUser) return;
+  currentUser = realAdminUser;
+  realAdminUser = null;
+
+  document.getElementById('test-mode-banner')?.remove();
+  updateSidebarUser();
+  showPage('dashboard');
+  loadReclamatii();
+  loadSoferi();
+
+  toast('✓ Ai revenit la contul Admin');
+}
+
+function renderTestModeBanner() {
+  let banner = document.getElementById('test-mode-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'test-mode-banner';
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:10000;background:linear-gradient(90deg,#dc2626,#f59e0b);color:#fff;text-align:center;padding:8px 16px;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,0.3)';
+    document.body.prepend(banner);
+  }
+  banner.innerHTML = `
+    🧪 MOD TEST — vezi aplicația ca <strong>${currentUser.name}</strong>
+    <button onclick="exitTestMode()" style="background:rgba(255,255,255,0.25);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">
+      ← Revino la Admin
+    </button>`;
+}
+
+
 function renderDashboard() {
   if (currentPage !== 'dashboard') return;
+  renderRechnungNotifBanner();
   renderTerminUrgentBanner('dash-termin-urgent-banner');
   const now = new Date();
   const todayStr = now.toDateString();
@@ -2600,6 +2808,8 @@ function switchStatsTab(tab, btn) {
   // La switch pe tab harta: doar resize, datele sunt deja incarcate de la renderStatistici()
   if (tab === 'harta' && hartaMap) setTimeout(() => hartaMap.invalidateSize(), 150);
   if (tab === 'luna-curenta' && statsCache) renderStatsLunaCurenta(statsCache);
+  // Orice acces la tab-ul Alerte marcheaza notificarea de facturi ca vazuta
+  if (tab === 'alerte') markRechnungNotificationSeen();
 }
 
 // ── TAB 1: GENERAL ──
@@ -3150,43 +3360,92 @@ function lcShowSoferByTura(tura) {
 }
 
 
+let soferiSelectedYears = new Set(); // gol = toti anii
+let soferiSearchTura = '';
+
 function renderStatsSoferi(d) {
   const el = document.getElementById('stats-soferi');
-  // Sortat dupa numarul turei (numeric), grupat pe locatie
-  const sorted = Object.entries(d.perSofer)
+  statsCache._soferiRawData = d; // pastram referinta pt re-filtrare rapida
+
+  // Ani disponibili (din toate datele, neinfluentat de filtrul curent)
+  const years = [...new Set(d.toateReclamatiile.map(r => {
+    const dt = r.dataReclamatie instanceof Date ? r.dataReclamatie : r.dataReclamatie?.toDate?.() || (r.createdAt?.toDate ? r.createdAt.toDate() : null);
+    return dt ? dt.getFullYear() : null;
+  }).filter(Boolean))].sort();
+
+  // Aplicam filtrul de an (multi-select) — daca setul e gol, aratam tot
+  let reclFiltrate = d.toateReclamatiile;
+  if (soferiSelectedYears.size > 0) {
+    reclFiltrate = reclFiltrate.filter(r => {
+      const dt = r.dataReclamatie instanceof Date ? r.dataReclamatie : r.dataReclamatie?.toDate?.() || (r.createdAt?.toDate ? r.createdAt.toDate() : null);
+      return dt && soferiSelectedYears.has(dt.getFullYear());
+    });
+  }
+
+  // Recalculam perSofer pe baza reclamatiilor filtrate
+  const perSoferFiltrat = {};
+  d.soferi.forEach(s => {
+    perSoferFiltrat[s.tura] = {numeSofer:s.numeSofer, locatie:s.locatie, manual:0, rechnung:0, rezolvate:0, nerezolvate:0, activ:0, suma:0, angajatDe:s.angajatDe||'', arhivat:s.arhivat||false};
+  });
+  reclFiltrate.forEach(r => {
+    const t = String(r.turaSofer||r.tour||'');
+    if (!perSoferFiltrat[t]) return;
+    if (r.sursa==='rechnung') { perSoferFiltrat[t].rechnung++; perSoferFiltrat[t].suma+=(r.forderung||0); }
+    else perSoferFiltrat[t].manual++;
+    if (r.status==='rezolvata') perSoferFiltrat[t].rezolvate++;
+    else { perSoferFiltrat[t].nerezolvate++; perSoferFiltrat[t].activ++; }
+  });
+
+  // Sortat dupa numarul turei (numeric), grupat pe locatie, exclude arhivati (daca nu e bifat sa apara)
+  let sorted = Object.entries(perSoferFiltrat)
     .filter(([t,s]) => (s.manual+s.rechnung) > 0)
+    .filter(([t,s]) => !s.arhivat)
     .sort((a,b) => parseInt(a[0]||0) - parseInt(b[0]||0));
 
-  // Grupeaza pe depozit
+  // Filtru cautare dupa numar tura
+  if (soferiSearchTura.trim()) {
+    const q = soferiSearchTura.trim();
+    sorted = sorted.filter(([t,s]) => t.includes(q) || (s.numeSofer||'').toLowerCase().includes(q.toLowerCase()));
+  }
+
   const ruhstorf = sorted.filter(([t,s]) => (s.locatie||'') === 'Ruhstorf');
   const eiselfing = sorted.filter(([t,s]) => (s.locatie||'') === 'Eiselfing');
   const altele = sorted.filter(([t,s]) => !['Ruhstorf','Eiselfing'].includes(s.locatie||''));
 
-  // Grupeaza reclamatiile per tura
+  // Grupeaza reclamatiile FILTRATE per tura
   const reclPerTura = {};
-  d.toateReclamatiile.forEach(r => {
+  reclFiltrate.forEach(r => {
     const t = String(r.turaSofer||r.tour||'');
     if (!t) return;
     if (!reclPerTura[t]) reclPerTura[t] = [];
     reclPerTura[t].push(r);
   });
 
-  // Ani disponibili
-  const years = [...new Set(d.toateReclamatiile.map(r => {
-    const dt = r.dataReclamatie instanceof Date ? r.dataReclamatie : r.dataReclamatie?.toDate?.() || (r.createdAt?.toDate ? r.createdAt.toDate() : null);
-    return dt ? dt.getFullYear() : null;
-  }).filter(Boolean))].sort();
+  const dFiltered = { ...d, perSofer: perSoferFiltrat };
+
+  const arhivatiCount = d.soferi.filter(s=>s.arhivat).length;
 
   el.innerHTML = `
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
-      <span style="font-size:12px;color:var(--text3)">Filtrează an:</span>
-      <button class="filter-btn active" onclick="filterSoferiYear('all',this)">Toți</button>
-      ${years.map(y => `<button class="filter-btn" onclick="filterSoferiYear('${y}',this)">${y}</button>`).join('')}
+    <div class="card" style="margin-bottom:14px;padding:12px 14px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <span style="font-size:12px;color:var(--text3);font-weight:600">Filtrează an:</span>
+        <button class="filter-btn ${soferiSelectedYears.size===0?'active':''}" onclick="toggleSoferiYear('all')">Toți anii</button>
+        ${years.map(y => `<button class="filter-btn ${soferiSelectedYears.has(y)?'active':''}" onclick="toggleSoferiYear(${y})">${y}</button>`).join('')}
+        <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px;margin-left:auto" onclick="showSoferiLunarBreakdown()">📆 Vezi per lună/an</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div class="search-wrap" style="max-width:220px;flex:1">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+          <input type="text" id="soferi-tura-search-input" placeholder="Caută după nr. tură sau nume..." value="${soferiSearchTura}" oninput="setSoferiSearch(this.value)"/>
+        </div>
+        ${arhivatiCount > 0 ? `<span style="font-size:11px;color:var(--text3)">📦 ${arhivatiCount} șofer${arhivatiCount===1?'':'i'} arhivat${arhivatiCount===1?'':'i'} — vezi în pagina Șoferi → Arhivă</span>` : ''}
+      </div>
     </div>
     <div id="soferi-stats-list">
-      ${renderSoferiGroup(ruhstorf, '📦 Ruhstorf', 'var(--blue)', d, reclPerTura)}
-      ${renderSoferiGroup(eiselfing, '📦 Eiselfing', 'var(--accent)', d, reclPerTura)}
-      ${altele.length ? renderSoferiGroup(altele, '📦 Altele', 'var(--text3)', d, reclPerTura) : ''}
+      ${renderSoferiGroup(ruhstorf, '📦 Ruhstorf', 'var(--blue)', dFiltered, reclPerTura)}
+      ${renderSoferiGroup(eiselfing, '📦 Eiselfing', 'var(--accent)', dFiltered, reclPerTura)}
+      ${altele.length ? renderSoferiGroup(altele, '📦 Altele', 'var(--text3)', dFiltered, reclPerTura) : ''}
+      ${sorted.length === 0 ? '<div class="empty" style="padding:32px"><div class="empty-title">Niciun rezultat</div><div class="empty-sub">Încearcă alt filtru sau caută altă tură</div></div>' : ''}
       ${[].map(([tura,s],i) => {
         const total = s.manual + s.rechnung;
         if (!total) return '';
@@ -3270,31 +3529,207 @@ function toggleSoferStat(tura) {
   if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(180deg)';
 }
 
-function filterSoferiYear(year, btn) {
-  document.querySelectorAll('[onclick^="filterSoferiYear"]').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  if (!statsCache) return;
-  const d = statsCache;
-  // Re-render with year filter
-  const filtered = { ...d };
-  if (year !== 'all') {
-    filtered.toateReclamatiile = d.toateReclamatiile.filter(r => {
-      const dt = r.dataReclamatie instanceof Date ? r.dataReclamatie : r.dataReclamatie?.toDate?.() || (r.createdAt?.toDate ? r.createdAt.toDate() : null);
-      return dt && dt.getFullYear() === parseInt(year);
-    });
-    // Recalculate perSofer
-    filtered.perSofer = {};
-    d.soferi.forEach(s => { filtered.perSofer[s.tura] = {numeSofer:s.numeSofer,locatie:s.locatie,manual:0,rechnung:0,rezolvate:0,nerezolvate:0,suma:0,angajatDe:s.angajatDe||''}; });
-    filtered.toateReclamatiile.forEach(r => {
-      const t = String(r.turaSofer||r.tour||'');
-      if (!filtered.perSofer[t]) return;
-      if (r.sursa==='rechnung') { filtered.perSofer[t].rechnung++; filtered.perSofer[t].suma+=(r.forderung||0); }
-      else filtered.perSofer[t].manual++;
-      if (r.status==='rezolvata') filtered.perSofer[t].rezolvate++;
-    });
-  }
-  renderStatsSoferi(filtered);
+// Toggle multi-select pentru ani — 'all' reseteaza selectia (arata tot)
+// ════════════════════════════════════════════════════════
+// BREAKDOWN LUNAR PER SOFER — modal cu tabel luna/an + sume
+// ════════════════════════════════════════════════════════
+let lunarBreakdownYear = null; // null = toti anii
+let lunarBreakdownMonth = null; // null = toate lunile
+
+function showSoferiLunarBreakdown() {
+  lunarBreakdownYear = null;
+  lunarBreakdownMonth = null;
+
+  const m = document.createElement('div');
+  m.id = 'lunar-breakdown-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = e => { if(e.target===m) m.remove(); };
+
+  m.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:820px;max-height:88vh;display:flex;flex-direction:column">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <div>
+          <div style="font-size:15px;font-weight:800">📆 Reclamații per lună</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px" id="lunar-breakdown-subtitle"></div>
+        </div>
+        <button onclick="document.getElementById('lunar-breakdown-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer">✕</button>
+      </div>
+      <div style="padding:14px 20px 0" id="lunar-breakdown-filters"></div>
+      <div style="overflow-y:auto;flex:1;padding:14px 20px" id="lunar-breakdown-body"></div>
+    </div>`;
+  document.body.appendChild(m);
+
+  renderLunarBreakdownFilters();
+  renderLunarBreakdownBody();
 }
+
+function renderLunarBreakdownFilters() {
+  const el = document.getElementById('lunar-breakdown-filters');
+  if (!el) return;
+  const d = statsCache._soferiRawData || statsCache;
+  const toate = d?.toateReclamatiile || [];
+
+  const years = [...new Set(toate.map(r => {
+    const dt = r.dataReclamatie instanceof Date ? r.dataReclamatie : r.dataReclamatie?.toDate?.() || (r.createdAt?.toDate ? r.createdAt.toDate() : null);
+    return dt ? dt.getFullYear() : null;
+  }).filter(Boolean))].sort((a,b)=>b-a);
+
+  el.innerHTML = `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      <span style="font-size:11px;color:var(--text3);font-weight:600;align-self:center;margin-right:2px">An:</span>
+      <button class="filter-btn ${lunarBreakdownYear===null?'active':''}" onclick="setLunarBreakdownYear(null)" style="font-size:12px;padding:6px 12px">Toți</button>
+      ${years.map(y => `<button class="filter-btn ${lunarBreakdownYear===y?'active':''}" onclick="setLunarBreakdownYear(${y})" style="font-size:12px;padding:6px 12px">${y}</button>`).join('')}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+      <span style="font-size:11px;color:var(--text3);font-weight:600;align-self:center;margin-right:2px">Lună:</span>
+      <button class="filter-btn ${lunarBreakdownMonth===null?'active':''}" onclick="setLunarBreakdownMonth(null)" style="font-size:12px;padding:6px 12px">Toate</button>
+      ${MONTHS_RO.map((mn,i) => `<button class="filter-btn ${lunarBreakdownMonth===i+1?'active':''}" onclick="setLunarBreakdownMonth(${i+1})" style="font-size:12px;padding:6px 10px">${mn.slice(0,3)}</button>`).join('')}
+    </div>`;
+}
+
+function setLunarBreakdownYear(year) {
+  lunarBreakdownYear = year;
+  renderLunarBreakdownFilters();
+  renderLunarBreakdownBody();
+}
+
+function setLunarBreakdownMonth(month) {
+  lunarBreakdownMonth = month;
+  renderLunarBreakdownFilters();
+  renderLunarBreakdownBody();
+}
+
+function renderLunarBreakdownBody() {
+  const el = document.getElementById('lunar-breakdown-body');
+  const subtitleEl = document.getElementById('lunar-breakdown-subtitle');
+  if (!el) return;
+
+  const d = statsCache._soferiRawData || statsCache;
+  const toate = d?.toateReclamatiile || [];
+
+  // Filtram dupa an/luna selectate
+  let filtrate = toate.filter(r => {
+    const dt = r.dataReclamatie instanceof Date ? r.dataReclamatie : r.dataReclamatie?.toDate?.() || (r.createdAt?.toDate ? r.createdAt.toDate() : null);
+    if (!dt) return false;
+    if (lunarBreakdownYear !== null && dt.getFullYear() !== lunarBreakdownYear) return false;
+    if (lunarBreakdownMonth !== null && dt.getMonth()+1 !== lunarBreakdownMonth) return false;
+    return true;
+  });
+
+  // Grupam pe cheie an-luna
+  const grupuriLuna = {};
+  filtrate.forEach(r => {
+    const dt = r.dataReclamatie instanceof Date ? r.dataReclamatie : r.dataReclamatie?.toDate?.() || (r.createdAt?.toDate ? r.createdAt.toDate() : null);
+    const key = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0');
+    if (!grupuriLuna[key]) grupuriLuna[key] = { an: dt.getFullYear(), luna: dt.getMonth()+1, soferi: {} };
+    const t = String(r.turaSofer||r.tour||'');
+    if (!t) return;
+    if (!grupuriLuna[key].soferi[t]) {
+      const sofer = d.soferi.find(s => String(s.tura) === t);
+      grupuriLuna[key].soferi[t] = { tura:t, numeSofer: sofer?.numeSofer||'—', locatie: sofer?.locatie||'', count:0, rezolvate:0, suma:0 };
+    }
+    grupuriLuna[key].soferi[t].count++;
+    if (r.status==='rezolvata') grupuriLuna[key].soferi[t].rezolvate++;
+    grupuriLuna[key].soferi[t].suma += r.forderung||0;
+  });
+
+  const luni = Object.values(grupuriLuna).sort((a,b) => (b.an*12+b.luna) - (a.an*12+a.luna));
+
+  const totalGeneral = filtrate.length;
+  const sumaGenerala = filtrate.reduce((s,r)=>s+(r.forderung||0),0);
+  if (subtitleEl) subtitleEl.textContent = totalGeneral + ' reclamații' + (sumaGenerala>0 ? ' · €'+sumaGenerala.toFixed(2) : '') + ' · ' + luni.length + ' lun' + (luni.length===1?'ă':'i');
+
+  if (luni.length === 0) {
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">Nicio reclamație în perioada selectată</div>';
+    return;
+  }
+
+  el.innerHTML = luni.map(lg => {
+    const soferiArr = Object.values(lg.soferi).sort((a,b) => parseInt(a.tura)-parseInt(b.tura));
+    const ruh = soferiArr.filter(s=>s.locatie==='Ruhstorf');
+    const eis = soferiArr.filter(s=>s.locatie==='Eiselfing');
+    const alt = soferiArr.filter(s=>!['Ruhstorf','Eiselfing'].includes(s.locatie));
+    const totalLuna = soferiArr.reduce((s,x)=>s+x.count,0);
+    const sumaLuna = soferiArr.reduce((s,x)=>s+x.suma,0);
+
+    const chipRow = s => `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg3);border-radius:8px;cursor:pointer;transition:background 0.15s"
+        onmouseover="this.style.background='var(--accent-bg)'" onmouseout="this.style.background='var(--bg3)'"
+        onclick="showLunarBreakdownDetail('${s.tura}',${lg.an},${lg.luna})">
+        <span style="font-family:var(--mono);font-weight:800;font-size:12px;color:var(--accent);min-width:32px">${s.tura}</span>
+        <span style="flex:1;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.numeSofer}</span>
+        <span style="font-size:11px;color:var(--green)">✓${s.rezolvate}</span>
+        <span style="font-size:12px;font-weight:800;color:var(--red)">${s.count}</span>
+        ${s.suma>0?`<span style="font-size:10px;color:var(--accent);font-family:var(--mono)">€${s.suma.toFixed(0)}</span>`:''}
+      </div>`;
+
+    return `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+        <div style="font-size:14px;font-weight:800;color:var(--accent)">${MONTHS_RO[lg.luna-1]} ${lg.an}</div>
+        <div style="font-size:12px;color:var(--text3)">${totalLuna} total${sumaLuna>0?' · €'+sumaLuna.toFixed(2):''}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">
+        ${ruh.length ? `<div>
+          <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">📦 Ruhstorf</div>
+          <div style="display:flex;flex-direction:column;gap:4px">${ruh.map(chipRow).join('')}</div>
+        </div>` : ''}
+        ${eis.length ? `<div>
+          <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">📦 Eiselfing</div>
+          <div style="display:flex;flex-direction:column;gap:4px">${eis.map(chipRow).join('')}</div>
+        </div>` : ''}
+        ${alt.length ? `<div>
+          <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">📦 Altele</div>
+          <div style="display:flex;flex-direction:column;gap:4px">${alt.map(chipRow).join('')}</div>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function showLunarBreakdownDetail(tura, an, luna) {
+  const d = statsCache._soferiRawData || statsCache;
+  if (!d) return;
+  const recl = (d.toateReclamatiile||[]).filter(r => {
+    if (String(r.turaSofer||r.tour||'') !== tura) return false;
+    const dt = r.dataReclamatie instanceof Date ? r.dataReclamatie : r.dataReclamatie?.toDate?.() || (r.createdAt?.toDate ? r.createdAt.toDate() : null);
+    return dt && dt.getFullYear()===an && dt.getMonth()+1===luna;
+  });
+  const sofer = d.soferi.find(s => String(s.tura) === tura);
+  showReclamatiiModal('🚚 Tura '+tura+' — '+(sofer?.numeSofer||'')+' · '+MONTHS_RO[luna-1]+' '+an, recl);
+}
+
+
+
+
+function toggleSoferiYear(year) {
+  if (year === 'all') {
+    soferiSelectedYears.clear();
+  } else {
+    if (soferiSelectedYears.has(year)) soferiSelectedYears.delete(year);
+    else soferiSelectedYears.add(year);
+  }
+  if (!statsCache) return;
+  renderStatsSoferi(statsCache._soferiRawData || statsCache);
+}
+
+function setSoferiSearch(val) {
+  soferiSearchTura = val;
+  if (!statsCache) return;
+  // Salvam pozitia cursorului INAINTE de re-render (care distruge si recreeaza input-ul)
+  const oldInput = document.getElementById('soferi-tura-search-input');
+  const cursorPos = oldInput ? oldInput.selectionStart : val.length;
+
+  renderStatsSoferi(statsCache._soferiRawData || statsCache);
+
+  // Restauram focus + pozitia cursorului pe noul input recreat de innerHTML
+  const newInput = document.getElementById('soferi-tura-search-input');
+  if (newInput) {
+    newInput.focus();
+    newInput.setSelectionRange(cursorPos, cursorPos);
+  }
+}
+
 
 // ── TAB 3: PER PERSOANA ──
 function renderStatsPersoane(d) {
@@ -5033,6 +5468,10 @@ async function saveOneRechn(qid) {
     });
     entry.saved = true;
     toast(`✓ Rechnung ${parsed.belegNr||entry.file.name} salvat!` + (suprapuneri.length?` (${suprapuneri.length} suprapuneri detectate)`:''));
+
+    // Publicam notificarea pentru Tania/Raluca/Madalina
+    if (luna && an) await publishRechnungNotification(luna, an, [parsed.belegNr].filter(Boolean));
+
     renderRechnQueue();
     renderRechnunguri();
   } catch(e) {
@@ -5096,6 +5535,15 @@ async function saveAllRechn() {
   if (skippedDuplicates.length) msg += ` ⚠ ${skippedDuplicates.length} sărite (deja existau: ${skippedDuplicates.join(', ')})`;
   if (totalSuprapuneri>0) msg += ` ⚠ ${totalSuprapuneri} suprapuneri cu reclamații manuale`;
   toast(msg);
+
+  // Publicam notificarea pentru Tania/Raluca/Madalina daca s-a salvat cel putin un rechnung
+  if (savedCount > 0) {
+    const savedEntries = toSave.filter(e => e.saved);
+    const belegNrs = savedEntries.map(e => e.parsed?.belegNr).filter(Boolean);
+    const { luna, an } = savedEntries[0] || {};
+    if (luna && an) await publishRechnungNotification(luna, an, belegNrs);
+  }
+
   renderRechnQueue();
   renderRechnunguri();
 }
@@ -6023,7 +6471,17 @@ async function renderSoferi() {
   pachSnap.docs.forEach(d => { const p = d.data(); ptot[p.turaSofer] = (ptot[p.turaSofer]||0) + (p.pachete||0); });
 
   const search = (document.getElementById('soferi-search-input')?.value || '').toLowerCase();
-  const filtered = allSoferi.filter(s => !search || s.numeSofer.toLowerCase().includes(search) || (s.tura||'').includes(search));
+  const filtered = allSoferi
+    .filter(s => !s.arhivat)
+    .filter(s => !search || s.numeSofer.toLowerCase().includes(search) || (s.tura||'').includes(search));
+
+  // Aratam butonul de Arhiva doar daca exista soferi arhivati
+  const arhBtn = document.getElementById('soferi-arhiva-btn');
+  if (arhBtn) {
+    const nrArhivati = allSoferi.filter(s=>s.arhivat).length;
+    arhBtn.style.display = nrArhivati > 0 ? 'flex' : 'none';
+    arhBtn.textContent = '📦 Arhivă (' + nrArhivati + ')';
+  }
 
   document.getElementById('soferi-count').textContent =
     allSoferi.length + ' soferi · ' + allSoferi.filter(s=>s.tura).length + ' cu tura atribuita';
@@ -6040,15 +6498,23 @@ async function renderSoferi() {
   }
 
   const soferCard = s => `
-    <div class="card card-sm" style="display:flex;align-items:center;gap:10px;padding:10px 12px">
+    <div class="card card-sm" style="display:flex;align-items:center;gap:10px;padding:10px 12px;${s.arhivat?'opacity:0.55':''}">
       <div style="width:38px;height:38px;background:${s.tura?'var(--accent-bg)':'var(--bg3)'};border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;color:${s.tura?'var(--accent)':'var(--text3)'};flex-shrink:0;border:1px solid ${s.tura?'var(--accent-border)':'var(--border)'}">${s.tura||'—'}</div>
       <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.numeSofer}</div>
+        <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px">
+          ${s.numeSofer}
+          ${s.arhivat ? '<span class="badge badge-gray" style="font-size:9px">📦 arhivat</span>' : ''}
+        </div>
         <div style="font-size:11px;color:var(--text3)">${s.tura ? 'Tura '+s.tura : '<span style="color:var(--accent);font-size:10px">Seteaza tura</span>'}${ptot[s.tura]?' · '+ptot[s.tura].toLocaleString()+' pachete':''}</div>
       </div>
       <div style="display:flex;gap:3px">
+        <button class="icon-btn" onclick="toggleArhivareSofer('${s.id}',${!s.arhivat})" title="${s.arhivat?'Dezarhivează':'Arhivează'}">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">${s.arhivat
+            ? '<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>'
+            : '<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6.75 4.5l3-3m0 0l3 3m-3-3v6m-9-13.5h18c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125H3.375c-.621 0-1.125-.504-1.125-1.125v-1.5c0-.621.504-1.125 1.125-1.125z"/>'}</svg>
+        </button>
         <button class="icon-btn" onclick="editSofer('${s.id}')" title="Editeaza"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg></button>
-        <button class="icon-btn red" onclick="deleteSofer('${s.id}','${s.numeSofer}')" title="Sterge"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg></button>
+        <button class="icon-btn red" onclick="deleteSofer('${s.id}','${s.numeSofer}')" title="Sterge definitiv"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg></button>
       </div>
     </div>`;
 
@@ -6318,6 +6784,78 @@ async function saveSofer() {
 
 function editSofer(id) { const s = allSoferi.find(x=>x.id===id); if(s) toggleSoferForm(s); }
 
+// ════════════════════════════════════════════════════════
+// PAGINA ARHIVA SOFERI — lista dedicata, separata de cea activa
+// ════════════════════════════════════════════════════════
+async function renderArhivaSoferi() {
+  const snap = await db.collection('soferi').where('arhivat','==',true).get();
+  const arhivati = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .sort((a,b) => (a.numeSofer||'').localeCompare(b.numeSofer||''));
+
+  const search = (document.getElementById('arhiva-soferi-search-input')?.value || '').toLowerCase();
+  const filtered = arhivati.filter(s => !search || s.numeSofer.toLowerCase().includes(search) || (s.tura||'').includes(search));
+
+  document.getElementById('arhiva-soferi-count').textContent = arhivati.length + ' șoferi arhivați';
+
+  const el = document.getElementById('arhiva-soferi-list');
+  if (arhivati.length === 0) {
+    el.innerHTML = `<div class="empty">
+      <div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6.75 4.5l3-3m0 0l3 3m-3-3v6m-9-13.5h18c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125H3.375c-.621 0-1.125-.504-1.125-1.125v-1.5c0-.621.504-1.125 1.125-1.125z"/></svg></div>
+      <div class="empty-title">Niciun șofer arhivat</div>
+      <div class="empty-sub">Șoferii arhivați din pagina Șoferi & Ture vor apărea aici</div>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = filtered.map(s => `
+    <div class="card card-sm" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;opacity:0.75">
+      <div style="width:38px;height:38px;background:var(--bg3);border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text3);flex-shrink:0;border:1px solid var(--border)">${s.tura||'—'}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${s.numeSofer}</div>
+        <div style="font-size:11px;color:var(--text3)">${s.tura ? 'Fostă tura '+s.tura : 'Fără tură'}${s.locatie?' · '+s.locatie:''}${s.arhivatLa?.toDate ? ' · arhivat pe '+s.arhivatLa.toDate().toLocaleDateString('ro-RO') : ''}</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-ghost" style="font-size:11px;padding:6px 12px" onclick="showArhivaSoferStats('${s.tura}','${s.numeSofer.replace(/'/g,"\\'")}')">
+          📊 Vezi statistici
+        </button>
+        <button class="icon-btn" onclick="toggleArhivareSofer('${s.id}',false)" title="Dezarhivează">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>
+        </button>
+        <button class="icon-btn red" onclick="deleteSofer('${s.id}','${s.numeSofer}')" title="Șterge definitiv">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+        </button>
+      </div>
+    </div>`).join('');
+}
+
+// Afiseaza istoricul complet de reclamatii pentru un sofer arhivat (statisticile raman intacte)
+async function showArhivaSoferStats(tura, numeSofer) {
+  if (!statsCache) {
+    toast('Se încarcă datele statistice...', 'info');
+    await loadStatsData().then(d => statsCache = d).catch(()=>{});
+  }
+  const d = statsCache;
+  if (!d) { toast('Datele statistice nu sunt disponibile momentan', 'error'); return; }
+
+  const recl = (d.toateReclamatiile||[]).filter(r => String(r.turaSofer||r.tour||'') === String(tura));
+  showReclamatiiModal('📦 (Arhivat) Tura ' + tura + ' — ' + numeSofer, recl);
+}
+
+
+async function toggleArhivareSofer(id, arhivat) {
+  const s = allSoferi.find(x => x.id === id);
+  if (!s) return;
+  const msg = arhivat
+    ? `Arhivezi pe ${s.numeSofer} (Tura ${s.tura||'—'})?\n\nNu va mai apărea în lista principală de șoferi, dar toate statisticile și reclamațiile lui rămân intacte — poți oricând să-l dezarhivezi sau să vezi istoricul bifând "Arată și arhivați" din Statistici.`
+    : `Dezarhivezi pe ${s.numeSofer}? Va reapărea în lista activă de șoferi.`;
+  if (!confirm(msg)) return;
+  try {
+    await db.collection('soferi').doc(id).update({ arhivat, arhivatLa: arhivat ? firebase.firestore.FieldValue.serverTimestamp() : null });
+    toast(arhivat ? `✓ ${s.numeSofer} arhivat` : `✓ ${s.numeSofer} dezarhivat`);
+    renderSoferi();
+  } catch(e) { toast('Eroare: ' + e.message, 'error'); }
+}
+
 async function deleteSofer(id, nume) {
   if (!confirm('Stergi soferul ' + nume + '?')) return;
   try { await db.collection('soferi').doc(id).delete(); toast('Sofer sters'); renderSoferi(); }
@@ -6479,7 +7017,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v3.0.0</span>
+  <span id="version-badge-text">v3.4.1</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
