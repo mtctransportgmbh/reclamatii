@@ -926,7 +926,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '3.7.0';
+const APP_VERSION = '3.7.1';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -6703,7 +6703,7 @@ function parseSachverhaltPDF(pdfData) {
   // Adresa de livrare: header poate fi "Zustelladresse" SAU "Ablageort" (variante PDF Hermes)
   // Colectam DINAMIC toate randurile de sub header pana la "Quelle:" — nu folosim offset fix,
   // pentru ca unele PDF-uri au un rand extra (ex: numar apartament/etaj "118") intre nume si strada
-  const headerItem = items.find(it => it.text === 'Zustelladresse' || it.text === 'Ablageort');
+  const headerItem = items.find(it => it.text === 'Zustelladresse' || it.text === 'Ablageort' || it.text === 'An Haushalt übergeben');
   if (headerItem) {
     const yh = headerItem.y;
     const xmin = 250, xmax = 420;
@@ -6732,10 +6732,12 @@ function parseSachverhaltPDF(pdfData) {
     // Prima linie = numele (contine de obicei o virgula "Nachname , Vorname")
     result.name = lines[0] || '';
 
-    // Liniile dintre nume si PLZ = strada (eventual cu rand de numar/etaj separat)
-    // Sarim liniile care sunt DOAR cifre (ex: "118" = numar apartament/identificator, nu strada utila)
-    const stradaLines = lines.slice(1, plzLineIdx).filter(l => !/^\d+$/.test(l.trim()));
-    result.strasse = stradaLines.join(' ').trim();
+    // Strada e mereu ULTIMA linie inainte de PLZ (format consistent Hermes).
+    // Liniile de deasupra ei (intre nume si strada) pot fi note de livrare
+    // ("Keine Nachbarabg", instructiuni de depozitare) sau numar apartament ("118")
+    // — nu fac parte din adresa si trebuie ignorate complet.
+    const candidateLines = lines.slice(1, plzLineIdx).filter(l => !/^\d+$/.test(l.trim()));
+    result.strasse = (candidateLines[candidateLines.length - 1] || '').trim();
   }
 
   // Split name into Vorname/Nachname — format Hermes: "Nachname , Vorname"
@@ -7111,7 +7113,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v3.7.0</span>
+  <span id="version-badge-text">v3.7.1</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
