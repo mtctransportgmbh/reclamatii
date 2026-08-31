@@ -767,6 +767,14 @@ textarea{resize:vertical;min-height:80px}
           <button class="filter-btn active" data-filter="neprelucrat" onclick="setFilter(this,'neprelucrat')">⏳ Neprelucrate</button>
           <button class="filter-btn" data-filter="nerezolvata" onclick="setFilter(this,'nerezolvata')">✗ Nerezolvate</button>
           <button class="filter-btn" data-filter="rezolvata" onclick="setFilter(this,'rezolvata')">✓ Rezolvate</button>
+          <button class="filter-btn" onclick="toggleSumaFilter()" id="btn-toggle-suma-filter">💶 Caută după sumă</button>
+        </div>
+        <div id="suma-filter-panel" style="display:none;gap:8px;align-items:center;margin:-4px 0 10px;flex-wrap:wrap">
+          <input type="number" step="0.01" placeholder="Sumă min €" id="suma-min-input" oninput="renderReclamatii()" style="max-width:130px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:12px"/>
+          <span style="color:var(--text3);font-size:12px">—</span>
+          <input type="number" step="0.01" placeholder="Sumă max €" id="suma-max-input" oninput="renderReclamatii()" style="max-width:130px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:12px"/>
+          <button class="btn btn-ghost" style="font-size:11px;padding:7px 12px" onclick="document.getElementById('suma-min-input').value='';document.getElementById('suma-max-input').value='';renderReclamatii()">✕ Șterge</button>
+          <span id="suma-filter-count" style="font-size:11px;color:var(--text3)"></span>
         </div>
         <div id="recl-list" class="recl-list"></div>
       </div>
@@ -811,10 +819,15 @@ textarea{resize:vertical;min-height:80px}
             <div class="page-title">Rechnunguri</div>
             <div class="page-sub">Facturi lunare · Verificare reclamații</div>
           </div>
-          <button class="btn btn-primary" id="btn-add-rechn" onclick="toggleRechnForm()">
-            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/></svg>
-            Upload
-          </button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost" onclick="showVerifyRechnModal()" style="font-size:12px;padding:9px 14px">
+              🔍 Verifică completitudine
+            </button>
+            <button class="btn btn-primary" id="btn-add-rechn" onclick="toggleRechnForm()">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/></svg>
+              Upload
+            </button>
+          </div>
         </div>
         <div id="rechn-form" style="display:none"></div>
         <div id="rechn-fara-tura-section"></div>
@@ -910,6 +923,31 @@ textarea{resize:vertical;min-height:80px}
         </div>
         <div id="users-list"></div>
       </div>
+
+      <!-- BACKUP -->
+      <div class="page" id="page-backup">
+        <div class="page-header">
+          <div>
+            <div class="page-title">💾 Backup & Istoric</div>
+            <div class="page-sub" id="backup-page-sub">Salvare automată dimineața și seara · restaurare · comparare versiuni</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost" onclick="document.getElementById('backup-restore-file-input').click()" style="padding:8px 14px;font-size:12px">
+              📁 Restaurează din fișier
+            </button>
+            <input type="file" id="backup-restore-file-input" accept=".json" style="display:none" onchange="restoreFromFile(this.files[0])"/>
+            <button class="btn btn-primary" id="btn-manual-backup" onclick="runFullBackup('manual', true)" style="padding:8px 16px;font-size:12px">
+              💾 Backup acum
+            </button>
+          </div>
+        </div>
+
+        <div id="backup-status-card" class="card" style="margin-bottom:16px"></div>
+
+        <div id="backup-compare-bar" style="display:none;margin-bottom:14px;padding:12px 16px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:var(--radius-sm);align-items:center;gap:12px"></div>
+
+        <div id="backup-list"></div>
+      </div>
     </div>
 
     <!-- Mobile bottom nav -->
@@ -926,7 +964,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '3.7.1';
+const APP_VERSION = '3.10.0';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -1466,6 +1504,7 @@ function enterApp() {
   loadReclamatii();
   loadSoferi();
   renderRechnungNotifBanner();
+  checkAndRunDailyBackup();
   setTimeout(checkVersionNotification, 800);
 
   // Date greeting
@@ -1519,6 +1558,7 @@ const NAV_ITEMS = [
   { id:'rechnunguri', label:'Rechnunguri', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>', roles:['admin','tania'] },
   { id:'soferi', label:'Șoferi & Ture', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>', roles:['admin'] },
   { id:'utilizatori', label:'Utilizatori', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>', roles:['admin'] },
+  { id:'backup', label:'Backup', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/>', roles:['admin'] },
 ];
 
 function visibleNav() {
@@ -1565,6 +1605,7 @@ function showPage(id) {
   if (id==='rechnunguri') renderRechnunguri();
   if (id==='soferi') renderSoferi();
   if (id==='arhiva-soferi') renderArhivaSoferi();
+  if (id==='backup') renderBackupPage();
   if (id==='utilizatori') renderUtilizatori();
   if (id==='dashboard') renderDashboard();
 }
@@ -2110,6 +2151,25 @@ function renderReclamatii() {
     (r.turaSofer||r.tour||'').toString().includes(search) ||
     (r.descriere||'').toLowerCase().includes(search)
   );
+
+  // Filtru dupa suma (forderung) — min si/sau max
+  const sumaMinVal = document.getElementById('suma-min-input')?.value;
+  const sumaMaxVal = document.getElementById('suma-max-input')?.value;
+  const sumaMin = sumaMinVal !== '' && sumaMinVal !== undefined ? parseFloat(sumaMinVal) : null;
+  const sumaMax = sumaMaxVal !== '' && sumaMaxVal !== undefined ? parseFloat(sumaMaxVal) : null;
+  if (sumaMin !== null || sumaMax !== null) {
+    list = list.filter(r => {
+      const suma = r.forderung || 0;
+      if (sumaMin !== null && suma < sumaMin) return false;
+      if (sumaMax !== null && suma > sumaMax) return false;
+      return true;
+    });
+  }
+  const sumaCountEl = document.getElementById('suma-filter-count');
+  if (sumaCountEl) {
+    sumaCountEl.textContent = (sumaMin!==null || sumaMax!==null) ? `${list.length} rezultate în intervalul sumei` : '';
+  }
+
   document.getElementById('recl-count').textContent = list.length+' înregistrări';
   const el = document.getElementById('recl-list');
   if (list.length===0) {
@@ -5092,6 +5152,221 @@ async function verifyRechn(id, dispute) {
   renderRechnunguri();
 }
 
+// ════════════════════════════════════════════════════════
+// VERIFICATOR COMPLETITUDINE RECHNUNGURI
+// Reincarci PDF-uri (unul sau mai multe deodata) si sistemul:
+// 1. Verifica daca Nr. Beleg exista deja in Firestore
+// 2. Re-parseaza prin server (sursa cea mai sigura)
+// 3. Compara pozitiile existente vs cele re-extrase
+// 4. Arata clar diferentele (pozitii lipsa, in plus, sume diferite)
+// Nu suprascrie NIMIC automat — doar arata raportul, tu decizi.
+// ════════════════════════════════════════════════════════
+
+let verifyQueueResults = [];
+
+function showVerifyRechnModal() {
+  const existing = document.getElementById('verify-rechn-modal');
+  if (existing) { existing.style.display = 'flex'; return; }
+
+  const m = document.createElement('div');
+  m.id = 'verify-rechn-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;max-width:680px;width:100%;max-height:88vh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div style="font-size:16px;font-weight:800">🔍 Verifică completitudine rechnunguri</div>
+        <button onclick="document.getElementById('verify-rechn-modal').style.display='none'" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:14px">
+        Trage din nou PDF-urile pe care le-ai încărcat deja (unul sau mai multe deodată).
+        Sistemul le re-extrage prin server și compară cu ce ai salvat — fără să modifice nimic automat.
+      </div>
+      <div id="verify-dropzone" style="border:2px dashed var(--border2);border-radius:var(--radius-sm);padding:24px;text-align:center;cursor:pointer;margin-bottom:14px;flex-shrink:0"
+        onclick="document.getElementById('verify-pdf-input').click()"
+        ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+        ondragleave="this.style.borderColor='var(--border2)'"
+        ondrop="event.preventDefault();this.style.borderColor='var(--border2)';handleVerifyFiles(event.dataTransfer.files)">
+        <div style="font-size:26px;margin-bottom:6px">📄</div>
+        <div style="font-size:13px;font-weight:600">Trage aici PDF-urile de verificat</div>
+        <div style="font-size:11px;color:var(--text3)">sau click pentru a selecta (poți alege mai multe deodată)</div>
+        <input type="file" id="verify-pdf-input" accept=".pdf" multiple style="display:none" onchange="handleVerifyFiles(this.files)"/>
+      </div>
+      <div id="verify-results" style="overflow-y:auto;flex:1"></div>
+    </div>`;
+  document.body.appendChild(m);
+}
+
+async function handleVerifyFiles(fileList) {
+  const files = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+  if (!files.length) { toast('Selectează fișiere PDF', 'error'); return; }
+
+  const resultsEl = document.getElementById('verify-results');
+  verifyQueueResults = [];
+
+  for (const file of files) {
+    const rowId = 'vrow-' + Math.random().toString(36).slice(2);
+    verifyQueueResults.push({ rowId, file, status: 'checking' });
+    renderVerifyResults();
+
+    try {
+      // 1. Re-parsam prin server (sursa sigura)
+      let parsed = null;
+      try {
+        parsed = await parseViaServer(file);
+      } catch(e) {
+        const entry = verifyQueueResults.find(r => r.rowId === rowId);
+        entry.status = 'error';
+        entry.error = 'Server indisponibil: ' + e.message;
+        renderVerifyResults();
+        continue;
+      }
+
+      // 2. Cautam belegNr in Firestore
+      const belegNr = parsed.belegNr;
+      let existing = null;
+      if (belegNr) {
+        const snap = await db.collection('rechnunguri').where('belegNr','==',belegNr).limit(1).get();
+        if (!snap.empty) existing = { id: snap.docs[0].id, ...snap.docs[0].data() };
+      }
+
+      const entry = verifyQueueResults.find(r => r.rowId === rowId);
+      entry.status = 'done';
+      entry.belegNr = belegNr;
+      entry.parsed = parsed;
+      entry.existing = existing;
+
+      if (!existing) {
+        entry.diff = { type: 'not-found' };
+      } else {
+        entry.diff = computeRechnDiff(existing.pozitii||[], parsed.pozitii||[]);
+      }
+      renderVerifyResults();
+    } catch(e) {
+      const entry = verifyQueueResults.find(r => r.rowId === rowId);
+      entry.status = 'error';
+      entry.error = e.message;
+      renderVerifyResults();
+    }
+  }
+}
+
+// Compara doua liste de pozitii dupa identnummer (numarul unic de pachet)
+function computeRechnDiff(oldPoz, newPoz) {
+  const keyOf = p => (p.identnummer||p.sendungsnummer||'').replace(/\s/g,'');
+  const oldMap = {}; oldPoz.forEach(p => { const k=keyOf(p); if(k) oldMap[k]=p; });
+  const newMap = {}; newPoz.forEach(p => { const k=keyOf(p); if(k) newMap[k]=p; });
+
+  const lipsa = Object.keys(newMap).filter(k => !oldMap[k]).map(k => newMap[k]); // in PDF dar NU in Firestore
+  const extra = Object.keys(oldMap).filter(k => !newMap[k]).map(k => oldMap[k]); // in Firestore dar NU in PDF (rar, posibil sters manual)
+  const sumaOld = oldPoz.reduce((s,p)=>s+(p.forderung||0),0);
+  const sumaNew = newPoz.reduce((s,p)=>s+(p.forderung||0),0);
+
+  return {
+    type: 'compared',
+    countOld: oldPoz.length, countNew: newPoz.length,
+    lipsa, extra,
+    sumaOld, sumaNew,
+    identic: lipsa.length===0 && extra.length===0 && oldPoz.length===newPoz.length
+  };
+}
+
+function renderVerifyResults() {
+  const el = document.getElementById('verify-results');
+  if (!el) return;
+
+  el.innerHTML = verifyQueueResults.map(r => {
+    if (r.status === 'checking') {
+      return `<div class="card" style="margin-bottom:8px;display:flex;align-items:center;gap:10px">
+        <div class="spinner" style="width:16px;height:16px"></div>
+        <span style="font-size:12px;color:var(--text3)">Se verifică ${r.file.name}...</span>
+      </div>`;
+    }
+    if (r.status === 'error') {
+      return `<div class="card" style="margin-bottom:8px;border-color:var(--red)">
+        <div style="font-size:12px;color:var(--red);font-weight:600">❌ ${r.file.name}</div>
+        <div style="font-size:11px;color:var(--text3)">${r.error}</div>
+      </div>`;
+    }
+
+    if (r.diff.type === 'not-found') {
+      const v = r.parsed.validation;
+      return `<div class="card" style="margin-bottom:8px;border-color:#f59e0b">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:14px">⚠️</span>
+          <span style="font-size:13px;font-weight:700">Nr. ${r.belegNr||'—'} — NU EXISTĂ în sistem</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Acest rechnung nu a fost încă încărcat. ${r.parsed.pozitii?.length||0} poziții găsite în PDF.</div>
+        ${v && !v.ok ? `<div style="font-size:11px;color:var(--red);background:rgba(220,38,38,0.1);border-radius:6px;padding:6px 8px;margin-bottom:8px">⚠️ ${v.warnings.join(' ')}</div>` : ''}
+        <button class="btn btn-primary" style="font-size:11px;padding:6px 12px" onclick="quickAddFromVerify('${r.rowId}')">+ Adaugă acum</button>
+      </div>`;
+    }
+
+    const d = r.diff;
+    const v = r.parsed.validation;
+    const isOk = d.identic && (!v || v.ok);
+    return `<div class="card" style="margin-bottom:8px;border-color:${isOk?'var(--green)':'#f59e0b'}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:14px">${isOk?'✅':'⚠️'}</span>
+        <span style="font-size:13px;font-weight:700">Nr. ${r.belegNr}</span>
+        <span style="font-size:11px;color:var(--text3)">— ${isOk?'complet, nimic lipsă':'diferențe găsite'}</span>
+      </div>
+      ${v && !v.ok ? `<div style="font-size:11px;color:var(--red);background:rgba(220,38,38,0.1);border-radius:6px;padding:6px 8px;margin-bottom:6px">⚠️ PDF-ul propriu-zis pare incomplet extras: ${v.warnings.join(' ')}</div>` : ''}
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">
+        În Firestore: ${d.countOld} poziții (€${d.sumaOld.toFixed(2)}) · În PDF: ${d.countNew} poziții (€${d.sumaNew.toFixed(2)})
+      </div>
+      ${d.lipsa.length > 0 ? `
+        <div style="font-size:11px;font-weight:700;color:#f59e0b;margin-bottom:4px">🆕 ${d.lipsa.length} poziți${d.lipsa.length===1?'e':'i'} din PDF care LIPSESC din Firestore:</div>
+        <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:8px">
+          ${d.lipsa.map(p => `<div style="font-size:11px;padding:5px 8px;background:rgba(245,158,11,0.1);border-radius:5px">
+            ${p.name||'—'} · T.${p.tour||'—'} · €${(p.forderung||0).toFixed(2)} · #${(p.identnummer||'').slice(-10)}
+          </div>`).join('')}
+        </div>
+        <button class="btn btn-primary" style="font-size:11px;padding:6px 12px" onclick="applyMissingPositions('${r.rowId}')">+ Adaugă pozițiile lipsă (${d.lipsa.length})</button>
+      ` : ''}
+      ${d.extra.length > 0 ? `
+        <div style="font-size:11px;font-weight:700;color:var(--text3);margin:6px 0 4px">ℹ️ ${d.extra.length} poziți${d.extra.length===1?'e':'i'} în Firestore care nu mai apar în PDF (posibil editate manual):</div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          ${d.extra.map(p => `<div style="font-size:11px;padding:5px 8px;background:var(--bg3);border-radius:5px">${p.name||'—'} · T.${p.tour||'—'} · €${(p.forderung||0).toFixed(2)}</div>`).join('')}
+        </div>
+      ` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function applyMissingPositions(rowId) {
+  const r = verifyQueueResults.find(x => x.rowId === rowId);
+  if (!r || !r.existing || !r.diff.lipsa.length) return;
+  if (!confirm(`Adaugi ${r.diff.lipsa.length} poziții lipsă la rechnungul Nr. ${r.belegNr}?`)) return;
+
+  try {
+    const newPozitii = [...(r.existing.pozitii||[]), ...r.diff.lipsa];
+    await db.collection('rechnunguri').doc(r.existing.id).update({
+      pozitii: newPozitii,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    toast(`✓ ${r.diff.lipsa.length} poziții adăugate la Nr. ${r.belegNr}!`);
+    r.diff.lipsa = [];
+    r.diff.identic = r.diff.extra.length === 0;
+    renderVerifyResults();
+    renderRechnunguri();
+  } catch(e) {
+    toast('Eroare: ' + e.message, 'error');
+  }
+}
+
+async function quickAddFromVerify(rowId) {
+  const r = verifyQueueResults.find(x => x.rowId === rowId);
+  if (!r) return;
+  document.getElementById('verify-rechn-modal').style.display = 'none';
+  toggleRechnForm();
+  // Populam coada de upload cu acest fisier, ca la fluxul normal
+  const dt = new DataTransfer();
+  dt.items.add(r.file);
+  const fi = document.getElementById('rn-file');
+  if (fi) { fi.files = dt.files; handleRechnFiles(dt.files); }
+}
+
+
 function triggerReparseRechn(id) {
   document.getElementById('reparse-input-' + id)?.click();
 }
@@ -5363,6 +5638,14 @@ function renderRechnQueueCard(entry) {
               : '<span class="badge badge-gray" title="Parsat local (fallback) — verifică cu atenție datele">⚠ Local</span>'}
           </div>
           <div style="font-size:11px;color:var(--text3)">${file.name}</div>
+          ${parsed.validation && !parsed.validation.ok ? `
+            <div style="margin-top:6px;padding:8px 10px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.3);border-radius:7px">
+              <div style="font-size:11px;font-weight:700;color:var(--red);margin-bottom:2px">⚠️ Posibile poziții lipsă!</div>
+              ${parsed.validation.warnings.map(w => `<div style="font-size:11px;color:var(--red);opacity:0.9">${w}</div>`).join('')}
+            </div>
+          ` : parsed.validation && parsed.validation.ok ? `
+            <div style="margin-top:4px;font-size:10px;color:var(--green)">✓ Verificat: toate pozițiile declarate de Hermes au fost găsite</div>
+          ` : ''}
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
           ${!saved ? `
@@ -5805,6 +6088,474 @@ function parseHermesPDF(pdfData) {
 // ════════════════════════════════════════════════════════
 // BACKUP — exportă TOATE datele din Firestore într-un JSON
 // ════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
+// SISTEM BACKUP AUTOMAT — salvare zilnica in Firestore,
+// istoric ultimele 10, preview, comparare, restaurare
+// (acelasi tipar folosit si la Stoc Haine / Flota)
+// ════════════════════════════════════════════════════════
+
+const MAX_BACKUPS_PASTRATE = 14; // 2x/zi = ~1 saptamana de istoric
+let backupSelectedForCompare = [];
+let _cachedBackupsList = [];
+
+// Verifica o data pe zi (la login) daca trebuie facut backup automat
+// Backup automat de 2 ori pe zi: o data in intervalul dimineata (00:00-13:59)
+// si o data in intervalul seara (14:00-23:59). Se declanseaza la login-ul admin —
+// daca adminul se logheaza o singura data intr-un interval, se face un singur backup
+// pentru acel interval (nu se repeta la fiecare refresh).
+async function checkAndRunDailyBackup() {
+  if (currentUser?.role !== 'admin') return; // doar adminul declanseaza backup automat
+  try {
+    const now = new Date();
+    const today = now.toISOString().slice(0,10);
+    const slot = now.getHours() < 14 ? 'AM' : 'PM';
+    const slotKey = `${today}-${slot}`;
+    const slotLabel = slot === 'AM' ? 'dimineață' : 'seară';
+
+    const cfgRef = db.collection('config').doc('ultimulBackup');
+    const cfgSnap = await cfgRef.get();
+    const lastSlotKey = cfgSnap.exists ? cfgSnap.data().slotKey : null;
+    if (lastSlotKey === slotKey) return; // deja facut in acest interval
+
+    await runFullBackup('automat-' + slotLabel, false);
+    await cfgRef.set({ slotKey, data: today, slot, la: firebase.firestore.FieldValue.serverTimestamp() });
+  } catch(e) { console.warn('Daily backup check failed:', e.message); }
+}
+
+// Captureaza un snapshot complet si il salveaza ca backup nou
+async function runFullBackup(motiv, isManual) {
+  const btn = document.getElementById('btn-manual-backup');
+  if (isManual && btn) { btn.disabled = true; btn.innerHTML = '⏳ Se salvează...'; }
+
+  try {
+    const [reclSnap, rechnSnap, soferiSnap] = await Promise.all([
+      db.collection('reclamatii').get(),
+      db.collection('rechnunguri').get(),
+      db.collection('soferi').get(),
+    ]);
+
+    const cleanData = (docs) => docs.map(d => {
+      const data = d.data();
+      // Convertim Timestamps la ISO string ca sa fie JSON-serializabile in Firestore fara probleme
+      const cleaned = {};
+      for (const [k,v] of Object.entries(data)) {
+        if (v && typeof v === 'object' && v.toDate) cleaned[k] = v.toDate().toISOString();
+        else cleaned[k] = v;
+      }
+      return { _id: d.id, ...cleaned };
+    });
+
+    const reclamatii = cleanData(reclSnap.docs);
+    const rechnunguri = cleanData(rechnSnap.docs);
+    const soferi = cleanData(soferiSnap.docs);
+    const sumaTotala = rechnunguri.reduce((s,r) => s + (parseFloat(r.suma)||0), 0);
+
+    const backupDoc = {
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      createdBy: currentUser?.name || 'sistem',
+      motiv: motiv || 'manual',
+      counts: { reclamatii: reclamatii.length, rechnunguri: rechnunguri.length, soferi: soferi.length },
+      sumaTotala,
+      data: { reclamatii, rechnunguri, soferi }
+    };
+
+    await db.collection('backups_auto').add(backupDoc);
+
+    // Pastram doar ultimele N backup-uri — stergem restul
+    const allSnap = await db.collection('backups_auto').orderBy('createdAt','desc').get();
+    if (allSnap.docs.length > MAX_BACKUPS_PASTRATE) {
+      const toDelete = allSnap.docs.slice(MAX_BACKUPS_PASTRATE);
+      const batch = db.batch();
+      toDelete.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    if (isManual) toast(`✓ Backup salvat! ${reclamatii.length} reclamații, ${rechnunguri.length} rechnunguri, ${soferi.length} șoferi`);
+    if (currentPage === 'backup') renderBackupPage();
+  } catch(e) {
+    console.error('Backup failed:', e);
+    if (isManual) toast('Eroare la backup: ' + e.message, 'error');
+  } finally {
+    if (isManual && btn) { btn.disabled = false; btn.innerHTML = '💾 Backup acum'; }
+  }
+}
+
+async function renderBackupPage() {
+  const statusEl = document.getElementById('backup-status-card');
+  const listEl = document.getElementById('backup-list');
+  if (!statusEl || !listEl) return;
+
+  statusEl.innerHTML = `<div class="loading-page" style="padding:20px"><div class="spinner"></div></div>`;
+  listEl.innerHTML = '';
+
+  try {
+    const snap = await db.collection('backups_auto').orderBy('createdAt','desc').limit(MAX_BACKUPS_PASTRATE).get();
+    const backups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _cachedBackupsList = backups;
+    backupSelectedForCompare = [];
+    updateCompareBar();
+
+    if (backups.length === 0) {
+      statusEl.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3)">
+        <div style="font-size:28px;margin-bottom:8px">📦</div>
+        <div style="font-weight:700;margin-bottom:4px">Niciun backup încă</div>
+        <div style="font-size:12px">Primul backup automat se va face la următorul login, sau apasă "Backup acum"</div>
+      </div>`;
+      listEl.innerHTML = '';
+      return;
+    }
+
+    const last = backups[0];
+    const lastDate = last.createdAt?.toDate ? last.createdAt.toDate() : new Date();
+    statusEl.innerHTML = `
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="width:44px;height:44px;background:var(--green-bg);border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">✅</div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-weight:800;font-size:14px">Ultimul backup: ${lastDate.toLocaleDateString('ro-RO')} ${lastDate.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}</div>
+          <div style="font-size:12px;color:var(--text3)">${motivLabel(last.motiv)} · de ${last.createdBy||'—'} · ${last.counts?.reclamatii||0} reclamații, ${last.counts?.rechnunguri||0} rechnunguri, ${last.counts?.soferi||0} șoferi</div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);text-align:right">
+          Se păstrează ultimele ${MAX_BACKUPS_PASTRATE} backup-uri<br>
+          Backup automat 2x/zi (dimineață + seară) la login
+        </div>
+      </div>`;
+
+    listEl.innerHTML = backups.map((b, i) => {
+      const d = b.createdAt?.toDate ? b.createdAt.toDate() : new Date();
+      const isSelected = backupSelectedForCompare.includes(b.id);
+      return `
+      <div class="card" style="margin-bottom:8px;display:flex;align-items:center;gap:12px;${isSelected?'border-color:var(--accent-border);background:var(--accent-bg)':''}" id="backup-card-${b.id}">
+        <label style="display:flex;align-items:center;cursor:pointer;flex-shrink:0" title="Selectează pentru comparare (max 2)">
+          <input type="checkbox" ${isSelected?'checked':''} onchange="toggleCompareSelect('${b.id}',this.checked)"/>
+        </label>
+        <div style="width:38px;height:38px;background:var(--bg3);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${i===0?'🟢':'📦'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:13px">${d.toLocaleDateString('ro-RO')} · ${d.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}</div>
+          <div style="font-size:11px;color:var(--text3)">${motivLabel(b.motiv)} · de ${b.createdBy||'—'} · ${b.counts?.reclamatii||0} recl. · ${b.counts?.rechnunguri||0} rechn. ${b.sumaTotala?' · €'+b.sumaTotala.toFixed(2):''}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-ghost" style="font-size:11px;padding:6px 12px" onclick="previewBackup('${b.id}')">👁 Preview</button>
+          <button class="icon-btn" onclick="downloadBackupJSON('${b.id}')" title="Descarcă JSON">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+          </button>
+          <button class="icon-btn red" onclick="restoreBackupById('${b.id}')" title="Restaurează acest backup">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+          </button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    statusEl.innerHTML = `<div style="color:var(--red);padding:16px">Eroare la încărcare: ${e.message}</div>`;
+  }
+}
+
+function motivLabel(motiv) {
+  const map = {
+    'zilnic-automat':'📅 Automat zilnic',
+    'automat-dimineață':'🌅 Automat dimineață',
+    'automat-seară':'🌆 Automat seară',
+    'manual':'👤 Manual',
+    'restaurare':'🔄 Înainte de restaurare'
+  };
+  return map[motiv] || motiv || 'Backup';
+}
+
+function toggleCompareSelect(id, checked) {
+  if (checked) {
+    if (backupSelectedForCompare.length >= 2) {
+      toast('Poți compara maxim 2 backup-uri — deselectează unul mai întâi', 'info');
+      // Revert checkbox
+      const cb = document.querySelector(`#backup-card-${id} input[type=checkbox]`);
+      if (cb) cb.checked = false;
+      return;
+    }
+    backupSelectedForCompare.push(id);
+  } else {
+    backupSelectedForCompare = backupSelectedForCompare.filter(x => x !== id);
+  }
+  document.querySelectorAll('.card[id^="backup-card-"]').forEach(c => {
+    const bid = c.id.replace('backup-card-','');
+    c.style.borderColor = backupSelectedForCompare.includes(bid) ? 'var(--accent-border)' : '';
+    c.style.background = backupSelectedForCompare.includes(bid) ? 'var(--accent-bg)' : '';
+  });
+  updateCompareBar();
+}
+
+function updateCompareBar() {
+  const bar = document.getElementById('backup-compare-bar');
+  if (!bar) return;
+  if (backupSelectedForCompare.length === 2) {
+    bar.style.display = 'flex';
+    bar.innerHTML = `
+      <span style="font-size:13px;font-weight:700;color:var(--accent)">🔍 2 backup-uri selectate</span>
+      <button class="btn btn-primary" style="font-size:12px;padding:7px 16px;margin-left:auto" onclick="compareSelectedBackups()">Compară</button>
+      <button class="btn btn-ghost" style="font-size:12px;padding:7px 14px" onclick="backupSelectedForCompare=[];renderBackupPage()">Anulează</button>`;
+  } else if (backupSelectedForCompare.length === 1) {
+    bar.style.display = 'flex';
+    bar.innerHTML = `<span style="font-size:12px;color:var(--text3)">Selectează încă un backup pentru a compara</span>`;
+  } else {
+    bar.style.display = 'none';
+    bar.innerHTML = '';
+  }
+}
+
+function previewBackup(id) {
+  const b = _cachedBackupsList.find(x => x.id === id);
+  if (!b) return;
+  const d = b.createdAt?.toDate ? b.createdAt.toDate() : new Date();
+
+  const topReclamatii = (b.data?.reclamatii || []).slice(0, 8);
+  const rezolvate = (b.data?.reclamatii||[]).filter(r=>r.status==='rezolvata').length;
+  const nerezolvate = (b.data?.reclamatii||[]).filter(r=>r.status==='nerezolvata').length;
+  const neprelucrat = (b.data?.reclamatii||[]).filter(r=>r.status==='neprelucrat').length;
+
+  const m = document.createElement('div');
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = e => { if(e.target===m) m.remove(); };
+  m.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:560px;max-height:80vh;display:flex;flex-direction:column">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:15px;font-weight:800">👁 Preview backup</div>
+          <div style="font-size:12px;color:var(--text3)">${d.toLocaleDateString('ro-RO')} ${d.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})} · ${motivLabel(b.motiv)}</div>
+        </div>
+        <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
+      </div>
+      <div style="padding:16px 20px;overflow-y:auto">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
+          <div style="background:var(--bg3);border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:18px;font-weight:800;color:var(--accent)">${b.counts?.reclamatii||0}</div>
+            <div style="font-size:10px;color:var(--text3)">Reclamații</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:18px;font-weight:800;color:var(--accent)">${b.counts?.rechnunguri||0}</div>
+            <div style="font-size:10px;color:var(--text3)">Rechnunguri</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:18px;font-weight:800;color:var(--accent)">${b.counts?.soferi||0}</div>
+            <div style="font-size:10px;color:var(--text3)">Șoferi</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
+          ✓ ${rezolvate} rezolvate · ✗ ${nerezolvate} nerezolvate · ⏳ ${neprelucrat} neprelucrate
+          ${b.sumaTotala?' · €'+b.sumaTotala.toFixed(2)+' facturat':''}
+        </div>
+        <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Primele reclamații din backup:</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          ${topReclamatii.map(r => `<div style="font-size:12px;padding:6px 10px;background:var(--bg3);border-radius:6px">${r.numeClient||r.name||'—'} · T.${r.turaSofer||r.tour||'—'}</div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+}
+
+function downloadBackupJSON(id) {
+  const b = _cachedBackupsList.find(x => x.id === id);
+  if (!b) return;
+  const d = b.createdAt?.toDate ? b.createdAt.toDate() : new Date();
+  const json = JSON.stringify(b.data, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `backup_reclamatii_${d.toISOString().slice(0,10)}_${id.slice(0,6)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── COMPARARE ──
+function compareSelectedBackups() {
+  if (backupSelectedForCompare.length !== 2) return;
+  const [idA, idB] = backupSelectedForCompare;
+  const bA = _cachedBackupsList.find(x=>x.id===idA);
+  const bB = _cachedBackupsList.find(x=>x.id===idB);
+  if (!bA || !bB) return;
+
+  // Sortam cronologic: vechi -> nou
+  const dA = bA.createdAt?.toDate ? bA.createdAt.toDate() : new Date(0);
+  const dB = bB.createdAt?.toDate ? bB.createdAt.toDate() : new Date(0);
+  const [older, newer] = dA <= dB ? [bA, bB] : [bB, bA];
+
+  const diff = computeBackupDiff(older, newer);
+  showBackupDiffModal(older, newer, diff);
+}
+
+function computeBackupDiff(older, newer) {
+  const oldIds = new Set((older.data?.reclamatii||[]).map(r=>r._id));
+  const newIds = new Set((newer.data?.reclamatii||[]).map(r=>r._id));
+  const oldMap = {}; (older.data?.reclamatii||[]).forEach(r => oldMap[r._id]=r);
+  const newMap = {}; (newer.data?.reclamatii||[]).forEach(r => newMap[r._id]=r);
+
+  const addedRecl = [...newIds].filter(id => !oldIds.has(id)).map(id => newMap[id]);
+  const removedRecl = [...oldIds].filter(id => !newIds.has(id)).map(id => oldMap[id]);
+  const statusChanged = [...newIds].filter(id => oldIds.has(id) && oldMap[id].status !== newMap[id].status)
+    .map(id => ({ recl: newMap[id], from: oldMap[id].status, to: newMap[id].status }));
+
+  const oldRechnIds = new Set((older.data?.rechnunguri||[]).map(r=>r._id));
+  const newRechnIds = new Set((newer.data?.rechnunguri||[]).map(r=>r._id));
+  const addedRechn = [...newRechnIds].filter(id => !oldRechnIds.has(id));
+  const removedRechn = [...oldRechnIds].filter(id => !newRechnIds.has(id));
+
+  return {
+    addedRecl, removedRecl, statusChanged,
+    addedRechnCount: addedRechn.length, removedRechnCount: removedRechn.length,
+    sumaDelta: (newer.sumaTotala||0) - (older.sumaTotala||0)
+  };
+}
+
+function showBackupDiffModal(older, newer, diff) {
+  const dOld = older.createdAt?.toDate ? older.createdAt.toDate() : new Date();
+  const dNew = newer.createdAt?.toDate ? newer.createdAt.toDate() : new Date();
+
+  const m = document.createElement('div');
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = e => { if(e.target===m) m.remove(); };
+  m.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:640px;max-height:85vh;display:flex;flex-direction:column">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:15px;font-weight:800">🔍 Comparare backup-uri</div>
+          <div style="font-size:12px;color:var(--text3)">
+            ${dOld.toLocaleDateString('ro-RO')} ${dOld.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}
+            → ${dNew.toLocaleDateString('ro-RO')} ${dNew.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}
+          </div>
+        </div>
+        <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
+      </div>
+      <div style="padding:16px 20px;overflow-y:auto">
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px">
+          <div style="background:var(--green-bg);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:20px;font-weight:800;color:var(--green)">+${diff.addedRecl.length}</div>
+            <div style="font-size:11px;color:var(--text3)">Reclamații noi</div>
+          </div>
+          <div style="background:var(--red-bg);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:20px;font-weight:800;color:var(--red)">-${diff.removedRecl.length}</div>
+            <div style="font-size:11px;color:var(--text3)">Reclamații șterse</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:14px">
+          📄 ${diff.addedRechnCount} rechnung-uri noi ${diff.removedRechnCount>0?', '+diff.removedRechnCount+' șterse':''}
+          ${diff.sumaDelta !== 0 ? ' · Sumă: '+(diff.sumaDelta>0?'+':'')+'€'+diff.sumaDelta.toFixed(2) : ''}
+        </div>
+
+        ${diff.statusChanged.length > 0 ? `
+        <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Status schimbat (${diff.statusChanged.length}):</div>
+        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">
+          ${diff.statusChanged.slice(0,10).map(c => `<div style="font-size:12px;padding:6px 10px;background:var(--bg3);border-radius:6px;display:flex;justify-content:space-between">
+            <span>${c.recl.numeClient||c.recl.name||'—'}</span>
+            <span style="color:var(--text3)">${c.from} → <strong style="color:var(--accent)">${c.to}</strong></span>
+          </div>`).join('')}
+        </div>` : ''}
+
+        ${diff.addedRecl.length > 0 ? `
+        <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;margin-bottom:6px">Adăugate:</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          ${diff.addedRecl.slice(0,10).map(r => `<div style="font-size:12px;padding:6px 10px;background:var(--green-bg);border-radius:6px">+ ${r.numeClient||r.name||'—'} · T.${r.turaSofer||r.tour||'—'}</div>`).join('')}
+          ${diff.addedRecl.length > 10 ? `<div style="font-size:11px;color:var(--text3);text-align:center;padding:4px">...și încă ${diff.addedRecl.length-10}</div>` : ''}
+        </div>` : ''}
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+}
+
+// ── RESTAURARE ──
+async function restoreBackupById(id) {
+  const b = _cachedBackupsList.find(x => x.id === id);
+  if (!b) return;
+  const d = b.createdAt?.toDate ? b.createdAt.toDate() : new Date();
+  await performRestore(b.data, `backup din ${d.toLocaleDateString('ro-RO')} ${d.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}`);
+}
+
+async function restoreFromFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      // Acceptam atat formatul intern (backup.data) cat si cel exportat manual (exportBackup)
+      const data = parsed.reclamatii ? parsed : (parsed.data || parsed);
+      if (!data.reclamatii && !data.rechnunguri) {
+        toast('Fișierul nu pare a fi un backup valid', 'error');
+        return;
+      }
+      await performRestore(data, 'fișier extern (' + file.name + ')');
+    } catch(err) {
+      toast('Fișier invalid: ' + err.message, 'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
+async function performRestore(data, sourceLabel) {
+  const nrRecl = (data.reclamatii||[]).length;
+  const nrRechn = (data.rechnunguri||[]).length;
+  const nrSof = (data.soferi||[]).length;
+
+  const ok1 = confirm(
+    `⚠️ RESTAURARE — ${sourceLabel}\n\n` +
+    `Se vor ÎNLOCUI datele curente cu:\n` +
+    `• ${nrRecl} reclamații\n• ${nrRechn} rechnunguri\n• ${nrSof} șoferi\n\n` +
+    `Datele curente vor fi ȘTERSE și înlocuite. Ești sigur?`
+  );
+  if (!ok1) return;
+
+  const ok2 = confirm('Confirmare finală: chiar vrei să restaurezi? Această acțiune nu poate fi anulată direct (dar se face un backup automat înainte, ca plasă de siguranță).');
+  if (!ok2) return;
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `<div style="background:var(--bg2);border-radius:var(--radius);padding:28px;text-align:center;min-width:280px">
+    <div class="spinner" style="margin:0 auto 12px"></div>
+    <div id="restore-progress-text" style="font-size:13px;color:var(--text2)">Se pregătește restaurarea...</div>
+  </div>`;
+  document.body.appendChild(modal);
+  const progressText = document.getElementById('restore-progress-text');
+
+  try {
+    // Backup de siguranta INAINTE de restaurare
+    progressText.textContent = 'Se face backup de siguranță...';
+    await runFullBackup('restaurare', false);
+
+    // Stergem colectiile curente
+    progressText.textContent = 'Se șterg datele curente...';
+    for (const col of ['reclamatii','rechnunguri','soferi']) {
+      let snap = await db.collection(col).get();
+      while (!snap.empty) {
+        const batch = db.batch();
+        snap.docs.slice(0,400).forEach(d => batch.delete(d.ref));
+        await batch.commit();
+        snap = await db.collection(col).get();
+        if (snap.docs.length === 0) break;
+      }
+    }
+
+    // Rescriem datele din backup
+    progressText.textContent = 'Se restaurează datele...';
+    for (const [col, items] of [['reclamatii',data.reclamatii||[]], ['rechnunguri',data.rechnunguri||[]], ['soferi',data.soferi||[]]]) {
+      for (let i = 0; i < items.length; i += 400) {
+        const chunk = items.slice(i, i+400);
+        const batch = db.batch();
+        chunk.forEach(item => {
+          const { _id, ...rest } = item;
+          const ref = _id ? db.collection(col).doc(_id) : db.collection(col).doc();
+          batch.set(ref, rest);
+        });
+        await batch.commit();
+        progressText.textContent = `Se restaurează ${col}... ${Math.min(i+400,items.length)}/${items.length}`;
+      }
+    }
+
+    modal.remove();
+    toast('✓ Restaurare completă!');
+    renderBackupPage();
+    loadReclamatii();
+  } catch(e) {
+    modal.remove();
+    toast('Eroare la restaurare: ' + e.message, 'error');
+  }
+}
+
+
 async function exportBackup() {
   const btn = document.getElementById('btn-backup');
   if (btn) { btn.disabled = true; btn.textContent = 'Se exportă...'; }
@@ -7113,7 +7864,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v3.7.1</span>
+  <span id="version-badge-text">v3.10.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
