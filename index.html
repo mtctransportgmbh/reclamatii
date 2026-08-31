@@ -767,15 +767,12 @@ textarea{resize:vertical;min-height:80px}
           <button class="filter-btn active" data-filter="neprelucrat" onclick="setFilter(this,'neprelucrat')">⏳ Neprelucrate</button>
           <button class="filter-btn" data-filter="nerezolvata" onclick="setFilter(this,'nerezolvata')">✗ Nerezolvate</button>
           <button class="filter-btn" data-filter="rezolvata" onclick="setFilter(this,'rezolvata')">✓ Rezolvate</button>
-          <button class="filter-btn" onclick="toggleSumaFilter()" id="btn-toggle-suma-filter">💶 Caută după sumă</button>
+          <button class="filter-btn" id="btn-advanced-search" onclick="showAdvancedSearch()" style="margin-left:auto;display:flex;align-items:center;gap:5px">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75"/></svg>
+            Filtre avansate
+          </button>
         </div>
-        <div id="suma-filter-panel" style="display:none;gap:8px;align-items:center;margin:-4px 0 10px;flex-wrap:wrap">
-          <input type="number" step="0.01" placeholder="Sumă min €" id="suma-min-input" oninput="renderReclamatii()" style="max-width:130px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:12px"/>
-          <span style="color:var(--text3);font-size:12px">—</span>
-          <input type="number" step="0.01" placeholder="Sumă max €" id="suma-max-input" oninput="renderReclamatii()" style="max-width:130px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:12px"/>
-          <button class="btn btn-ghost" style="font-size:11px;padding:7px 12px" onclick="document.getElementById('suma-min-input').value='';document.getElementById('suma-max-input').value='';renderReclamatii()">✕ Șterge</button>
-          <span id="suma-filter-count" style="font-size:11px;color:var(--text3)"></span>
-        </div>
+        <div id="advanced-search-active-bar" style="display:none;margin:-4px 0 10px"></div>
         <div id="recl-list" class="recl-list"></div>
       </div>
 
@@ -964,7 +961,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '3.10.0';
+const APP_VERSION = '3.11.0';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -2131,11 +2128,208 @@ function normFirma(r) {
   return cleaned || null;
 }
 
+// ════════════════════════════════════════════════════════
+// CAUTARE AVANSATA — filtre combinate tip "magazin online"
+// (sumă min/max, firmă, tip daună, tură, stradă/oraș, status, sursă)
+// ════════════════════════════════════════════════════════
+let advancedFilters = {
+  sumaMin: '', sumaMax: '', firma: '', tipDauna: '', tura: '', strada: '',
+  statusuri: [], surse: []
+};
+
+function showAdvancedSearch() {
+  const existing = document.getElementById('advanced-search-modal');
+  if (existing) { existing.style.display = 'flex'; return; }
+
+  const toate = allReclamatii || [];
+  const firmeSet = new Set(); const tipuriSet = new Set();
+  toate.forEach(r => {
+    const f = normFirma(r); if (f) firmeSet.add(f);
+    const t = normTipDauna(r); if (t) tipuriSet.add(t);
+  });
+  const firme = [...firmeSet].sort();
+  const tipuri = [...tipuriSet].sort();
+  const turaOpts = allSoferi.filter(s=>s.tura).sort((a,b)=>parseInt(a.tura||0)-parseInt(b.tura||0));
+
+  const m = document.createElement('div');
+  m.id = 'advanced-search-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = e => { if(e.target===m) m.style.display='none'; };
+
+  const statusOpts = [
+    {v:'neprelucrat', l:'⏳ Neprelucrat'},
+    {v:'nerezolvata', l:'✗ Nerezolvată'},
+    {v:'rezolvata', l:'✓ Rezolvată'},
+  ];
+  const sursaOpts = [
+    {v:'manual', l:'✏️ Manual'},
+    {v:'rechnung', l:'📄 Din rechnung'},
+  ];
+
+  m.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:520px;max-height:88vh;display:flex;flex-direction:column">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <div>
+          <div style="font-size:16px;font-weight:800">🔍 Filtre avansate</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px">Combină orice criterii pentru rezultate exacte</div>
+        </div>
+        <button onclick="document.getElementById('advanced-search-modal').style.display='none'" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer">✕</button>
+      </div>
+
+      <div style="padding:18px 22px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:16px">
+
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">💶 Sumă (€)</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="number" step="0.01" id="adv-suma-min" placeholder="Min" value="${advancedFilters.sumaMin}" style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px"/>
+            <span style="color:var(--text3)">—</span>
+            <input type="number" step="0.01" id="adv-suma-max" placeholder="Max" value="${advancedFilters.sumaMax}" style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px"/>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">🏢 Firmă</div>
+          <select id="adv-firma" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;cursor:pointer">
+            <option value="">Toate firmele</option>
+            ${firme.map(f => `<option value="${f.replace(/"/g,'&quot;')}" ${advancedFilters.firma===f?'selected':''}>${f}</option>`).join('')}
+          </select>
+        </div>
+
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">📋 Tip daună</div>
+          <select id="adv-tip" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;cursor:pointer">
+            <option value="">Toate tipurile</option>
+            ${tipuri.map(t => `<option value="${t.replace(/"/g,'&quot;')}" ${advancedFilters.tipDauna===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">🚚 Tură</div>
+          <select id="adv-tura" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;cursor:pointer">
+            <option value="">Toate turele</option>
+            ${turaOpts.map(s => `<option value="${s.tura}" ${advancedFilters.tura===String(s.tura)?'selected':''}>${s.tura} — ${s.numeSofer}</option>`).join('')}
+          </select>
+        </div>
+
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">📍 Stradă / Oraș / PLZ</div>
+          <input type="text" id="adv-strada" placeholder="ex: Passau, 94036, Hauptstraße..." value="${advancedFilters.strada}" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px"/>
+        </div>
+
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">Status</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${statusOpts.map(o => `
+              <label style="display:flex;align-items:center;gap:6px;padding:7px 12px;background:var(--bg3);border-radius:8px;cursor:pointer;font-size:12px;border:1px solid ${advancedFilters.statusuri.includes(o.v)?'var(--accent-border)':'var(--border)'}">
+                <input type="checkbox" class="adv-status-cb" value="${o.v}" ${advancedFilters.statusuri.includes(o.v)?'checked':''}/>
+                ${o.l}
+              </label>`).join('')}
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">Sursă</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${sursaOpts.map(o => `
+              <label style="display:flex;align-items:center;gap:6px;padding:7px 12px;background:var(--bg3);border-radius:8px;cursor:pointer;font-size:12px;border:1px solid ${advancedFilters.surse.includes(o.v)?'var(--accent-border)':'var(--border)'}">
+                <input type="checkbox" class="adv-sursa-cb" value="${o.v}" ${advancedFilters.surse.includes(o.v)?'checked':''}/>
+                ${o.l}
+              </label>`).join('')}
+          </div>
+        </div>
+
+      </div>
+
+      <div style="padding:16px 22px;border-top:1px solid var(--border);display:flex;gap:10px;flex-shrink:0">
+        <button class="btn btn-ghost" style="flex:1" onclick="clearAdvancedSearch()">✕ Șterge tot</button>
+        <button class="btn btn-primary" style="flex:2" onclick="applyAdvancedSearch()">Aplică filtrele</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+}
+
+function applyAdvancedSearch() {
+  advancedFilters.sumaMin = document.getElementById('adv-suma-min')?.value || '';
+  advancedFilters.sumaMax = document.getElementById('adv-suma-max')?.value || '';
+  advancedFilters.firma = document.getElementById('adv-firma')?.value || '';
+  advancedFilters.tipDauna = document.getElementById('adv-tip')?.value || '';
+  advancedFilters.tura = document.getElementById('adv-tura')?.value || '';
+  advancedFilters.strada = document.getElementById('adv-strada')?.value || '';
+  advancedFilters.statusuri = [...document.querySelectorAll('.adv-status-cb:checked')].map(el=>el.value);
+  advancedFilters.surse = [...document.querySelectorAll('.adv-sursa-cb:checked')].map(el=>el.value);
+
+  document.getElementById('advanced-search-modal').style.display = 'none';
+  renderReclamatii();
+}
+
+function clearAdvancedSearch() {
+  advancedFilters = { sumaMin:'', sumaMax:'', firma:'', tipDauna:'', tura:'', strada:'', statusuri:[], surse:[] };
+  document.getElementById('advanced-search-modal')?.remove();
+  renderReclamatii();
+}
+
+function hasActiveAdvancedFilters() {
+  const f = advancedFilters;
+  return f.sumaMin || f.sumaMax || f.firma || f.tipDauna || f.tura || f.strada || f.statusuri.length || f.surse.length;
+}
+
+function applyAdvancedFiltersToList(list) {
+  const f = advancedFilters;
+  if (f.sumaMin !== '') list = list.filter(r => (r.forderung||0) >= parseFloat(f.sumaMin));
+  if (f.sumaMax !== '') list = list.filter(r => (r.forderung||0) <= parseFloat(f.sumaMax));
+  if (f.firma) list = list.filter(r => normFirma(r) === f.firma);
+  if (f.tipDauna) list = list.filter(r => normTipDauna(r) === f.tipDauna);
+  if (f.tura) list = list.filter(r => String(r.turaSofer||r.tour||'') === f.tura);
+  if (f.strada) {
+    const q = f.strada.toLowerCase();
+    list = list.filter(r =>
+      (r.strada||r.strasse||'').toLowerCase().includes(q) ||
+      (r.ort||'').toLowerCase().includes(q) ||
+      (r.plz||'').includes(q)
+    );
+  }
+  if (f.statusuri.length) list = list.filter(r => f.statusuri.includes(r.status));
+  if (f.surse.length) {
+    list = list.filter(r => {
+      const sursa = r.sursa === 'rechnung' ? 'rechnung' : 'manual';
+      return f.surse.includes(sursa);
+    });
+  }
+  return list;
+}
+
+function renderAdvancedSearchActiveBar() {
+  const el = document.getElementById('advanced-search-active-bar');
+  if (!el) return;
+  if (!hasActiveAdvancedFilters()) { el.style.display = 'none'; el.innerHTML=''; return; }
+
+  const f = advancedFilters;
+  const chips = [];
+  if (f.sumaMin || f.sumaMax) chips.push(`💶 €${f.sumaMin||'0'}–${f.sumaMax||'∞'}`);
+  if (f.firma) chips.push(`🏢 ${f.firma}`);
+  if (f.tipDauna) chips.push(`📋 ${f.tipDauna}`);
+  if (f.tura) chips.push(`🚚 T.${f.tura}`);
+  if (f.strada) chips.push(`📍 ${f.strada}`);
+  if (f.statusuri.length) chips.push(f.statusuri.join(', '));
+  if (f.surse.length) chips.push(f.surse.map(s=>s==='manual'?'✏️ Manual':'📄 Rechnung').join(', '));
+
+  el.style.display = 'flex';
+  el.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-4px 0 10px;padding:8px 12px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:8px';
+  el.innerHTML = `
+    <span style="font-size:11px;font-weight:700;color:var(--accent)">Filtre active:</span>
+    ${chips.map(c => `<span style="font-size:11px;background:var(--bg2);padding:3px 9px;border-radius:12px">${c}</span>`).join('')}
+    <button onclick="clearAdvancedSearch()" style="margin-left:auto;background:none;border:none;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer">✕ Șterge</button>
+    <button onclick="showAdvancedSearch()" style="background:none;border:none;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer">✏️ Editează</button>`;
+}
+
+
 function renderReclamatii() {
   renderTerminUrgentBanner('termin-urgent-banner');
+  renderAdvancedSearchActiveBar();
   const search = (document.getElementById('search-input')?.value||'').toLowerCase();
   let list = allReclamatii;
   if (activeFilter!=='all') list = list.filter(r=>r.status===activeFilter);
+  list = applyAdvancedFiltersToList(list);
   if (search) list = list.filter(r=>
     (r.numeClient||'').toLowerCase().includes(search) ||
     (r.numarPachet||'').toLowerCase().includes(search) ||
@@ -2151,24 +2345,6 @@ function renderReclamatii() {
     (r.turaSofer||r.tour||'').toString().includes(search) ||
     (r.descriere||'').toLowerCase().includes(search)
   );
-
-  // Filtru dupa suma (forderung) — min si/sau max
-  const sumaMinVal = document.getElementById('suma-min-input')?.value;
-  const sumaMaxVal = document.getElementById('suma-max-input')?.value;
-  const sumaMin = sumaMinVal !== '' && sumaMinVal !== undefined ? parseFloat(sumaMinVal) : null;
-  const sumaMax = sumaMaxVal !== '' && sumaMaxVal !== undefined ? parseFloat(sumaMaxVal) : null;
-  if (sumaMin !== null || sumaMax !== null) {
-    list = list.filter(r => {
-      const suma = r.forderung || 0;
-      if (sumaMin !== null && suma < sumaMin) return false;
-      if (sumaMax !== null && suma > sumaMax) return false;
-      return true;
-    });
-  }
-  const sumaCountEl = document.getElementById('suma-filter-count');
-  if (sumaCountEl) {
-    sumaCountEl.textContent = (sumaMin!==null || sumaMax!==null) ? `${list.length} rezultate în intervalul sumei` : '';
-  }
 
   document.getElementById('recl-count').textContent = list.length+' înregistrări';
   const el = document.getElementById('recl-list');
@@ -4548,6 +4724,8 @@ async function refreshHarta() {
 // ════════════════════════════════════════════════════════
 let firmeSelectedTip = '';
 let firmeSelectedFirma = '';
+let firmeSelectedSumaMin = '';
+let firmeSelectedSumaMax = '';
 
 function renderStatsFirme(d) {
   const el = document.getElementById('stats-firme');
@@ -4571,6 +4749,16 @@ function renderStatsFirme(d) {
   let filtrate = toate;
   if (firmeSelectedTip) filtrate = filtrate.filter(r => normTipDauna(r) === firmeSelectedTip);
   if (firmeSelectedFirma) filtrate = filtrate.filter(r => normFirma(r) === firmeSelectedFirma);
+  const sMin = firmeSelectedSumaMin !== '' ? parseFloat(firmeSelectedSumaMin) : null;
+  const sMax = firmeSelectedSumaMax !== '' ? parseFloat(firmeSelectedSumaMax) : null;
+  if (sMin !== null || sMax !== null) {
+    filtrate = filtrate.filter(r => {
+      const suma = r.forderung || 0;
+      if (sMin !== null && suma < sMin) return false;
+      if (sMax !== null && suma > sMax) return false;
+      return true;
+    });
+  }
 
   const total = filtrate.length;
   const rezolvate = filtrate.filter(r=>r.status==='rezolvata').length;
@@ -4611,11 +4799,16 @@ function renderStatsFirme(d) {
           <option value="">Firmă — toate</option>
           ${firme.map(f => `<option value="${f.replace(/"/g,'&quot;')}" ${firmeSelectedFirma===f?'selected':''}>${f}</option>`).join('')}
         </select>
-        ${(firmeSelectedTip || firmeSelectedFirma) ? `<button class="btn btn-ghost" style="font-size:12px;padding:8px 14px" onclick="resetFirmeFilters()">✕ Resetează filtre</button>` : ''}
+        <div style="display:flex;align-items:center;gap:6px">
+          <input type="number" step="0.01" id="firme-suma-min-input" placeholder="Sumă min €" value="${firmeSelectedSumaMin}" oninput="setFirmeFilter('sumaMin', this.value)" style="width:110px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:12px"/>
+          <span style="color:var(--text3);font-size:12px">—</span>
+          <input type="number" step="0.01" id="firme-suma-max-input" placeholder="Sumă max €" value="${firmeSelectedSumaMax}" oninput="setFirmeFilter('sumaMax', this.value)" style="width:110px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:12px"/>
+        </div>
+        ${(firmeSelectedTip || firmeSelectedFirma || firmeSelectedSumaMin || firmeSelectedSumaMax) ? `<button class="btn btn-ghost" style="font-size:12px;padding:8px 14px" onclick="resetFirmeFilters()">✕ Resetează filtre</button>` : ''}
       </div>
     </div>
 
-    ${(firmeSelectedTip || firmeSelectedFirma) ? `
+    ${(firmeSelectedTip || firmeSelectedFirma || firmeSelectedSumaMin || firmeSelectedSumaMax) ? `
     <div class="stats-grid" style="margin-bottom:14px">
       <div class="stat-card" style="--stat-color:var(--accent);cursor:pointer" onclick="showReclamatiiModal('📦 ${firmeSelectedFirma||''} ${firmeSelectedTip||''}'.trim(), statsCache._firmeFiltrate||[])">
         <div class="stat-icon" style="background:var(--accent-bg);color:var(--accent)">📦</div>
@@ -4681,12 +4874,36 @@ function renderStatsFirme(d) {
 function setFirmeFilter(type, value) {
   if (type === 'tip') firmeSelectedTip = value;
   if (type === 'firma') firmeSelectedFirma = value;
+  if (type === 'sumaMin') firmeSelectedSumaMin = value;
+  if (type === 'sumaMax') firmeSelectedSumaMax = value;
+
+  // Pentru campurile de tip numar (sumaMin/sumaMax) — salvam si restauram
+  // focusul + pozitia cursorului, altfel input-ul e recreat de innerHTML si
+  // pierde focus-ul la fiecare cifra tastata
+  const isNumericField = type === 'sumaMin' || type === 'sumaMax';
+  const inputId = type === 'sumaMin' ? 'firme-suma-min-input' : type === 'sumaMax' ? 'firme-suma-max-input' : null;
+  let cursorPos = null;
+  if (isNumericField && inputId) {
+    const oldInput = document.getElementById(inputId);
+    cursorPos = oldInput ? oldInput.selectionStart : value.length;
+  }
+
   renderStatsFirme(statsCache);
+
+  if (isNumericField && inputId) {
+    const newInput = document.getElementById(inputId);
+    if (newInput) {
+      newInput.focus();
+      if (cursorPos !== null) newInput.setSelectionRange(cursorPos, cursorPos);
+    }
+  }
 }
 
 function resetFirmeFilters() {
   firmeSelectedTip = '';
   firmeSelectedFirma = '';
+  firmeSelectedSumaMin = '';
+  firmeSelectedSumaMax = '';
   renderStatsFirme(statsCache);
 }
 
@@ -7864,7 +8081,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v3.10.0</span>
+  <span id="version-badge-text">v3.11.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
