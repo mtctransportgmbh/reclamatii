@@ -767,21 +767,23 @@ textarea{resize:vertical;min-height:80px}
           <button class="filter-btn active" data-filter="neprelucrat" onclick="setFilter(this,'neprelucrat')">⏳ Neprelucrate</button>
           <button class="filter-btn" data-filter="nerezolvata" onclick="setFilter(this,'nerezolvata')">✗ Nerezolvate</button>
           <button class="filter-btn" data-filter="rezolvata" onclick="setFilter(this,'rezolvata')">✓ Rezolvate</button>
-          <button class="filter-btn" id="btn-advanced-search" onclick="showAdvancedSearch()" style="margin-left:auto;display:flex;align-items:center;gap:5px">
-            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75"/></svg>
-            Filtre avansate
-          </button>
         </div>
-        <div id="advanced-search-active-bar" style="display:none;margin:-4px 0 10px"></div>
         <div id="recl-list" class="recl-list"></div>
       </div>
 
       <!-- STATISTICI -->
       <div class="page" id="page-statistici">
-        <div class="page-header" style="margin-bottom:16px">
-          <div class="page-title">Statistici</div>
-          <div class="page-sub" id="stats-sub">Analiză completă</div>
+        <div class="page-header" style="margin-bottom:16px;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div>
+            <div class="page-title">Statistici</div>
+            <div class="page-sub" id="stats-sub">Analiză completă</div>
+          </div>
+          <button class="btn btn-ghost" id="btn-advanced-search" onclick="showAdvancedSearch()" style="display:flex;align-items:center;gap:6px">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75"/></svg>
+            Filtre avansate
+          </button>
         </div>
+        <div id="advanced-search-active-bar" style="display:none;margin:-8px 0 14px"></div>
         <!-- Tabs -->
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0" id="stats-tabs">
           <button class="stats-tab active" data-tab="luna-curenta" onclick="switchStatsTab('luna-curenta',this)">📅 Luna curentă</button>
@@ -961,7 +963,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '3.11.0';
+const APP_VERSION = '3.12.0';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -1598,7 +1600,7 @@ function showPage(id) {
   const item = NAV_ITEMS.find(n=>n.id===id);
   if (item) document.getElementById('mobile-page-title').textContent = item.label;
   currentPage = id;
-  if (id==='statistici') renderStatistici();
+  if (id==='statistici') { renderStatistici(); renderAdvancedSearchActiveBar(); }
   if (id==='rechnunguri') renderRechnunguri();
   if (id==='soferi') renderSoferi();
   if (id==='arhiva-soferi') renderArhivaSoferi();
@@ -2133,7 +2135,7 @@ function normFirma(r) {
 // (sumă min/max, firmă, tip daună, tură, stradă/oraș, status, sursă)
 // ════════════════════════════════════════════════════════
 let advancedFilters = {
-  sumaMin: '', sumaMax: '', firma: '', tipDauna: '', tura: '', strada: '',
+  sumaMin: '', sumaMax: '', firma: '', tipDauna: '', tura: [], strada: '',
   statusuri: [], surse: []
 };
 
@@ -2141,7 +2143,7 @@ function showAdvancedSearch() {
   const existing = document.getElementById('advanced-search-modal');
   if (existing) { existing.style.display = 'flex'; return; }
 
-  const toate = allReclamatii || [];
+  const toate = (statsCache && statsCache.toateReclamatiile) || allReclamatii || [];
   const firmeSet = new Set(); const tipuriSet = new Set();
   toate.forEach(r => {
     const f = normFirma(r); if (f) firmeSet.add(f);
@@ -2167,7 +2169,7 @@ function showAdvancedSearch() {
   ];
 
   m.innerHTML = `
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:520px;max-height:88vh;display:flex;flex-direction:column">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:560px;max-height:88vh;display:flex;flex-direction:column">
       <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
         <div>
           <div style="font-size:16px;font-weight:800">🔍 Filtre avansate</div>
@@ -2204,11 +2206,18 @@ function showAdvancedSearch() {
         </div>
 
         <div>
-          <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">🚚 Tură</div>
-          <select id="adv-tura" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;cursor:pointer">
-            <option value="">Toate turele</option>
-            ${turaOpts.map(s => `<option value="${s.tura}" ${advancedFilters.tura===String(s.tura)?'selected':''}>${s.tura} — ${s.numeSofer}</option>`).join('')}
-          </select>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px">🚚 Tură (poți bifa mai multe)</div>
+            ${advancedFilters.tura.length ? `<button onclick="document.querySelectorAll('.adv-tura-cb').forEach(c=>c.checked=false)" style="background:none;border:none;color:var(--accent);font-size:11px;cursor:pointer">Deselectează</button>` : ''}
+          </div>
+          <div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:2px">
+            ${turaOpts.map(s => `
+              <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+                <input type="checkbox" class="adv-tura-cb" value="${s.tura}" ${advancedFilters.tura.includes(String(s.tura))?'checked':''}/>
+                <span style="font-family:var(--mono);font-weight:700;color:var(--accent);min-width:32px">${s.tura}</span>
+                <span>${s.numeSofer}</span>
+              </label>`).join('')}
+          </div>
         </div>
 
         <div>
@@ -2242,7 +2251,7 @@ function showAdvancedSearch() {
 
       <div style="padding:16px 22px;border-top:1px solid var(--border);display:flex;gap:10px;flex-shrink:0">
         <button class="btn btn-ghost" style="flex:1" onclick="clearAdvancedSearch()">✕ Șterge tot</button>
-        <button class="btn btn-primary" style="flex:2" onclick="applyAdvancedSearch()">Aplică filtrele</button>
+        <button class="btn btn-primary" style="flex:2" onclick="applyAdvancedSearch()">Aplică și arată rezultate</button>
       </div>
     </div>`;
   document.body.appendChild(m);
@@ -2253,24 +2262,28 @@ function applyAdvancedSearch() {
   advancedFilters.sumaMax = document.getElementById('adv-suma-max')?.value || '';
   advancedFilters.firma = document.getElementById('adv-firma')?.value || '';
   advancedFilters.tipDauna = document.getElementById('adv-tip')?.value || '';
-  advancedFilters.tura = document.getElementById('adv-tura')?.value || '';
+  advancedFilters.tura = [...document.querySelectorAll('.adv-tura-cb:checked')].map(el=>el.value);
   advancedFilters.strada = document.getElementById('adv-strada')?.value || '';
   advancedFilters.statusuri = [...document.querySelectorAll('.adv-status-cb:checked')].map(el=>el.value);
   advancedFilters.surse = [...document.querySelectorAll('.adv-sursa-cb:checked')].map(el=>el.value);
 
   document.getElementById('advanced-search-modal').style.display = 'none';
-  renderReclamatii();
+  renderAdvancedSearchActiveBar();
+
+  const toate = (statsCache && statsCache.toateReclamatiile) || allReclamatii || [];
+  const rezultate = applyAdvancedFiltersToList(toate);
+  showReclamatiiModal('🔍 Rezultate filtrare avansată', rezultate);
 }
 
 function clearAdvancedSearch() {
-  advancedFilters = { sumaMin:'', sumaMax:'', firma:'', tipDauna:'', tura:'', strada:'', statusuri:[], surse:[] };
+  advancedFilters = { sumaMin:'', sumaMax:'', firma:'', tipDauna:'', tura:[], strada:'', statusuri:[], surse:[] };
   document.getElementById('advanced-search-modal')?.remove();
-  renderReclamatii();
+  renderAdvancedSearchActiveBar();
 }
 
 function hasActiveAdvancedFilters() {
   const f = advancedFilters;
-  return f.sumaMin || f.sumaMax || f.firma || f.tipDauna || f.tura || f.strada || f.statusuri.length || f.surse.length;
+  return f.sumaMin || f.sumaMax || f.firma || f.tipDauna || f.tura.length || f.strada || f.statusuri.length || f.surse.length;
 }
 
 function applyAdvancedFiltersToList(list) {
@@ -2279,7 +2292,7 @@ function applyAdvancedFiltersToList(list) {
   if (f.sumaMax !== '') list = list.filter(r => (r.forderung||0) <= parseFloat(f.sumaMax));
   if (f.firma) list = list.filter(r => normFirma(r) === f.firma);
   if (f.tipDauna) list = list.filter(r => normTipDauna(r) === f.tipDauna);
-  if (f.tura) list = list.filter(r => String(r.turaSofer||r.tour||'') === f.tura);
+  if (f.tura.length) list = list.filter(r => f.tura.includes(String(r.turaSofer||r.tour||'')));
   if (f.strada) {
     const q = f.strada.toLowerCase();
     list = list.filter(r =>
@@ -2308,28 +2321,28 @@ function renderAdvancedSearchActiveBar() {
   if (f.sumaMin || f.sumaMax) chips.push(`💶 €${f.sumaMin||'0'}–${f.sumaMax||'∞'}`);
   if (f.firma) chips.push(`🏢 ${f.firma}`);
   if (f.tipDauna) chips.push(`📋 ${f.tipDauna}`);
-  if (f.tura) chips.push(`🚚 T.${f.tura}`);
+  if (f.tura.length) chips.push(`🚚 T. ${f.tura.join(', ')}`);
   if (f.strada) chips.push(`📍 ${f.strada}`);
   if (f.statusuri.length) chips.push(f.statusuri.join(', '));
   if (f.surse.length) chips.push(f.surse.map(s=>s==='manual'?'✏️ Manual':'📄 Rechnung').join(', '));
 
   el.style.display = 'flex';
-  el.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-4px 0 10px;padding:8px 12px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:8px';
+  el.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-8px 0 14px;padding:8px 12px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:8px';
   el.innerHTML = `
     <span style="font-size:11px;font-weight:700;color:var(--accent)">Filtre active:</span>
     ${chips.map(c => `<span style="font-size:11px;background:var(--bg2);padding:3px 9px;border-radius:12px">${c}</span>`).join('')}
+    <button onclick="const toate=(statsCache&&statsCache.toateReclamatiile)||allReclamatii||[];showReclamatiiModal('🔍 Rezultate filtrare avansată', applyAdvancedFiltersToList(toate))" style="background:none;border:none;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer">👁 Vezi rezultate</button>
     <button onclick="clearAdvancedSearch()" style="margin-left:auto;background:none;border:none;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer">✕ Șterge</button>
     <button onclick="showAdvancedSearch()" style="background:none;border:none;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer">✏️ Editează</button>`;
 }
 
 
+
 function renderReclamatii() {
   renderTerminUrgentBanner('termin-urgent-banner');
-  renderAdvancedSearchActiveBar();
   const search = (document.getElementById('search-input')?.value||'').toLowerCase();
   let list = allReclamatii;
   if (activeFilter!=='all') list = list.filter(r=>r.status===activeFilter);
-  list = applyAdvancedFiltersToList(list);
   if (search) list = list.filter(r=>
     (r.numeClient||'').toLowerCase().includes(search) ||
     (r.numarPachet||'').toLowerCase().includes(search) ||
@@ -8081,7 +8094,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v3.11.0</span>
+  <span id="version-badge-text">v3.12.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
