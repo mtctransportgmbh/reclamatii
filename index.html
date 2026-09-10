@@ -979,7 +979,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '4.1.1';
+const APP_VERSION = '4.2.0';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -4287,6 +4287,37 @@ function filterPersoane() {
 
 // ── TAB 4: PER ZI / LUNA ──
 // ── TAB: LUNAR DETALIAT (clienti, soferi, adrese, suma, medie per luna) ──
+// Calculeaza cheile de grupare pentru o reclamatie, identic cu logica din loadStatsData
+// (folosit pentru a filtra corect la click pe Top clienti/soferi/adrese per luna)
+function lunarGetGroupInfo(r) {
+  let d;
+  try { d = r.createdAt?.toDate ? r.createdAt.toDate() : r.dataReclamatie?.toDate ? r.dataReclamatie.toDate() : r.dataReclamatie instanceof Date ? r.dataReclamatie : new Date(r.dataReclamatie||r.createdAt); }
+  catch { return null; }
+  if (!d || isNaN(d)) return null;
+  const an = d.getFullYear();
+  const luna = `${an}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  const nume = (r.numeClient||r.name||'').trim();
+  const tura = String(r.turaSofer||r.tour||'').trim();
+  const strada = (r.strada||r.strasse||'').trim();
+  const plz = (r.plz||'').trim();
+  const ort = (r.ort||'').trim();
+  const adresa = [strada,plz,ort].filter(Boolean).join(', ') || (r.adresaClient||'').trim();
+  return { luna, nume, tura, adresa };
+}
+
+function lunarShowFiltered(luna, type, key, label) {
+  const toate = statsCache?.toateReclamatiile || [];
+  const filtered = toate.filter(r => {
+    const info = lunarGetGroupInfo(r);
+    if (!info || info.luna !== luna) return false;
+    if (type === 'client') return info.nume === key;
+    if (type === 'sofer') return info.tura === key;
+    if (type === 'adresa') return info.adresa === key;
+    return true; // 'all'
+  });
+  showReclamatiiModal(label, filtered);
+}
+
 function renderStatsLunar(d) {
   const el = document.getElementById('stats-lunar');
   if (!el) return;
@@ -4362,6 +4393,9 @@ function renderStatsLunar(d) {
                 <span>📍 ${Object.keys(m.adrese).length} adrese</span>
               </div>
             </div>
+            <button class="btn btn-ghost" style="font-size:11px;padding:6px 12px;flex-shrink:0" onclick="event.stopPropagation();lunarShowFiltered('${luna}','all',null,'📅 ${label} — toate (${m.total})')">
+              👁 Vezi toate
+            </button>
             <div id="${cardId}-arrow" style="color:var(--text3);transition:transform 0.2s;flex-shrink:0">
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
             </div>
@@ -4372,7 +4406,9 @@ function renderStatsLunar(d) {
               <div>
                 <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">👤 Top clienți</div>
                 ${topClienti.length===0?'<p style="font-size:11px;color:var(--text3)">—</p>':topClienti.map(([nume,c],i)=>`
-                  <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+                  <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer"
+                    onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+                    onclick="lunarShowFiltered('${luna}','client','${nume.replace(/'/g,"\\'")}','👤 ${nume.replace(/'/g,"\\'")} — ${label}')">
                     <span style="width:16px;height:16px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text3);flex-shrink:0">${i+1}</span>
                     <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nume}</span>
                     <span style="font-size:11px;font-weight:700;color:${c.total>=2?'var(--red)':'var(--text2)'}">${c.total}x</span>
@@ -4381,7 +4417,9 @@ function renderStatsLunar(d) {
               <div>
                 <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">🚚 Top șoferi</div>
                 ${topSoferi.length===0?'<p style="font-size:11px;color:var(--text3)">—</p>':topSoferi.map(([tura,s],i)=>`
-                  <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+                  <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer"
+                    onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+                    onclick="lunarShowFiltered('${luna}','sofer','${tura}','🚚 Tura ${tura}${s.numeSofer?' — '+s.numeSofer.replace(/'/g,"\\'"):''} — ${label}')">
                     <span style="width:16px;height:16px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text3);flex-shrink:0">${i+1}</span>
                     <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">T.${tura} ${s.numeSofer?'— '+s.numeSofer:''}</span>
                     <span style="font-size:11px;font-weight:700;color:var(--accent)">${s.total}x</span>
@@ -4390,7 +4428,9 @@ function renderStatsLunar(d) {
               <div>
                 <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">📍 Top adrese</div>
                 ${topAdrese.length===0?'<p style="font-size:11px;color:var(--text3)">—</p>':topAdrese.map(([adr,a],i)=>`
-                  <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+                  <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer"
+                    onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+                    onclick="lunarShowFiltered('${luna}','adresa','${adr.replace(/'/g,"\\'")}','📍 ${adr.replace(/'/g,"\\'")} — ${label}')">
                     <span style="width:16px;height:16px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text3);flex-shrink:0">${i+1}</span>
                     <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${adr}">${adr}</span>
                     <span style="font-size:11px;font-weight:700;color:${a.total>=2?'var(--accent)':'var(--text2)'}">${a.total}x</span>
@@ -8314,7 +8354,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v4.1.1</span>
+  <span id="version-badge-text">v4.2.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
