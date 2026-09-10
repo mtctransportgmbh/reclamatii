@@ -979,7 +979,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '4.1.0';
+const APP_VERSION = '4.1.1';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -7949,20 +7949,25 @@ function parseSachverhaltPDF(pdfData) {
     }
   }
 
-  // Tabel: gasim "Datum" header, apoi randul cu "Zugestellt"
-  // Header e cel mai SUS (Y cel mai mare), randurile tabelului sunt sub el (Y mai mic)
-  const headerDatum = items.find(it => it.text === 'Datum' && it.x < 100);
-  if (headerDatum) {
-    const zugestellt = items.find(it => it.text.includes('Zugestellt') && it.y < headerDatum.y);
+  // Tabel: cautam "Zugestellt" pe TOATE paginile, nu doar prima — PDF-urile cu
+  // multiple tentative esuate ("Rücklauf nicht Angetroffen") pot avea tabelul
+  // de tracking intins pe 2+ pagini, iar livrarea reala poate fi abia pe pagina 2
+  for (const pg of pages) {
+    const pgItems = pg.items;
+    const atYPage = (yk, xmin, xmax, tol) => pgItems.filter(it =>
+      Math.abs(it.y - yk) <= (tol||2) && (xmin===undefined || it.x>=xmin) && (xmax===undefined || it.x<=xmax)
+    ).sort((a,b)=>a.x-b.x);
+
+    const zugestellt = pgItems.find(it => it.text.includes('Zugestellt'));
     if (zugestellt) {
       const yk = zugestellt.y;
-      result.deliveryDate = atY(yk, 50, 120).map(v=>v.text).join(' ');
-      result.deliveryStatus = atY(yk, 230, 420).map(v=>v.text).join(' ');
-      result.tour = atY(yk, 500, 560).map(v=>v.text).join(' ').trim();
-      // Ora e pe linia de DEASUPRA datei in randul vizual (Y putin mai mare) — verificam ambele directii
-      let timeRow = atY(yk+10, 50, 120, 4);
-      if (!timeRow.length) timeRow = atY(yk-10, 50, 120, 4);
+      result.deliveryDate = atYPage(yk, 50, 120).map(v=>v.text).join(' ');
+      result.deliveryStatus = atYPage(yk, 230, 420).map(v=>v.text).join(' ');
+      result.tour = atYPage(yk, 500, 560).map(v=>v.text).join(' ').trim();
+      let timeRow = atYPage(yk+10, 50, 120, 4);
+      if (!timeRow.length) timeRow = atYPage(yk-10, 50, 120, 4);
       result.deliveryTime = timeRow.map(v=>v.text).join(' ');
+      break; // gasit — nu mai cautam pe alte pagini
     }
   }
 
@@ -8309,7 +8314,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v4.1.0</span>
+  <span id="version-badge-text">v4.1.1</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
