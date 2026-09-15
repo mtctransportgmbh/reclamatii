@@ -979,7 +979,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '4.2.0';
+const APP_VERSION = '4.3.0';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -2436,8 +2436,16 @@ function renderImportAutoCard(r) {
   const soferOpts = allSoferi.filter(s=>s.tura).sort((a,b)=>parseInt(a.tura||0)-parseInt(b.tura||0))
     .map(s=>`<option value="${s.tura}" ${String(r.turaSofer)===String(s.tura)?'selected':''}>${s.tura} — ${s.numeSofer}</option>`).join('');
 
+  const adresaBadge = r.adresaLivrareDiferita ? `
+    <div style="margin-bottom:12px;padding:10px 12px;background:linear-gradient(135deg,#dc2626,#ea580c);border-radius:8px;animation:pulse-red 2s infinite">
+      <div style="font-size:12px;font-weight:800;color:#fff;margin-bottom:4px">⚠️ PACHET LIVRAT LA ALTĂ ADRESĂ!</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.95)"><strong>Comandat:</strong> ${r.origStrada||'—'}, ${r.origPlz||''} ${r.origOrt||''}</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.95)"><strong>Livrat efectiv:</strong> ${r.strada||'—'}, ${r.plz||''} ${r.ort||''}</div>
+    </div>` : '';
+
   return `
-    <div class="card" style="margin-bottom:12px;border-color:rgba(232,197,71,0.3)" id="import-auto-card-${r.id}">
+    <div class="card" style="margin-bottom:12px;border-color:${r.adresaLivrareDiferita?'var(--red)':'rgba(232,197,71,0.3)'}" id="import-auto-card-${r.id}">
+      ${adresaBadge}
       <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
         <div style="width:38px;height:38px;background:var(--accent-bg);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px">⚡</div>
         <div style="flex:1;min-width:0">
@@ -2665,6 +2673,7 @@ function toggleForm(data) {
           <input type="file" id="abliefer-pdf-input" accept=".pdf" style="display:none" onchange="handleAbliefererFile(this.files[0])"/>
         </div>
         <div id="ablieferung-status" style="font-size:11px;margin-top:6px;color:var(--text3)"></div>
+        <div id="adresa-diferita-banner"></div>
       </div>
       ` : ''}
       <div class="form-grid">
@@ -7897,7 +7906,8 @@ function toggleSoferForm(data) {
 function parseSachverhaltPDF(pdfData) {
   const pages = typeof pdfData === 'object' ? pdfData.pages : null;
   const result = { tour:'', deliveryDate:'', deliveryTime:'', name:'', vorname:'', nachname:'',
-                    strasse:'', plz:'', ort:'', sendungsId:'', auftraggeber:'', ruckinfo:'', gevoNr:'', auftragsnummer:'' };
+                    strasse:'', plz:'', ort:'', sendungsId:'', auftraggeber:'', ruckinfo:'', gevoNr:'', auftragsnummer:'',
+                    origStrasse:'', origPlz:'', origOrt:'', adresaLivrareDiferita:false };
   if (!pages || !pages[0]) return result;
 
   const items = pages[0].items;
@@ -7936,44 +7946,65 @@ function parseSachverhaltPDF(pdfData) {
   y = findLabelY('Auftragsnummer');
   if (y !== null) result.auftragsnummer = atY(y, 200).map(v=>v.text).join(' ');
 
+  // Functie reutilizabila: extrage nume/strada/plz/ort dintr-o coloana de adresa
+  // (xmin/xmax difera intre coloana originala si cea de livrare, restul e identic)
+  const extractAddressBlock = (xmin, xmax, yh, yBottom) => {
+    const rowYs = [...new Set(
+      items.filter(it => it.x >= xmin && it.x <= xmax && it.y < yh && it.y > yBottom)
+        .map(it => it.y)
+    )].sort((a,b) => b - a);
+    const lines = rowYs.map(y => atY(y, xmin, xmax, 2).map(v=>v.text).join(' ').trim()).filter(Boolean);
+    let plzLineIdx = lines.findIndex(l => /^\d{5}\s+/.test(l));
+    if (plzLineIdx === -1) plzLineIdx = lines.length - 1;
+    const plzLine = lines[plzLineIdx] || '';
+    const plzM = plzLine.match(/^(\d{5})\s*(.+)/);
+    const plz = plzM ? plzM[1] : '';
+    const ort = plzM ? plzM[2] : '';
+    const name = lines[0] || '';
+    const candidateLines = lines.slice(1, plzLineIdx).filter(l => !/^\d+$/.test(l.trim()));
+    const strasse = (candidateLines[candidateLines.length - 1] || '').trim();
+    return { name, strasse, plz, ort };
+  };
+
+  // Normalizeaza prescurtari (Straße/Strasse/Str./Str -> str) pentru comparatie corecta
+  const normalizeStrada = (s) => {
+    if (!s) return '';
+    return s.toLowerCase()
+      .replace(/stra(ss|ß)e/g, 'str')
+      .replace(/str\./g, 'str')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
   // Adresa de livrare: header poate fi "Zustelladresse" SAU "Ablageort" (variante PDF Hermes)
   // Colectam DINAMIC toate randurile de sub header pana la "Quelle:" — nu folosim offset fix,
   // pentru ca unele PDF-uri au un rand extra (ex: numar apartament/etaj "118") intre nume si strada
   const headerItem = items.find(it => it.text === 'Zustelladresse' || it.text === 'Ablageort' || it.text === 'An Haushalt übergeben');
   if (headerItem) {
     const yh = headerItem.y;
-    const xmin = 250, xmax = 420;
 
     // Gasim Y-ul liniei "Quelle:" care marcheaza sfarsitul blocului de adresa
-    const quelleItem = items.find(it => it.text.startsWith('Quelle') && it.x >= xmin && it.x <= 420 && it.y < yh);
+    const quelleItem = items.find(it => it.text.startsWith('Quelle') && it.x >= 250 && it.x <= 420 && it.y < yh);
     const yBottom = quelleItem ? quelleItem.y : yh - 60;
 
-    // Colectam toate Y-urile distincte din coloana dreapta, intre header si Quelle (exclusiv)
-    const rowYs = [...new Set(
-      items.filter(it => it.x >= xmin && it.x <= xmax && it.y < yh && it.y > yBottom)
-        .map(it => it.y)
-    )].sort((a,b) => b - a); // descrescator = de sus in jos pe pagina
+    const deliv = extractAddressBlock(250, 420, yh, yBottom);
+    result.name = deliv.name;
+    result.strasse = deliv.strasse;
+    result.plz = deliv.plz;
+    result.ort = deliv.ort;
 
-    // Construim liniile de text pentru fiecare Y
-    const lines = rowYs.map(y => atY(y, xmin, xmax, 2).map(v=>v.text).join(' ').trim()).filter(Boolean);
+    // Adresa ORIGINALA (unde trebuia livrat pachetul) — coloana din stanga,
+    // aceleasi limite verticale ca si adresa de livrare
+    const orig = extractAddressBlock(50, 230, yh, yBottom);
+    result.origStrasse = orig.strasse;
+    result.origPlz = orig.plz;
+    result.origOrt = orig.ort;
 
-    // Identificam linia cu PLZ (5 cifre la inceput) — de obicei ultima
-    let plzLineIdx = lines.findIndex(l => /^\d{5}\s+/.test(l));
-    if (plzLineIdx === -1) plzLineIdx = lines.length - 1;
-
-    const plzLine = lines[plzLineIdx] || '';
-    const plzM = plzLine.match(/^(\d{5})\s*(.+)/);
-    if (plzM) { result.plz = plzM[1]; result.ort = plzM[2]; }
-
-    // Prima linie = numele (contine de obicei o virgula "Nachname , Vorname")
-    result.name = lines[0] || '';
-
-    // Strada e mereu ULTIMA linie inainte de PLZ (format consistent Hermes).
-    // Liniile de deasupra ei (intre nume si strada) pot fi note de livrare
-    // ("Keine Nachbarabg", instructiuni de depozitare) sau numar apartament ("118")
-    // — nu fac parte din adresa si trebuie ignorate complet.
-    const candidateLines = lines.slice(1, plzLineIdx).filter(l => !/^\d+$/.test(l.trim()));
-    result.strasse = (candidateLines[candidateLines.length - 1] || '').trim();
+    // Comparam strazile NORMALIZATE — daca difera dupa normalizare (nu doar
+    // o prescurtare diferita a aceleiasi strazi), semnalam livrare gresita
+    const normOrig = normalizeStrada(orig.strasse);
+    const normDeliv = normalizeStrada(deliv.strasse);
+    result.adresaLivrareDiferita = !!(normOrig && normDeliv && normOrig !== normDeliv);
   }
 
   // Split name into Vorname/Nachname — format Hermes: "Nachname , Vorname"
@@ -8081,6 +8112,23 @@ async function handleAbliefererFile(file) {
     const descParts = [];
     if (parsed.deliveryStatus) descParts.push(parsed.deliveryStatus);
     if (parsed.deliveryDate && parsed.deliveryTime) descParts.push('Livrat: ' + parsed.deliveryDate + ' ' + parsed.deliveryTime);
+
+    // ALERTA: pachet livrat la alta adresa decat cea comandata initial
+    const banEl = document.getElementById('adresa-diferita-banner');
+    if (parsed.adresaLivrareDiferita) {
+      descParts.push('⚠️ PACHET LIVRAT LA ALTĂ ADRESĂ! Original: ' + parsed.origStrasse + ', ' + parsed.origPlz + ' ' + parsed.origOrt + ' · Livrat efectiv: ' + parsed.strasse + ', ' + parsed.plz + ' ' + parsed.ort);
+      const tipEl = document.getElementById('f-tip');
+      if (tipEl) tipEl.value = 'adresa gresita';
+      if (banEl) banEl.innerHTML = `
+        <div style="margin-top:10px;padding:10px 12px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.35);border-radius:8px">
+          <div style="font-size:12px;font-weight:800;color:var(--red);margin-bottom:4px">⚠️ Pachet livrat la altă adresă!</div>
+          <div style="font-size:11px;color:var(--text2)"><strong>Comandat:</strong> ${parsed.origStrasse}, ${parsed.origPlz} ${parsed.origOrt}</div>
+          <div style="font-size:11px;color:var(--text2)"><strong>Livrat:</strong> ${parsed.strasse}, ${parsed.plz} ${parsed.ort}</div>
+        </div>`;
+    } else if (banEl) {
+      banEl.innerHTML = '';
+    }
+
     const descEl = document.getElementById('f-descriere');
     if (descEl && descParts.length) descEl.value = descParts.join(' · ');
 
@@ -8354,7 +8402,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v4.2.0</span>
+  <span id="version-badge-text">v4.3.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
