@@ -979,7 +979,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '4.3.1';
+const APP_VERSION = '4.4.0';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -1433,6 +1433,30 @@ function updateDots() {
 }
 
 // ── Keyboard support for PIN ──
+// ════════════════════════════════════════════════════════
+// COUNTDOWN LIVE — actualizeaza la fiecare secunda badge-urile
+// "Termen AZI" cu timpul ramas pana la 23:59:59
+// ════════════════════════════════════════════════════════
+function updateAllCountdownBadges() {
+  document.querySelectorAll('.countdown-termin-badge').forEach(el => {
+    const target = new Date(el.dataset.target);
+    const now = new Date();
+    const diff = target - now;
+    const valEl = el.querySelector('.countdown-termin-value');
+    if (!valEl) return;
+    if (diff <= 0) {
+      valEl.textContent = '00:00:00';
+      return;
+    }
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    valEl.textContent = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+  });
+}
+setInterval(updateAllCountdownBadges, 1000);
+
+
 document.addEventListener('keydown', (e) => {
   // Only active when PIN pad is visible AND login screen is active (not in app)
   const loginActive = document.getElementById('screen-login')?.classList.contains('active');
@@ -2627,7 +2651,9 @@ function reclItemHTML(r, compact) {
             // DEPASIT — rosu aprins, pulsating
             return `<span style="color:#fff;background:#dc2626;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11px;animation:pulse-red 1.5s infinite">🚨 Termen depășit cu ${Math.abs(diffDays)} zile!</span>`;
           } else if (diffDays === 0) {
-            return `<span style="color:#fff;background:#ea580c;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11px;animation:pulse-red 1.5s infinite">🚨 Termen AZI!</span>`;
+            // Termen AZI — afisam countdown LIVE pana la 23:59:59 (actualizat la fiecare secunda)
+            const targetEnd = new Date(terminDate.getFullYear(), terminDate.getMonth(), terminDate.getDate(), 23, 59, 59);
+            return `<span class="countdown-termin-badge" data-target="${targetEnd.toISOString()}" style="color:#fff;background:#ea580c;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11px;animation:pulse-red 1.5s infinite;display:inline-flex;align-items:center;gap:5px">🚨 Termen AZI! Expiră în <span class="countdown-termin-value" style="font-family:var(--mono)">--:--:--</span></span>`;
           } else if (diffDays <= 2) {
             return `<span style="color:#fff;background:#d97706;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11px">⚠ Termen în ${diffDays} zile (${terminStr})</span>`;
           } else {
@@ -8092,14 +8118,14 @@ async function handleAbliefererFile(file) {
       }
     }
 
-    if (parsed.ruckinfo) {
-      // Rückinfo bis -> Termin bis
-      const rp = parsed.ruckinfo.split(' ')[0].split('.');
-      if (rp.length === 3) {
-        const yr = parseInt(rp[2]) < 100 ? 2000+parseInt(rp[2]) : parseInt(rp[2]);
-        set('f-termin', `${yr}-${rp[1].padStart(2,'0')}-${rp[0].padStart(2,'0')}`);
-      }
-    }
+    // Termin NU se mai ia din PDF (Rückinfo bis) — se calculeaza automat:
+    // data de azi (cand intra reclamatia in sistem) + 4 zile
+    const terminAuto = new Date();
+    terminAuto.setDate(terminAuto.getDate() + 4);
+    const ty = terminAuto.getFullYear();
+    const tm = String(terminAuto.getMonth()+1).padStart(2,'0');
+    const td = String(terminAuto.getDate()).padStart(2,'0');
+    set('f-termin', `${ty}-${tm}-${td}`);
 
     if (parsed.tour) {
       const e = document.getElementById('f-tura');
@@ -8403,7 +8429,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v4.3.1</span>
+  <span id="version-badge-text">v4.4.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
