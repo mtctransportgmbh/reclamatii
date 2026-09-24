@@ -963,6 +963,24 @@ textarea{resize:vertical;min-height:80px}
 
         <div id="backup-list"></div>
       </div>
+
+      <!-- PACHETE LIVRATE (admin only) -->
+      <div class="page" id="page-pachete">
+        <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div>
+            <div class="page-title">📦 Pachete livrate</div>
+            <div class="page-sub">Import din Excel (Zeiterfassung) · statistică per șofer/lună — vizibil DOAR pentru admin</div>
+          </div>
+          <button class="btn btn-primary" onclick="document.getElementById('pachete-file-input').click()">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:15px;height:15px"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+            Import Excel
+          </button>
+          <input type="file" id="pachete-file-input" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="handlePacheteFile(this.files[0])"/>
+        </div>
+
+        <div id="pachete-import-preview"></div>
+        <div id="pachete-stats-view"></div>
+      </div>
     </div>
 
     <!-- Mobile bottom nav -->
@@ -979,7 +997,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '4.4.1';
+const APP_VERSION = '4.7.0';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -1600,6 +1618,7 @@ const NAV_ITEMS = [
   { id:'soferi', label:'Șoferi & Ture', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>', roles:['admin'] },
   { id:'utilizatori', label:'Utilizatori', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>', roles:['admin'] },
   { id:'backup', label:'Backup', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/>', roles:['admin'] },
+  { id:'pachete', label:'Pachete livrate', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6.75 4.5l3-3m0 0l3 3m-3-3v6m-9-13.5h18c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125H3.375c-.621 0-1.125-.504-1.125-1.125v-1.5c0-.621.504-1.125 1.125-1.125z"/>', roles:['admin'] },
 ];
 
 function visibleNav() {
@@ -1647,6 +1666,7 @@ function showPage(id) {
   if (id==='soferi') renderSoferi();
   if (id==='arhiva-soferi') renderArhivaSoferi();
   if (id==='backup') renderBackupPage();
+  if (id==='pachete') renderPacheteStatsView();
   if (id==='import-auto') renderImportAutoPage();
   if (id==='utilizatori') renderUtilizatori();
   if (id==='dashboard') renderDashboard();
@@ -3306,10 +3326,12 @@ async function renderStatistici() {
     document.getElementById('stats-sub').textContent =
       `${statsCache.toateReclamatiile.length} total (${statsCache.reclManuale.length} manuale + ${statsCache.rechnPozitii.length} din rechnunguri)${statsCache.userLoc?' · '+statsCache.userLoc:''}`;
 
-    // Alert badge on tab
+    // Alert badge on tab — include si disputele si reclamatiile nerezolvate fara factura
     const alertTab = document.getElementById('tab-alerte');
-    if (alertTab && statsCache.alerte.length > 0) {
-      alertTab.textContent = `⚠ Alerte (${statsCache.alerte.length})`;
+    const neplatiteCount = (statsCache.toateReclamatiile||[]).filter(r => r.sursa!=='rechnung' && r.status==='nerezolvata').length;
+    const totalAlertCount = statsCache.alerte.length + neplatiteCount;
+    if (alertTab && totalAlertCount > 0) {
+      alertTab.textContent = `⚠ Alerte (${totalAlertCount})`;
       alertTab.classList.add('has-alert');
     }
 
@@ -3970,7 +3992,41 @@ function renderStatsSoferi(d) {
 
   const arhivatiCount = d.soferi.filter(s=>s.arhivat).length;
 
+  // TOP 10 cei mai buni soferi — cei cu cel mai mic procent de reclamatii
+  // raportat la pachetele livrate (reclamatii/pachete*100), nu doar numar brut,
+  // ca sa fie o comparatie corecta intre soferi cu volume diferite de livrari
+  const activiCuVolum = sorted
+    .map(([tura,s]) => {
+      const total = s.manual + s.rechnung;
+      const pachete = d.pachetePerTura[tura] || 0;
+      const procent = pachete > 0 ? (total/pachete)*100 : null;
+      return { tura, numeSofer: s.numeSofer, locatie: s.locatie, total, pachete, procent };
+    })
+    .filter(x => x.pachete > 0); // doar soferi cu volum de livrari cunoscut, pt comparatie corecta
+
+  const topBuni = [...activiCuVolum].sort((a,b) => a.procent - b.procent).slice(0,10);
+
+  const topBuniSection = topBuni.length < 2 ? '' : `
+    <div class="card" style="margin-bottom:14px;padding:14px 16px;border-color:rgba(52,211,153,0.3);background:var(--green-bg)">
+      <div style="font-size:13px;font-weight:800;color:var(--green);margin-bottom:2px">🏆 Top 10 cei mai buni șoferi</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Cel mai mic procent de reclamații raportat la pachetele livrate</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">
+        ${topBuni.map((s,i) => `
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg2);border-radius:8px;cursor:pointer"
+            onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'"
+            onclick="lcShowSoferByTura('${s.tura}')">
+            <span style="width:22px;height:22px;border-radius:50%;background:${i===0?'#fbbf24':i===1?'#d1d5db':i===2?'#d97706':'var(--bg3)'};color:${i<3?'#000':'var(--text3)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">${i+1}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">T.${s.tura} ${s.numeSofer||''}</div>
+              <div style="font-size:10px;color:var(--text3)">${currentUser?.role==='admin' ? s.total+' recl. / '+s.pachete+' pachete' : s.total+' reclamații'}</div>
+            </div>
+            <span style="font-size:13px;font-weight:800;color:var(--green);font-family:var(--mono)">${s.procent.toFixed(2)}%</span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+
   el.innerHTML = `
+    ${topBuniSection}
     <div class="card" style="margin-bottom:14px;padding:12px 14px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <span style="font-size:12px;color:var(--text3);font-weight:600">Filtrează an:</span>
@@ -5318,17 +5374,26 @@ function renderStatsAlerte(d) {
   const dispute = d.alerte.filter(a => a.tip === 'DISPUTA');
   const disputaSuma = dispute.reduce((s,a) => s+(a.suma||0), 0);
 
-  if (!dispute.length) {
+  // Reclamatii NEREZOLVATE si care NU au fost gasite in niciun rechnung —
+  // adica nu a venit inca nicio factura pentru acel pachet.
+  // (orice reclamatie din toateReclamatiile cu sursa!=='rechnung' nu s-a
+  // potrivit deja cu nicio pozitie facturata — logica de dedup exclude
+  // automat manualele care CHIAR au factura, deci filtrul e simplu)
+  const neplatiteNerezolvate = (d.toateReclamatiile||[]).filter(r =>
+    r.sursa !== 'rechnung' && r.status === 'nerezolvata'
+  );
+
+  if (!dispute.length && !neplatiteNerezolvate.length) {
     el.innerHTML = `<div class="empty">
       <div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
-      <div class="empty-title" style="color:var(--green)">Nicio dispută!</div>
-      <div class="empty-sub">Nu există reclamații rezolvate care apar și în rechnunguri</div>
+      <div class="empty-title" style="color:var(--green)">Totul e în regulă!</div>
+      <div class="empty-sub">Nicio dispută și nicio reclamație nerezolvată fără factură</div>
     </div>`;
     return;
   }
 
-  el.innerHTML = `
-    <div style="margin-bottom:14px">
+  const disputeSection = !dispute.length ? '' : `
+    <div style="margin-bottom:20px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
         <div style="font-size:15px;font-weight:800;color:var(--accent)">⚠ DISPUTE — Rezolvate dar facturate</div>
         <span class="badge badge-yellow">${dispute.length} cazuri · €${disputaSuma.toFixed(2)} contestabil</span>
@@ -5360,6 +5425,42 @@ function renderStatsAlerte(d) {
           </div>
         </div>`).join('')}
     </div>`;
+
+  const neplatiteSection = !neplatiteNerezolvate.length ? '' : `
+    <div style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <div style="font-size:15px;font-weight:800;color:var(--blue)">📭 Nerezolvate & fără factură</div>
+        <span class="badge badge-blue">${neplatiteNerezolvate.length} pachete</span>
+        <button class="btn btn-ghost" style="font-size:11px;padding:6px 12px;margin-left:auto" onclick="showReclamatiiModal('📭 Nerezolvate fără factură', statsCache.toateReclamatiile.filter(r=>r.sursa!=='rechnung'&&r.status==='nerezolvata'))">
+          👁 Vezi toate
+        </button>
+      </div>
+      <div style="background:var(--blue-bg);border:1px solid var(--blue-border,rgba(59,130,246,0.25));border-radius:var(--radius);padding:11px 14px;margin-bottom:14px;font-size:12px;color:var(--text2)">
+        Aceste pachete au fost reclamate de client, sunt încă <strong style="color:var(--red)">nerezolvate</strong>,
+        și <strong>Hermes nu a trimis încă nicio factură</strong> pentru ele — nu se știe dacă vor fi facturate sau nu.
+      </div>
+      ${neplatiteNerezolvate.slice(0,15).map(r => {
+        const dt = r.dataReclamatie instanceof Date ? r.dataReclamatie : r.dataReclamatie?.toDate ? r.dataReclamatie.toDate() : (r.createdAt?.toDate ? r.createdAt.toDate() : null);
+        return `
+        <div class="alert-card" style="margin-bottom:8px;border-color:var(--border)">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:180px">
+              <div style="font-size:13px;font-weight:700;margin-bottom:5px">
+                🚚 T.${r.turaSofer||r.tour||'—'} — <span style="color:var(--text)">${r.numeClient||r.name||'—'}</span>
+              </div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.8">
+                📦 ${r.numePachet||'—'} ${r.numarPachet?'· #'+r.numarPachet:''}<br/>
+                📅 ${dt?dt.toLocaleDateString('ro-RO'):'—'} · 📍 ${[r.strada||r.strasse,r.plz,r.ort].filter(Boolean).join(' ')||'—'}
+              </div>
+              ${r.adaugatDeNume||r.adaugatDe?`<div style="font-size:11px;color:var(--text3);margin-top:5px">👤 ${r.adaugatDeNume||r.adaugatDe}</div>`:''}
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+      ${neplatiteNerezolvate.length > 15 ? `<div style="text-align:center;padding:8px;font-size:11px;color:var(--text3)">...și încă ${neplatiteNerezolvate.length-15} — click "Vezi toate"</div>` : ''}
+    </div>`;
+
+  el.innerHTML = disputeSection + neplatiteSection;
 }
 
 
@@ -6704,6 +6805,205 @@ async function runFullBackup(motiv, isManual) {
     if (isManual && btn) { btn.disabled = false; btn.innerHTML = '💾 Backup acum'; }
   }
 }
+
+// ════════════════════════════════════════════════════════
+// PACHETE LIVRATE — import din Excel Zeiterfassung (admin only)
+// Fiecare sofer are propria foaie: F3=nume, I3=luna(text DE), I4=an,
+// I6:I36=pachete pe zi (coloana "Bemerkung" refolosita)
+// ════════════════════════════════════════════════════════
+
+const MONTHS_DE_MAP = {
+  'januar':1,'februar':2,'märz':3,'marz':3,'april':4,'mai':5,'juni':6,
+  'juli':7,'august':8,'september':9,'oktober':10,'november':11,'dezember':12
+};
+
+let packageImportQueue = [];
+
+async function handlePacheteFile(file) {
+  if (!file) return;
+  const preview = document.getElementById('pachete-import-preview');
+  preview.innerHTML = `<div class="card" style="text-align:center;padding:24px"><div class="spinner" style="margin:0 auto 10px"></div><div style="font-size:13px;color:var(--text3)">Se procesează fișierul...</div></div>`;
+
+  try {
+    const data = await file.arrayBuffer();
+    const wb = XLSX.read(data, { type: 'array', cellDates: true });
+
+    const skipSheets = ['Angajati', 'Model'];
+    const results = [];
+
+    for (const sheetName of wb.SheetNames) {
+      if (skipSheets.includes(sheetName)) continue;
+      const ws = wb.Sheets[sheetName];
+      if (!ws) continue;
+
+      const nume = (ws['F3']?.v || sheetName || '').toString().trim();
+      const lunaText = (ws['I3']?.v || '').toString().trim().toLowerCase();
+      const an = parseInt(ws['I4']?.v) || null;
+      const lunaNum = MONTHS_DE_MAP[lunaText] || null;
+
+      let total = 0;
+      for (let row = 6; row <= 36; row++) {
+        const cell = ws['I' + row];
+        const val = cell?.v;
+        if (typeof val === 'number') total += val;
+      }
+
+      if (total > 0 && lunaNum && an) {
+        const matched = allSoferi.find(s => (s.numeSofer||'').trim().toLowerCase() === nume.toLowerCase());
+        results.push({
+          nume, sheetName, luna: lunaNum, an, total,
+          tura: matched ? matched.tura : '',
+          matched: !!matched
+        });
+      }
+    }
+
+    packageImportQueue = results;
+    renderPacheteImportPreview();
+  } catch(e) {
+    preview.innerHTML = `<div class="card" style="color:var(--red);padding:16px">Eroare la citirea fișierului: ${e.message}</div>`;
+  }
+}
+
+function renderPacheteImportPreview() {
+  const el = document.getElementById('pachete-import-preview');
+  if (!el) return;
+
+  if (packageImportQueue.length === 0) {
+    el.innerHTML = `<div class="card" style="padding:16px;color:var(--text3);font-size:13px">Niciun șofer cu date valide găsit în fișier.</div>`;
+    return;
+  }
+
+  const matchedCount = packageImportQueue.filter(r => r.matched).length;
+  const unmatchedCount = packageImportQueue.length - matchedCount;
+  const lunaLabel = packageImportQueue[0] ? MONTHS_RO[packageImportQueue[0].luna-1] + ' ' + packageImportQueue[0].an : '';
+
+  const soferOpts = allSoferi.filter(s=>s.tura).sort((a,b)=>parseInt(a.tura||0)-parseInt(b.tura||0))
+    .map(s => `<option value="${s.tura}">${s.tura} — ${s.numeSofer}</option>`).join('');
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+        <div>
+          <div style="font-size:14px;font-weight:800">📋 Preview import — ${lunaLabel}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px">
+            ${packageImportQueue.length} șoferi găsiți · <span style="color:var(--green)">✓ ${matchedCount} potriviți automat</span>
+            ${unmatchedCount>0?` · <span style="color:#f59e0b">⚠ ${unmatchedCount} necesită confirmare tură</span>`:''}
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="confirmPacheteImport()">✓ Confirmă și salvează (${packageImportQueue.length})</button>
+      </div>
+      <div style="overflow-x:auto;max-height:400px;overflow-y:auto">
+        <table class="data-table" style="font-size:12px;min-width:500px">
+          <thead><tr><th>Nume (Excel)</th><th style="text-align:right">Pachete</th><th>Tură</th></tr></thead>
+          <tbody>
+            ${packageImportQueue.map((r,i) => `
+              <tr>
+                <td style="font-weight:600">${r.matched?'✅':'⚠️'} ${r.nume}</td>
+                <td style="text-align:right;font-family:var(--mono);font-weight:700">${r.total}</td>
+                <td>
+                  <select onchange="packageImportQueue[${i}].tura=this.value" style="font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text)">
+                    <option value="">— fără tură —</option>
+                    ${allSoferi.filter(s=>s.tura).sort((a,b)=>parseInt(a.tura||0)-parseInt(b.tura||0)).map(s=>`<option value="${s.tura}" ${String(r.tura)===String(s.tura)?'selected':''}>${s.tura} — ${s.numeSofer}</option>`).join('')}
+                  </select>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+async function confirmPacheteImport() {
+  const valid = packageImportQueue.filter(r => r.tura);
+  const skipped = packageImportQueue.length - valid.length;
+  if (valid.length === 0) { toast('Niciun șofer cu tură asignată — nimic de salvat', 'error'); return; }
+
+  if (!confirm(`Salvezi ${valid.length} înregistrări de pachete livrate?${skipped>0?` (${skipped} fără tură vor fi sărite)`:''}`)) return;
+
+  try {
+    const batch = db.batch();
+    valid.forEach(r => {
+      const docId = `${r.tura}_${r.an}_${String(r.luna).padStart(2,'0')}`;
+      const ref = db.collection('pachete_livrate').doc(docId);
+      const sofer = allSoferi.find(s => String(s.tura) === String(r.tura));
+      batch.set(ref, {
+        turaSofer: r.tura,
+        numeSofer: sofer ? sofer.numeSofer : r.nume,
+        luna: r.luna,
+        an: r.an,
+        pachete: r.total,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: currentUser?.name || 'admin'
+      });
+    });
+    await batch.commit();
+    toast(`✓ ${valid.length} înregistrări salvate!`);
+    packageImportQueue = [];
+    document.getElementById('pachete-import-preview').innerHTML = '';
+    document.getElementById('pachete-file-input').value = '';
+    renderPacheteStatsView();
+  } catch(e) {
+    toast('Eroare la salvare: ' + e.message, 'error');
+  }
+}
+
+async function renderPacheteStatsView() {
+  const el = document.getElementById('pachete-stats-view');
+  if (!el) return;
+  el.innerHTML = `<div class="loading-page" style="padding:20px"><div class="spinner"></div></div>`;
+
+  try {
+    const snap = await db.collection('pachete_livrate').orderBy('an','desc').orderBy('luna','desc').get();
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    if (all.length === 0) {
+      el.innerHTML = `<div class="empty" style="margin-top:20px">
+        <div class="empty-icon">📦</div>
+        <div class="empty-title">Niciun import încă</div>
+        <div class="empty-sub">Încarcă primul fișier Excel cu pachetele livrate</div>
+      </div>`;
+      return;
+    }
+
+    // Grupam pe luna-an, apoi pe sofer in interior
+    const perLuna = {};
+    all.forEach(r => {
+      const key = `${r.an}-${String(r.luna).padStart(2,'0')}`;
+      if (!perLuna[key]) perLuna[key] = { an: r.an, luna: r.luna, soferi: [] };
+      perLuna[key].soferi.push(r);
+    });
+
+    const lunaKeys = Object.keys(perLuna).sort().reverse();
+
+    el.innerHTML = `
+      <div style="font-size:14px;font-weight:800;margin:20px 0 12px">📊 Istoric importuri</div>
+      ${lunaKeys.map(key => {
+        const g = perLuna[key];
+        const total = g.soferi.reduce((s,x)=>s+(x.pachete||0),0);
+        const sortedSoferi = g.soferi.sort((a,b) => (b.pachete||0)-(a.pachete||0));
+        return `
+        <div class="card" style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+            <div style="font-size:13px;font-weight:800;color:var(--accent)">${MONTHS_RO[g.luna-1]} ${g.an}</div>
+            <span style="font-size:11px;color:var(--text3)">${g.soferi.length} șoferi · <strong style="color:var(--text)">${total.toLocaleString()}</strong> pachete total</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px">
+            ${sortedSoferi.map(s => `
+              <div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--bg3);border-radius:6px;font-size:11px">
+                <span style="font-family:var(--mono);font-weight:700;color:var(--accent)">T.${s.turaSofer}</span>
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.numeSofer}</span>
+                <span style="font-weight:800">${s.pachete}</span>
+              </div>`).join('')}
+          </div>
+        </div>`;
+      }).join('')}
+    `;
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red);padding:16px">Eroare: ${e.message}</div>`;
+  }
+}
+
 
 async function renderBackupPage() {
   const statusEl = document.getElementById('backup-status-card');
@@ -8433,7 +8733,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v4.4.1</span>
+  <span id="version-badge-text">v4.7.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
