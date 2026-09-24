@@ -997,7 +997,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '4.7.0';
+const APP_VERSION = '4.7.1';
 const APP_VERSION_DATE = '26.06.2026';
 
 
@@ -6954,8 +6954,11 @@ async function renderPacheteStatsView() {
   el.innerHTML = `<div class="loading-page" style="padding:20px"><div class="spinner"></div></div>`;
 
   try {
-    const snap = await db.collection('pachete_livrate').orderBy('an','desc').orderBy('luna','desc').get();
-    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Fara orderBy multi-field in Firestore (ar necesita index compus) —
+    // sortam direct in JS dupa fetch, e la fel de rapid pentru volumul de date implicat
+    const snap = await db.collection('pachete_livrate').get();
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a,b) => (b.an - a.an) || (b.luna - a.luna));
 
     if (all.length === 0) {
       el.innerHTML = `<div class="empty" style="margin-top:20px">
@@ -8733,7 +8736,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v4.7.0</span>
+  <span id="version-badge-text">v4.7.1</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 </body>
