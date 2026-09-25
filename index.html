@@ -789,6 +789,7 @@ textarea{resize:vertical;min-height:80px}
           <button class="stats-tab active" data-tab="luna-curenta" onclick="switchStatsTab('luna-curenta',this)">📅 Luna curentă</button>
           <button class="stats-tab" data-tab="general" onclick="switchStatsTab('general',this)">📊 General</button>
           <button class="stats-tab" data-tab="soferi" onclick="switchStatsTab('soferi',this)">🚚 Per șofer</button>
+          <button class="stats-tab" data-tab="topsoferi" onclick="switchStatsTab('topsoferi',this)">🏆 Top șoferi</button>
           <button class="stats-tab" data-tab="persoane" onclick="switchStatsTab('persoane',this)">👤 Per client</button>
           <button class="stats-tab" data-tab="zile" onclick="switchStatsTab('zile',this)">📅 Per zi / lună</button>
           <button class="stats-tab" data-tab="lunar" onclick="switchStatsTab('lunar',this)">📆 Lunar detaliat</button>
@@ -796,11 +797,13 @@ textarea{resize:vertical;min-height:80px}
           <button class="stats-tab" data-tab="harta" onclick="switchStatsTab('harta',this)">🗺 Hartă</button>
           <button class="stats-tab" data-tab="adrese" onclick="switchStatsTab('adrese',this)">📍 Per adresă</button>
           <button class="stats-tab" data-tab="firme" onclick="switchStatsTab('firme',this)">🏢 Firme & Tip daună</button>
+          <button class="stats-tab" data-tab="nefacturate" onclick="switchStatsTab('nefacturate',this)" id="tab-nefacturate">📭 Nerezolvate fără factură</button>
           <button class="stats-tab" data-tab="alerte" onclick="switchStatsTab('alerte',this)" id="tab-alerte">⚠ Alerte</button>
         </div>
         <div id="stats-luna-curenta" class="stats-panel"></div>
         <div id="stats-general" class="stats-panel" style="display:none"></div>
         <div id="stats-soferi" class="stats-panel" style="display:none"></div>
+        <div id="stats-topsoferi" class="stats-panel" style="display:none"></div>
         <div id="stats-persoane" class="stats-panel" style="display:none"></div>
         <div id="stats-zile" class="stats-panel" style="display:none"></div>
         <div id="stats-lunar" class="stats-panel" style="display:none"></div>
@@ -808,6 +811,7 @@ textarea{resize:vertical;min-height:80px}
         <div id="stats-harta" class="stats-panel" style="display:none"></div>
         <div id="stats-adrese" class="stats-panel" style="display:none"></div>
         <div id="stats-firme" class="stats-panel" style="display:none"></div>
+        <div id="stats-nefacturate" class="stats-panel" style="display:none"></div>
         <div id="stats-alerte" class="stats-panel" style="display:none"></div>
       </div>
 
@@ -997,8 +1001,8 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '4.7.1';
-const APP_VERSION_DATE = '26.06.2026';
+const APP_VERSION = '4.9.0';
+const APP_VERSION_DATE = '25.09.2026';
 
 
 async function showVersionInfo() {
@@ -1548,9 +1552,108 @@ async function pinKey(k) {
 // ════════════════════════════════════════════════════════
 // APP ENTRY
 // ════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
+// LOCK OVERLAY — blocheaza aplicatia dupa 10s de inactivitate,
+// cere PIN-ul userului curent pentru deblocare (ca la Concedii)
+// ════════════════════════════════════════════════════════
+const INACTIVITY_LOCK_MS = 10000;
+let inactivityTimer = null;
+let lockPinBuffer = '';
+
+function isAppScreenActive() {
+  return document.getElementById('screen-app')?.classList.contains('active');
+}
+function isLockOverlayVisible() {
+  return document.getElementById('lock-overlay')?.style.display === 'flex';
+}
+
+function resetInactivityTimer() {
+  if (!currentUser || !isAppScreenActive() || isLockOverlayVisible()) return;
+  clearTimeout(inactivityTimer);
+  inactivityTimer = setTimeout(showLockOverlay, INACTIVITY_LOCK_MS);
+}
+function stopInactivityTimer() {
+  clearTimeout(inactivityTimer);
+  inactivityTimer = null;
+}
+
+['mousemove','mousedown','keydown','wheel','scroll','touchstart','click'].forEach(evt => {
+  document.addEventListener(evt, resetInactivityTimer, { passive: true, capture: true });
+});
+
+function showLockOverlay() {
+  if (!currentUser || !isAppScreenActive()) return;
+  const ov = document.getElementById('lock-overlay');
+  if (!ov) return;
+  const av = document.getElementById('lock-avatar');
+  av.style.background = currentUser.bg;
+  av.style.color = currentUser.color;
+  av.style.setProperty('--avatar-glow', currentUser.glow);
+  av.textContent = currentUser.avatar;
+  document.getElementById('lock-username').textContent = currentUser.name;
+  lockPinBuffer = '';
+  updateLockDots();
+  ov.style.display = 'flex';
+}
+
+function hideLockOverlay() {
+  const ov = document.getElementById('lock-overlay');
+  if (ov) ov.style.display = 'none';
+  lockPinBuffer = '';
+  resetInactivityTimer();
+}
+
+function lockLogout() {
+  const ov = document.getElementById('lock-overlay');
+  if (ov) ov.style.display = 'none';
+  stopInactivityTimer();
+  logout();
+}
+
+function updateLockDots() {
+  for (let i = 0; i < 4; i++) {
+    const d = document.getElementById('ld'+i);
+    if (!d) continue;
+    if (i < lockPinBuffer.length) d.classList.add('filled');
+    else d.classList.remove('filled');
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!isLockOverlayVisible()) return;
+  if (e.key >= '0' && e.key <= '9') { e.preventDefault(); lockPinKey(e.key); }
+  if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); lockPinKey('del'); }
+});
+
+async function lockPinKey(k) {
+  if (k === 'del') { lockPinBuffer = lockPinBuffer.slice(0,-1); updateLockDots(); return; }
+  if (lockPinBuffer.length >= 4) return;
+  lockPinBuffer += k;
+  updateLockDots();
+  if (lockPinBuffer.length < 4) return;
+
+  const pin = lockPinBuffer;
+  const uid = currentUser.id;
+  const hashed = hashPin(pin, uid);
+
+  // Admin foloseste email+parola, nu PIN — pentru el nu blocam cu PIN
+  const storedHash = await getPinCloud(uid);
+  if (storedHash && storedHash === hashed) {
+    hideLockOverlay();
+  } else {
+    const dots = document.getElementById('lock-pin-dots');
+    if (dots) {
+      dots.classList.add('shake');
+      setTimeout(() => { dots.classList.remove('shake'); lockPinBuffer=''; updateLockDots(); }, 400);
+    }
+    toast('PIN incorect', 'error');
+  }
+}
+
 function enterApp() {
   document.getElementById('screen-login').classList.remove('active');
   document.getElementById('screen-app').classList.add('active');
+  resetInactivityTimer();
 
   buildSidebar();
   buildMobileNav();
@@ -1574,6 +1677,9 @@ function enterApp() {
 function logout() {
   if (reclamatiUnsubscribe) reclamatiUnsubscribe();
   cancelAlerteSeenTimer();
+  stopInactivityTimer();
+  const lockOv = document.getElementById('lock-overlay');
+  if (lockOv) lockOv.style.display = 'none';
   // Reset all state
   currentUser = null;
   allReclamatii = [];
@@ -2487,9 +2593,15 @@ function renderImportAutoCard(r) {
       <div style="font-size:11px;color:rgba(255,255,255,0.95)"><strong>Livrat efectiv:</strong> ${r.strada||'—'}, ${r.plz||''} ${r.ort||''}</div>
     </div>` : '';
 
+  const ablageortBadge = r.esteAblageort ? `
+    <div style="margin-bottom:12px;padding:10px 12px;background:linear-gradient(135deg,#dc2626,#ea580c);border-radius:8px;animation:pulse-red 2s infinite">
+      <div style="font-size:12px;font-weight:800;color:#fff">⚠️ ACORD DE OPRIRE — pachet lăsat la locul de depozitare stabilit (Ablageort), nu predat direct</div>
+    </div>` : '';
+
   return `
-    <div class="card" style="margin-bottom:12px;border-color:${r.adresaLivrareDiferita?'var(--red)':'rgba(232,197,71,0.3)'}" id="import-auto-card-${r.id}">
+    <div class="card" style="margin-bottom:12px;border-color:${(r.adresaLivrareDiferita||r.esteAblageort)?'var(--red)':'rgba(232,197,71,0.3)'}" id="import-auto-card-${r.id}">
       ${adresaBadge}
+      ${ablageortBadge}
       <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
         <div style="width:38px;height:38px;background:var(--accent-bg);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px">⚡</div>
         <div style="flex:1;min-width:0">
@@ -2650,6 +2762,11 @@ function reclItemHTML(r, compact) {
           r.status==='rezolvata'
             ? `<span class="badge badge-gray" style="font-size:10px">adresă greșită</span>`
             : `<span style="color:#fff;background:linear-gradient(135deg,#dc2626,#ea580c);padding:3px 10px;border-radius:5px;font-weight:800;font-size:11px;letter-spacing:0.4px;text-transform:uppercase;animation:pulse-red 1.5s infinite;display:inline-flex;align-items:center;gap:4px">⚠️ ADRESĂ GREȘITĂ</span>`
+        ) : ''}
+        ${r.esteAblageort ? (
+          r.status==='rezolvata'
+            ? `<span class="badge badge-gray" style="font-size:10px">acord de oprire</span>`
+            : `<span style="color:#fff;background:linear-gradient(135deg,#dc2626,#ea580c);padding:3px 10px;border-radius:5px;font-weight:800;font-size:11px;letter-spacing:0.4px;text-transform:uppercase;animation:pulse-red 1.5s infinite;display:inline-flex;align-items:center;gap:4px">⚠️ ACORD DE OPRIRE</span>`
         ) : ''}
         ${(() => {
           if (!r.termin) return '';
@@ -2990,6 +3107,12 @@ async function saveReclamatie() {
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
+  // Flag ACORD DE OPRIRE (Ablageort) — doar la adaugare noua, din PDF-ul tras in formular;
+  // NU se atinge la editare, ca sa nu suprascriem valoarea existenta cu una stale
+  if (!editingId) {
+    payload.esteAblageort = !!(window._lastAblieferung && window._lastAblieferung.esteAblageort);
+  }
+
   try {
     if (editingId) {
       await db.collection('reclamatii').doc(editingId).update(payload);
@@ -3308,7 +3431,7 @@ async function loadStatsData() {
 
   return {
     soferi, reclManuale, rechnPozitii, toateReclamatiile, alerte,
-    perSofer, perPersoana, perZi, perLuna, perAn, pachetePerTura,
+    perSofer, perPersoana, perZi, perLuna, perAn, pachetePerTura, pacheteRaw: pachete,
     perAdresa, perPLZ,
     rechnunguri, seeAll, userLoc
   };
@@ -3317,7 +3440,7 @@ async function loadStatsData() {
 async function renderStatistici() {
   const el = document.getElementById('stats-general');
   el.innerHTML = `<div class="loading-page"><div class="spinner"></div></div>`;
-  ['stats-soferi','stats-persoane','stats-zile','stats-alerte'].forEach(id=>{
+  ['stats-soferi','stats-topsoferi','stats-persoane','stats-zile','stats-nefacturate','stats-alerte'].forEach(id=>{
     const e=document.getElementById(id); if(e) e.innerHTML='';
   });
 
@@ -3326,17 +3449,34 @@ async function renderStatistici() {
     document.getElementById('stats-sub').textContent =
       `${statsCache.toateReclamatiile.length} total (${statsCache.reclManuale.length} manuale + ${statsCache.rechnPozitii.length} din rechnunguri)${statsCache.userLoc?' · '+statsCache.userLoc:''}`;
 
-    // Alert badge on tab — include si disputele si reclamatiile nerezolvate fara factura
+    // Alert badge pe tab-ul Alerte — STRICT dispute (rezolvate dar facturate)
     const alertTab = document.getElementById('tab-alerte');
+    if (alertTab) {
+      if (statsCache.alerte.length > 0) {
+        alertTab.textContent = `⚠ Alerte (${statsCache.alerte.length})`;
+        alertTab.classList.add('has-alert');
+      } else {
+        alertTab.textContent = `⚠ Alerte`;
+        alertTab.classList.remove('has-alert');
+      }
+    }
+
+    // Badge separat pe tab-ul "Nerezolvate fără factură"
+    const nefactTab = document.getElementById('tab-nefacturate');
     const neplatiteCount = (statsCache.toateReclamatiile||[]).filter(r => r.sursa!=='rechnung' && r.status==='nerezolvata').length;
-    const totalAlertCount = statsCache.alerte.length + neplatiteCount;
-    if (alertTab && totalAlertCount > 0) {
-      alertTab.textContent = `⚠ Alerte (${totalAlertCount})`;
-      alertTab.classList.add('has-alert');
+    if (nefactTab) {
+      if (neplatiteCount > 0) {
+        nefactTab.textContent = `📭 Nerezolvate fără factură (${neplatiteCount})`;
+        nefactTab.classList.add('has-alert');
+      } else {
+        nefactTab.textContent = `📭 Nerezolvate fără factură`;
+        nefactTab.classList.remove('has-alert');
+      }
     }
 
     renderStatsGeneral(statsCache);
     renderStatsSoferi(statsCache);
+    renderStatsTopSoferi(statsCache);
     renderStatsPersoane(statsCache);
     renderStatsZile(statsCache);
     renderStatsLunaCurenta(statsCache);
@@ -3344,6 +3484,7 @@ async function renderStatistici() {
     renderStatsAnual(statsCache);
     renderStatsAdrese(statsCache);
     renderStatsFirme(statsCache);
+    renderStatsNefacturate(statsCache);
     renderStatsAlerte(statsCache);
     // Harta: incarcam cache-ul Firestore de geocodare INAINTE de a randa,
     // ca sa nu reinterogam Nominatim de fiecare data
@@ -3992,41 +4133,7 @@ function renderStatsSoferi(d) {
 
   const arhivatiCount = d.soferi.filter(s=>s.arhivat).length;
 
-  // TOP 10 cei mai buni soferi — cei cu cel mai mic procent de reclamatii
-  // raportat la pachetele livrate (reclamatii/pachete*100), nu doar numar brut,
-  // ca sa fie o comparatie corecta intre soferi cu volume diferite de livrari
-  const activiCuVolum = sorted
-    .map(([tura,s]) => {
-      const total = s.manual + s.rechnung;
-      const pachete = d.pachetePerTura[tura] || 0;
-      const procent = pachete > 0 ? (total/pachete)*100 : null;
-      return { tura, numeSofer: s.numeSofer, locatie: s.locatie, total, pachete, procent };
-    })
-    .filter(x => x.pachete > 0); // doar soferi cu volum de livrari cunoscut, pt comparatie corecta
-
-  const topBuni = [...activiCuVolum].sort((a,b) => a.procent - b.procent).slice(0,10);
-
-  const topBuniSection = topBuni.length < 2 ? '' : `
-    <div class="card" style="margin-bottom:14px;padding:14px 16px;border-color:rgba(52,211,153,0.3);background:var(--green-bg)">
-      <div style="font-size:13px;font-weight:800;color:var(--green);margin-bottom:2px">🏆 Top 10 cei mai buni șoferi</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Cel mai mic procent de reclamații raportat la pachetele livrate</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">
-        ${topBuni.map((s,i) => `
-          <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg2);border-radius:8px;cursor:pointer"
-            onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'"
-            onclick="lcShowSoferByTura('${s.tura}')">
-            <span style="width:22px;height:22px;border-radius:50%;background:${i===0?'#fbbf24':i===1?'#d1d5db':i===2?'#d97706':'var(--bg3)'};color:${i<3?'#000':'var(--text3)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">${i+1}</span>
-            <div style="flex:1;min-width:0">
-              <div style="font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">T.${s.tura} ${s.numeSofer||''}</div>
-              <div style="font-size:10px;color:var(--text3)">${currentUser?.role==='admin' ? s.total+' recl. / '+s.pachete+' pachete' : s.total+' reclamații'}</div>
-            </div>
-            <span style="font-size:13px;font-weight:800;color:var(--green);font-family:var(--mono)">${s.procent.toFixed(2)}%</span>
-          </div>`).join('')}
-      </div>
-    </div>`;
-
   el.innerHTML = `
-    ${topBuniSection}
     <div class="card" style="margin-bottom:14px;padding:12px 14px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <span style="font-size:12px;color:var(--text3);font-weight:600">Filtrează an:</span>
@@ -4331,6 +4438,140 @@ function setSoferiSearch(val) {
   }
 }
 
+
+// ── TAB "TOP ȘOFERI" — separat de "Per șofer", cu vizualizare Total / Per an / Per lună ──
+let topSoferiMode = 'total'; // 'total' | 'an' | 'luna'
+let topSoferiYear = null;
+let topSoferiMonth = null; // 1-12
+
+function setTopSoferiMode(mode) {
+  topSoferiMode = mode;
+  if (!statsCache) return;
+  renderStatsTopSoferi(statsCache);
+}
+function setTopSoferiYear(y) {
+  topSoferiYear = y;
+  if (!statsCache) return;
+  renderStatsTopSoferi(statsCache);
+}
+function setTopSoferiMonth(m) {
+  topSoferiMonth = m;
+  if (!statsCache) return;
+  renderStatsTopSoferi(statsCache);
+}
+
+function renderStatsTopSoferi(d) {
+  const el = document.getElementById('stats-topsoferi');
+  if (!el) return;
+
+  const pacheteRaw = d.pacheteRaw || [];
+
+  // Ani disponibili — din pachetele livrate incarcate (Excel Zeiterfassung)
+  const years = [...new Set(pacheteRaw.map(p => p.an).filter(Boolean))].sort((a,b) => b-a);
+  if (topSoferiYear === null && years.length) topSoferiYear = years[0];
+  if (topSoferiMonth === null) topSoferiMonth = new Date().getMonth() + 1;
+
+  // Helper: extrage data unei reclamatii (Date sau Firestore Timestamp)
+  const getDate = (r) => r.dataReclamatie instanceof Date ? r.dataReclamatie
+    : r.dataReclamatie?.toDate ? r.dataReclamatie.toDate()
+    : (r.createdAt?.toDate ? r.createdAt.toDate() : null);
+
+  // Filtram reclamatiile si pachetele livrate dupa modul ales
+  let reclFiltrate = d.toateReclamatiile || [];
+  let pacheteFiltrate = pacheteRaw;
+  let periodLabel = 'Total general (toată perioada)';
+
+  if (topSoferiMode === 'an' && topSoferiYear) {
+    reclFiltrate = reclFiltrate.filter(r => { const dt = getDate(r); return dt && dt.getFullYear() === topSoferiYear; });
+    pacheteFiltrate = pacheteRaw.filter(p => p.an === topSoferiYear);
+    periodLabel = `Anul ${topSoferiYear}`;
+  } else if (topSoferiMode === 'luna' && topSoferiYear && topSoferiMonth) {
+    reclFiltrate = reclFiltrate.filter(r => { const dt = getDate(r); return dt && dt.getFullYear() === topSoferiYear && (dt.getMonth()+1) === topSoferiMonth; });
+    pacheteFiltrate = pacheteRaw.filter(p => p.an === topSoferiYear && p.luna === topSoferiMonth);
+    periodLabel = `${MONTHS_RO[topSoferiMonth-1]} ${topSoferiYear}`;
+  }
+
+  // Agregam pachete livrate per tura, pt perioada selectata
+  const pachetePerTuraPeriod = {};
+  pacheteFiltrate.forEach(p => { pachetePerTuraPeriod[p.turaSofer] = (pachetePerTuraPeriod[p.turaSofer]||0) + (p.pachete||0); });
+
+  // Agregam reclamatii per tura, pt perioada selectata
+  const reclPerTuraPeriod = {};
+  reclFiltrate.forEach(r => {
+    const t = String(r.turaSofer || r.tour || '');
+    if (!t) return;
+    reclPerTuraPeriod[t] = (reclPerTuraPeriod[t]||0) + 1;
+  });
+
+  const soferiMap = {};
+  (d.soferi||[]).forEach(s => { soferiMap[s.tura] = s; });
+
+  const rankList = Object.keys(pachetePerTuraPeriod)
+    .map(tura => {
+      const pachete = pachetePerTuraPeriod[tura] || 0;
+      const total = reclPerTuraPeriod[tura] || 0;
+      const procent = pachete > 0 ? (total/pachete)*100 : null;
+      const s = soferiMap[tura];
+      return { tura, numeSofer: s?.numeSofer || '', locatie: s?.locatie || '', total, pachete, procent };
+    })
+    .filter(x => x.pachete > 0);
+
+  const topBuni = [...rankList].sort((a,b) => a.procent - b.procent).slice(0,10);
+
+  const modeButtons = `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <button class="filter-btn ${topSoferiMode==='total'?'active':''}" onclick="setTopSoferiMode('total')">Total general</button>
+      <button class="filter-btn ${topSoferiMode==='an'?'active':''}" onclick="setTopSoferiMode('an')">Per an</button>
+      <button class="filter-btn ${topSoferiMode==='luna'?'active':''}" onclick="setTopSoferiMode('luna')">Per lună</button>
+    </div>
+    ${topSoferiMode === 'an' ? `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+      ${years.map(y => `<button class="filter-btn ${topSoferiYear===y?'active':''}" onclick="setTopSoferiYear(${y})">${y}</button>`).join('') || '<span style="font-size:12px;color:var(--text3)">Niciun an disponibil — încarcă pachete livrate</span>'}
+    </div>` : ''}
+    ${topSoferiMode === 'luna' ? `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+      ${years.map(y => `<button class="filter-btn ${topSoferiYear===y?'active':''}" onclick="setTopSoferiYear(${y})">${y}</button>`).join('') || '<span style="font-size:12px;color:var(--text3)">Niciun an disponibil — încarcă pachete livrate</span>'}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+      ${MONTHS_RO.map((m,i) => `<button class="filter-btn" style="${topSoferiMonth===i+1?'background:var(--accent);color:#000;border-color:var(--accent)':''}" onclick="setTopSoferiMonth(${i+1})">${m.slice(0,3)}</button>`).join('')}
+    </div>` : ''}`;
+
+  if (!topBuni.length) {
+    el.innerHTML = `
+      <div class="card" style="margin-bottom:14px;padding:14px 16px">${modeButtons}</div>
+      <div class="empty">
+        <div class="empty-icon">🏆</div>
+        <div class="empty-title">Nu sunt date suficiente</div>
+        <div class="empty-sub">Nu există pachete livrate încărcate pentru ${periodLabel.toLowerCase()}</div>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:14px;padding:14px 16px">${modeButtons}</div>
+    <div class="card" style="margin-bottom:14px;padding:14px 16px;border-color:rgba(52,211,153,0.3);background:var(--green-bg)">
+      <div style="font-size:13px;font-weight:800;color:var(--green);margin-bottom:2px">🏆 Top 10 cei mai buni șoferi — ${periodLabel}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Cei mai puține reclamații raportat la pachetele livrate</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">
+        ${topBuni.map((s,i) => {
+          const ratioLabel = s.total === 0
+            ? `${s.pachete.toLocaleString()} pachete, 0 recl. 🎉`
+            : `1 la ${Math.round(s.pachete/s.total).toLocaleString()}`;
+          return `
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg2);border-radius:8px;cursor:pointer"
+            onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'"
+            onclick="lcShowSoferByTura('${s.tura}')">
+            <span style="width:22px;height:22px;border-radius:50%;background:${i===0?'#fbbf24':i===1?'#d1d5db':i===2?'#d97706':'var(--bg3)'};color:${i<3?'#000':'var(--text3)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">${i+1}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">T.${s.tura} ${s.numeSofer||''}</div>
+              <div style="font-size:10px;color:var(--text3)">${currentUser?.role==='admin' ? s.total+' recl. / '+s.pachete+' pachete' : s.total+' reclamații'}</div>
+            </div>
+            <span style="font-size:12px;font-weight:800;color:var(--green);font-family:var(--mono);white-space:nowrap">${ratioLabel}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
 
 // ── TAB 3: PER PERSOANA ──
 function renderStatsPersoane(d) {
@@ -5374,20 +5615,14 @@ function renderStatsAlerte(d) {
   const dispute = d.alerte.filter(a => a.tip === 'DISPUTA');
   const disputaSuma = dispute.reduce((s,a) => s+(a.suma||0), 0);
 
-  // Reclamatii NEREZOLVATE si care NU au fost gasite in niciun rechnung —
-  // adica nu a venit inca nicio factura pentru acel pachet.
-  // (orice reclamatie din toateReclamatiile cu sursa!=='rechnung' nu s-a
-  // potrivit deja cu nicio pozitie facturata — logica de dedup exclude
-  // automat manualele care CHIAR au factura, deci filtrul e simplu)
-  const neplatiteNerezolvate = (d.toateReclamatiile||[]).filter(r =>
-    r.sursa !== 'rechnung' && r.status === 'nerezolvata'
-  );
-
-  if (!dispute.length && !neplatiteNerezolvate.length) {
+  // Alerte = STRICT dispute: reclamatii marcate REZOLVATA de sofer, dar care apar
+  // totusi intr-un rechnung Hermes (deci ar trebui contestate). Reclamatiile
+  // nerezolvate/nefacturate au propriul tab separat (renderStatsNefacturate).
+  if (!dispute.length) {
     el.innerHTML = `<div class="empty">
       <div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
       <div class="empty-title" style="color:var(--green)">Totul e în regulă!</div>
-      <div class="empty-sub">Nicio dispută și nicio reclamație nerezolvată fără factură</div>
+      <div class="empty-sub">Nicio dispută găsită</div>
     </div>`;
     return;
   }
@@ -5426,7 +5661,32 @@ function renderStatsAlerte(d) {
         </div>`).join('')}
     </div>`;
 
-  const neplatiteSection = !neplatiteNerezolvate.length ? '' : `
+  el.innerHTML = disputeSection;
+}
+
+function renderStatsNefacturate(d) {
+  const el = document.getElementById('stats-nefacturate');
+  if (!el) return;
+
+  // Reclamatii NEREZOLVATE si care NU au fost gasite in niciun rechnung —
+  // adica nu a venit inca nicio factura pentru acel pachet.
+  // (orice reclamatie din toateReclamatiile cu sursa!=='rechnung' nu s-a
+  // potrivit deja cu nicio pozitie facturata — logica de dedup exclude
+  // automat manualele care CHIAR au factura, deci filtrul e simplu)
+  const neplatiteNerezolvate = (d.toateReclamatiile||[]).filter(r =>
+    r.sursa !== 'rechnung' && r.status === 'nerezolvata'
+  );
+
+  if (!neplatiteNerezolvate.length) {
+    el.innerHTML = `<div class="empty">
+      <div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
+      <div class="empty-title" style="color:var(--green)">Totul e în regulă!</div>
+      <div class="empty-sub">Nicio reclamație nerezolvată fără factură</div>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = `
     <div style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
         <div style="font-size:15px;font-weight:800;color:var(--blue)">📭 Nerezolvate & fără factură</div>
@@ -5459,8 +5719,6 @@ function renderStatsAlerte(d) {
       }).join('')}
       ${neplatiteNerezolvate.length > 15 ? `<div style="text-align:center;padding:8px;font-size:11px;color:var(--text3)">...și încă ${neplatiteNerezolvate.length-15} — click "Vezi toate"</div>` : ''}
     </div>`;
-
-  el.innerHTML = disputeSection + neplatiteSection;
 }
 
 
@@ -8241,7 +8499,7 @@ function parseSachverhaltPDF(pdfData) {
   const pages = typeof pdfData === 'object' ? pdfData.pages : null;
   const result = { tour:'', deliveryDate:'', deliveryTime:'', name:'', vorname:'', nachname:'',
                     strasse:'', plz:'', ort:'', sendungsId:'', auftraggeber:'', ruckinfo:'', gevoNr:'', auftragsnummer:'',
-                    origStrasse:'', origPlz:'', origOrt:'', adresaLivrareDiferita:false };
+                    origStrasse:'', origPlz:'', origOrt:'', adresaLivrareDiferita:false, esteAblageort:false };
   if (!pages || !pages[0]) return result;
 
   const items = pages[0].items;
@@ -8314,6 +8572,11 @@ function parseSachverhaltPDF(pdfData) {
   // Colectam DINAMIC toate randurile de sub header pana la "Quelle:" — nu folosim offset fix,
   // pentru ca unele PDF-uri au un rand extra (ex: numar apartament/etaj "118") intre nume si strada
   const headerItem = items.find(it => it.text === 'Zustelladresse' || it.text === 'Ablageort' || it.text === 'An Haushalt übergeben');
+
+  // "Ablageort" = pachetul a fost lasat la un loc de depozitare stabilit prin
+  // acord (nu predat direct), spre deosebire de "Zustelladresse"/"übergeben"
+  result.esteAblageort = !!(headerItem && headerItem.text === 'Ablageort');
+
   if (headerItem) {
     const yh = headerItem.y;
 
@@ -8461,6 +8724,15 @@ async function handleAbliefererFile(file) {
         </div>`;
     } else if (banEl) {
       banEl.innerHTML = '';
+    }
+
+    // ALERTA: pachet lasat la locul de depozitare stabilit prin acord (Ablageort), nu predat direct
+    if (parsed.esteAblageort) {
+      descParts.push('⚠️ ACORD DE OPRIRE — pachetul a fost lăsat la locul de depozitare stabilit (Ablageort), nu predat direct');
+      if (banEl) banEl.innerHTML += `
+        <div style="margin-top:10px;padding:10px 12px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.35);border-radius:8px">
+          <div style="font-size:12px;font-weight:800;color:var(--red)">⚠️ Acord de oprire — pachet lăsat la Ablageort, nu predat direct</div>
+        </div>`;
     }
 
     const descEl = document.getElementById('f-descriere');
@@ -8644,9 +8916,9 @@ async function renderUtilizatori() {
               ? '🔒 PIN setat'+(info.pinSetAt?' · '+new Date(info.pinSetAt).toLocaleDateString('ro-RO'):'')+(info.lastLogin?' · Conectare: '+new Date(info.lastLogin.toDate?info.lastLogin.toDate():info.lastLogin).toLocaleDateString('ro-RO'):'')
               : '🔓 PIN nesetat — se va seta la prima conectare'}
           </div>
-          ${!isSelf ? `
+          ${(!isSelf || u.id==='admin') ? `
           <div style="margin-top:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            ${hasPin && info.pin ? `
+            ${hasPin && info.pin && !isSelf ? `
               <div style="display:flex;align-items:center;gap:6px">
                 <span style="font-size:11px;color:var(--text3)">PIN:</span>
                 <span style="font-family:var(--mono);font-size:15px;font-weight:800;
@@ -8655,7 +8927,7 @@ async function renderUtilizatori() {
                   ${info.pin}
                 </span>
               </div>` : `
-              <span style="font-size:11px;color:var(--text3)">${hasPin ? 'PIN: setat (neafișabil — resetează pentru a vedea)' : 'PIN: nesetat'}</span>
+              <span style="font-size:11px;color:var(--text3)">${hasPin ? (isSelf ? 'PIN: setat' : 'PIN: setat (neafișabil — resetează pentru a vedea)') : (isSelf ? 'PIN necesar pentru deblocarea ecranului după inactivitate' : 'PIN: nesetat')}</span>
             `}
             <button onclick="adminSetPin('${u.id}','${u.name}')" style="
               font-size:11px;font-weight:600;background:var(--bg3);
@@ -8736,8 +9008,49 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v4.7.1</span>
+  <span id="version-badge-text">v4.9.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
+</div>
+
+<!-- ═══════════════ LOCK OVERLAY (inactivitate 10s) ═══════════════ -->
+<div id="lock-overlay" style="display:none;position:fixed;inset:0;z-index:99999;flex-direction:column;align-items:center;justify-content:center;padding:24px;
+  background: radial-gradient(ellipse at 20% 50%, rgba(232,197,71,0.04) 0%, transparent 60%),
+              radial-gradient(ellipse at 80% 20%, rgba(96,165,250,0.04) 0%, transparent 60%),
+              var(--bg);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)">
+  <div class="pin-container" style="max-width:300px">
+    <div class="pin-user-info">
+      <div class="pin-avatar" id="lock-avatar"></div>
+      <div class="pin-username" id="lock-username"></div>
+      <div class="pin-hint">🔒 Sesiune blocată — introdu PIN-ul</div>
+    </div>
+    <div class="pin-dots" id="lock-pin-dots">
+      <div class="pin-dot" id="ld0"></div>
+      <div class="pin-dot" id="ld1"></div>
+      <div class="pin-dot" id="ld2"></div>
+      <div class="pin-dot" id="ld3"></div>
+    </div>
+    <div class="keypad">
+      <button class="key" onclick="lockPinKey('1')">1</button>
+      <button class="key" onclick="lockPinKey('2')">2</button>
+      <button class="key" onclick="lockPinKey('3')">3</button>
+      <button class="key" onclick="lockPinKey('4')">4</button>
+      <button class="key" onclick="lockPinKey('5')">5</button>
+      <button class="key" onclick="lockPinKey('6')">6</button>
+      <button class="key" onclick="lockPinKey('7')">7</button>
+      <button class="key" onclick="lockPinKey('8')">8</button>
+      <button class="key" onclick="lockPinKey('9')">9</button>
+      <button class="key empty"></button>
+      <button class="key" onclick="lockPinKey('0')">0</button>
+      <button class="key del" onclick="lockPinKey('del')">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9.75L14.25 12m0 0l2.25 2.25M14.25 12l2.25-2.25M14.25 12L12 14.25m-2.58 4.92l-6.375-6.375a1.125 1.125 0 010-1.59L9.42 4.83c.211-.211.498-.33.796-.33H19.5a2.25 2.25 0 012.25 2.25v10.5a2.25 2.25 0 01-2.25 2.25h-9.284c-.298 0-.585-.119-.796-.33z"/></svg>
+      </button>
+    </div>
+    <button class="pin-back" style="margin-top:18px;justify-content:center;width:100%" onclick="lockLogout()">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/></svg>
+      Ieși din cont
+    </button>
+  </div>
 </div>
 </body>
 </html>
