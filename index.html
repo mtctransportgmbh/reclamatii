@@ -1001,7 +1001,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '4.9.0';
+const APP_VERSION = '4.9.1';
 const APP_VERSION_DATE = '25.09.2026';
 
 
@@ -4512,9 +4512,10 @@ function renderStatsTopSoferi(d) {
       const total = reclPerTuraPeriod[tura] || 0;
       const procent = pachete > 0 ? (total/pachete)*100 : null;
       const s = soferiMap[tura];
-      return { tura, numeSofer: s?.numeSofer || '', locatie: s?.locatie || '', total, pachete, procent };
+      return { tura, numeSofer: s?.numeSofer || '', locatie: s?.locatie || '', arhivat: s?.arhivat||false, total, pachete, procent };
     })
-    .filter(x => x.pachete > 0);
+    // Doar soferii ACTIVI actual — excludem cei arhivati (nu mai sunt la noi)
+    .filter(x => x.pachete > 0 && !x.arhivat);
 
   const topBuni = [...rankList].sort((a,b) => a.procent - b.procent).slice(0,10);
 
@@ -9008,7 +9009,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v4.9.0</span>
+  <span id="version-badge-text">v4.9.1</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
