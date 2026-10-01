@@ -1059,7 +1059,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.2.2';
+const APP_VERSION = '5.3.0';
 const APP_VERSION_DATE = '01.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -9522,10 +9522,24 @@ async function uploadCorinaRechnung(reclId, file) {
     toast('Trebuie să fie un fișier PDF', 'error'); return;
   }
   toast('Se încarcă factura...');
+  const path = `rechnunguri_corina/${reclId}/${Date.now()}_${file.name}`;
   try {
-    const path = `rechnunguri_corina/${reclId}/${Date.now()}_${file.name}`;
     const ref = storage.ref(path);
-    await ref.put(file);
+    // Folosim task.on(...) in loc de await simplu, ca sa putem detecta si un
+    // upload care ramane blocat ("stuck") — nu doar unul care esueaza clar —
+    // si sa afisam mereu un mesaj (nu "nu se intampla nimic").
+    const task = ref.put(file);
+    await new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => reject(new Error('Timeout — uploadul a durat prea mult (peste 30s). Verifică conexiunea la internet.')), 30000);
+      task.on('state_changed',
+        (snap) => {
+          const pct = snap.totalBytes ? Math.round((snap.bytesTransferred / snap.totalBytes) * 100) : 0;
+          console.log('Upload factură Corina:', pct + '%');
+        },
+        (err) => { clearTimeout(timeoutId); reject(err); },
+        () => { clearTimeout(timeoutId); resolve(); }
+      );
+    });
     const url = await ref.getDownloadURL();
     await db.collection('reclamatii_corina').doc(reclId).update({
       rechnungUrl: url,
@@ -9535,7 +9549,15 @@ async function uploadCorinaRechnung(reclId, file) {
     });
     toast('✓ Factură atașată!');
     renderCorinaReclamatii();
-  } catch(e) { toast('Eroare la încărcarea facturii: '+e.message, 'error'); }
+  } catch(e) {
+    console.error('Eroare upload factură Corina:', e);
+    // 'storage/unauthorized' = regulile Storage nu au fost inca lipite in Firebase Console,
+    // sau Storage nu e inca activat pentru acest proiect — cele mai dese cauze reale.
+    const hint = e.code === 'storage/unauthorized'
+      ? ' (verifică dacă Storage e activat în Firebase Console și dacă ai lipit storage.rules)'
+      : e.code ? ' ('+e.code+')' : '';
+    toast('Eroare la încărcarea facturii: ' + e.message + hint, 'error');
+  }
 }
 
 async function deleteCorinaRechnung(reclId) {
@@ -9581,6 +9603,14 @@ async function importCorinaSachverhalt(file) {
     if (parsed.oras) document.getElementById('cr-oras').value = parsed.oras;
     if (parsed.tour) document.getElementById('cr-tour').value = parsed.tour;
     if (parsed.dataOraLivrare) document.getElementById('cr-dataOraLivrare').value = parsed.dataOraLivrare;
+
+    // Completam automat si "Descriere" cu data/ora livrarii (Zugestellt), la fel
+    // cum se intampla si la reclamatiile din restul aplicatiei — doar daca descrierea
+    // e inca goala, ca sa nu stergem ce a scris deja Corina acolo
+    const descEl = document.getElementById('cr-descriere');
+    if (descEl && !descEl.value.trim() && parsed.dataOraLivrare) {
+      descEl.value = `Zugestellt: ${parsed.dataOraLivrare}`;
+    }
 
     if (statusEl) {
       statusEl.textContent = '✓ Completat automat din PDF! Verifică datele, apoi adaugă manual suma.';
@@ -9648,7 +9678,7 @@ function toggleCorinaReclForm(data) {
           <input id="cr-suma" type="number" step="0.01" value="${v.suma||''}" placeholder="0.00"/>
         </div>
         <div class="form-group">
-          <label>Data reclamației</label>
+          <label>Data încărcării reclamației</label>
           <input id="cr-data" type="date" value="${v.dataReclamatie?.toDate ? v.dataReclamatie.toDate().toISOString().slice(0,10) : (v._dataStr||new Date().toISOString().slice(0,10))}"/>
         </div>
         <div class="form-group">
@@ -9795,7 +9825,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.2.2</span>
+  <span id="version-badge-text">v5.3.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
