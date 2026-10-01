@@ -654,6 +654,8 @@ textarea{resize:vertical;min-height:80px}
       <div class="pin-dot" id="d1"></div>
       <div class="pin-dot" id="d2"></div>
       <div class="pin-dot" id="d3"></div>
+      <div class="pin-dot" id="d4"></div>
+      <div class="pin-dot" id="d5"></div>
     </div>
     <div class="keypad">
       <button class="key" onclick="pinKey('1')">1</button>
@@ -985,6 +987,45 @@ textarea{resize:vertical;min-height:80px}
         <div id="pachete-import-preview"></div>
         <div id="pachete-stats-view"></div>
       </div>
+
+      <!-- ═══════════════ SPAȚIUL CORINEI — complet separat, vizibil doar pentru ea ═══════════════ -->
+      <div class="page" id="page-corina-reclamatii">
+        <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div>
+            <div class="page-title">Reclamațiile mele</div>
+            <div class="page-sub">Spațiul personal al Corinei · complet separat de restul aplicației</div>
+          </div>
+          <button class="btn btn-primary" id="btn-add-corina-recl" onclick="toggleCorinaReclForm()">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+            Adaugă
+          </button>
+        </div>
+        <div id="corina-recl-form" style="display:none"></div>
+        <div id="corina-recl-list"></div>
+      </div>
+
+      <div class="page" id="page-corina-soferi">
+        <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div>
+            <div class="page-title">Șoferii mei</div>
+            <div class="page-sub">Lista proprie a Corinei · separată de șoferii din restul aplicației</div>
+          </div>
+          <button class="btn btn-primary" id="btn-add-corina-sofer" onclick="toggleCorinaSoferForm()">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+            Adaugă
+          </button>
+        </div>
+        <div id="corina-sofer-form" style="display:none"></div>
+        <div id="corina-sofer-list"></div>
+      </div>
+
+      <div class="page" id="page-corina-statistici">
+        <div class="page-header">
+          <div class="page-title">Statisticile mele</div>
+          <div class="page-sub">Statistici calculate strict din datele proprii ale Corinei</div>
+        </div>
+        <div id="corina-stats-view"></div>
+      </div>
     </div>
 
     <!-- Mobile bottom nav -->
@@ -1001,8 +1042,12 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '4.9.1';
-const APP_VERSION_DATE = '25.09.2026';
+const APP_VERSION = '5.0.0';
+const APP_VERSION_DATE = '30.09.2026';
+
+// Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
+// "SPAȚIUL CORINEI" / "AUTENTIFICARE PIN" mai jos pentru detalii
+const AUTH_SERVER_BASE = 'https://hermes-parser-server.onrender.com';
 
 
 async function showVersionInfo() {
@@ -1152,6 +1197,7 @@ const USERS = [
   { id:'raluca',   name:'Raluca',   role:'operator', location:'Ruhstorf',  avatar:'R',  color:'#34d399', bg:'rgba(52,211,153,0.15)',  glow:'rgba(52,211,153,0.2)' },
   { id:'mihaela',  name:'Mihaela',  role:'operator_limited', location:'Ruhstorf',  avatar:'Mi', color:'#f472b6', bg:'rgba(244,114,182,0.15)', glow:'rgba(244,114,182,0.2)' },
   { id:'madalina', name:'Mădălina', role:'operator', location:'Eiselfing', avatar:'Md', color:'#a78bfa', bg:'rgba(167,139,250,0.15)', glow:'rgba(167,139,250,0.2)' },
+  { id:'corina',   name:'Corina',   role:'corina',   location:null,        avatar:'C',  color:'#fb923c', bg:'rgba(251,146,60,0.15)',  glow:'rgba(251,146,60,0.2)' },
   { id:'admin',    name:'Admin',    role:'admin',    location:null,        avatar:'A',  color:'#e8c547', bg:'rgba(232,197,71,0.15)',  glow:'rgba(232,197,71,0.25)', email:'paulandreimacarie@yahoo.com' },
 ];
 
@@ -1245,50 +1291,9 @@ function berechneTerMin(datum) {
 // ════════════════════════════════════════════════════════
 // UTILS
 // ════════════════════════════════════════════════════════
-function hashPin(pin, userId) {
-  const salt = userId + 'reclamatii2024salt';
-  let r = '';
-  for (let i = 0; i < pin.length; i++)
-    r += String.fromCharCode(pin.charCodeAt(i) ^ salt.charCodeAt(i % salt.length));
-  return btoa(r);
-}
-
-// ── PIN storage — Firestore only ──
-// pinClar = cifre (ex: "1234"), pinHash = hash XOR base64
-// Le stocam separat in sessionStorage
-function savePinLocal(userId, pinClar) {
-  // Stocam DOAR PIN-ul clar (nu hash-ul)
-  if (!pinClar || pinClar.length !== 4 || !/^\d{4}$/.test(pinClar)) return;
-  const data = JSON.parse(sessionStorage.getItem('reclamatii_pins_clear') || '{}');
-  data[userId] = pinClar;
-  sessionStorage.setItem('reclamatii_pins_clear', JSON.stringify(data));
-}
-
-function getPinLocal(userId) {
-  // Returneaza PIN-ul clar din session (sau null)
-  const data = JSON.parse(sessionStorage.getItem('reclamatii_pins_clear') || '{}');
-  return data[userId] || null;
-}
-
-async function savePinCloud(userId, pinHash, pinClar) {
-  try {
-    await db.collection('users').doc(userId).set({
-      pinHash,
-      pin: pinClar || '', // pin vizibil pentru admin
-      pinSetAt: new Date().toISOString(),
-      lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-  } catch(e) { console.warn('Cloud save failed:', e.message); }
-}
-
-async function getPinCloud(userId) {
-  try {
-    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000));
-    const snap = await Promise.race([db.collection('users').doc(userId).get(), timeout]);
-    if (snap.exists && snap.data().pinHash) return snap.data().pinHash;
-  } catch(e) { console.warn('Cloud read failed:', e.message); }
-  return null;
-}
+// (Vechile functii de PIN client-side — hashPin/savePinLocal/getPinLocal/
+// savePinCloud/getPinCloud — au fost eliminate. Verificarea PIN-ului se face
+// acum 100% pe server, vezi /auth/* din app.py si pinKey()/lockPinKey().)
 
 function fmtDate(ts) {
   if (!ts) return '—';
@@ -1308,7 +1313,7 @@ function canSeeAll(u) { return u && (u.role === 'admin' || u.role === 'tania'); 
 function isLimited(u) { return u?.role === 'operator_limited'; } // Mihaela — doar reclamatii proprii
 function getUserLabel(u) {
   if (!u) return '—';
-  const names = { admin:'Paul (Admin)', tania:'Tania', raluca:'Raluca', mihaela:'Mihaela', madalina:'Mădălina' };
+  const names = { admin:'Paul (Admin)', tania:'Tania', raluca:'Raluca', mihaela:'Mihaela', madalina:'Mădălina', corina:'Corina' };
   return names[u.id] || u.name;
 }
 
@@ -1417,26 +1422,13 @@ async function selectUser(userId) {
   pinBuffer = '';
   tempPin = '';
 
-  // Check session first (instant) then cloud
-  const localPin = getPinLocal(userId); // from sessionStorage
-  if (localPin) {
-    pinMode = 'login';
-    document.getElementById('pin-hint').textContent = 'Introdu PIN-ul tău';
-    updateDots();
-  } else {
-    // No local pin — try cloud briefly
-    document.getElementById('pin-hint').textContent = '...';
-    const cloudHash = await getPinCloud(userId);
-    if (cloudHash) {
-      // Don't save cloudHash as pin — only store clear PIN when user types it
-      pinMode = 'login';
-      document.getElementById('pin-hint').textContent = 'Introdu PIN-ul tău';
-    } else {
-      pinMode = 'setup1';
-      document.getElementById('pin-hint').textContent = 'Setează un PIN de 4 cifre';
-    }
-    updateDots();
-  }
+  // Nu mai citim Firestore direct de aici (userul nu e inca autentificat,
+  // iar regulile Firestore cer request.auth != null) — pornim mereu in
+  // modul 'login'; daca serverul raspunde "no_pin_set" la prima incercare,
+  // pinKey() comuta singur pe modul de setare a unui PIN nou.
+  pinMode = 'login';
+  document.getElementById('pin-hint').textContent = 'Introdu PIN-ul tău';
+  updateDots();
 }
 
 function backToSelect() {
@@ -1446,9 +1438,12 @@ function backToSelect() {
   currentUser = null; pinBuffer = '';
 }
 
+const PIN_LENGTH = 6; // PIN de 6 cifre pentru toti userii (in afara de Admin, care are email+parola)
+
 function updateDots() {
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < PIN_LENGTH; i++) {
     const d = document.getElementById('d'+i);
+    if (!d) continue;
     if (i < pinBuffer.length) d.classList.add('filled');
     else d.classList.remove('filled');
   }
@@ -1491,61 +1486,135 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); pinKey('del'); }
 });
 
+// ── Autentificare PIN — verificare 100% pe server (vezi app.py /auth/*) ──
+// PIN-ul nu mai e NICIODATA comparat sau hash-uit in JS-ul din browser.
+// Trimitem cele 6 cifre catre server, care verifica impotriva hash-ului
+// salvat (cu salt secret, cunoscut doar de server) si tine evidenta
+// incercarilor gresite in Firestore (rezista si la refresh de pagina).
+// Daca PIN-ul e corect, serverul emite un Firebase custom token cu care
+// ne autentificam REAL — abia dupa asta regulile Firestore permit acces.
+let pinRequestInFlight = false;
+
+function showPinHint(text) {
+  const el = document.getElementById('pin-hint');
+  if (el) el.textContent = text;
+}
+
+// Countdown vizual local, bazat pe secundele intoarse de server la blocare —
+// autoritatea reala ramane serverul (fiecare incercare noua il re-verifica)
+function startLockCountdownLocal(hintElId, seconds, baseText) {
+  const hintEl = document.getElementById(hintElId);
+  let remaining = seconds;
+  const tick = () => {
+    if (remaining <= 0) { if (hintEl) hintEl.textContent = baseText; return; }
+    if (hintEl) hintEl.textContent = `🔒 Prea multe încercări greșite — încearcă din nou în ${remaining}s`;
+    remaining--;
+    setTimeout(tick, 1000);
+  };
+  tick();
+}
+
+function shakePinDots(dotsElId) {
+  const dots = document.getElementById(dotsElId);
+  if (!dots) return;
+  dots.classList.add('shake');
+  setTimeout(() => dots.classList.remove('shake'), 450);
+}
+
 async function pinKey(k) {
+  if (pinRequestInFlight) return;
   if (k === 'del') { pinBuffer = pinBuffer.slice(0,-1); updateDots(); return; }
-  if (pinBuffer.length >= 4) return;
+  if (pinBuffer.length >= PIN_LENGTH) return;
   pinBuffer += k;
   updateDots();
-  if (pinBuffer.length < 4) return;
+  if (pinBuffer.length < PIN_LENGTH) return;
 
   const pin = pinBuffer;
   const uid = currentUser.id;
-  const hashed = hashPin(pin, uid);
 
   if (pinMode === 'login') {
-    // Check local first (instant), then cloud
-    const storedHash = await getPinCloud(uid); // always check Firestore
-    if (!storedHash) {
-      // No PIN anywhere — go to setup
-      pinMode = 'setup1';
-      document.getElementById('pin-hint').textContent = 'Setează un PIN de 4 cifre';
+    pinRequestInFlight = true;
+    showPinHint('Se verifică...');
+    try {
+      const resp = await fetch(AUTH_SERVER_BASE + '/auth/login-pin', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ userId: uid, pin }),
+      });
+      const body = await resp.json().catch(()=>({}));
+
+      if (resp.ok && body.token) {
+        await firebase.auth().signInWithCustomToken(body.token);
+        pinBuffer = ''; updateDots();
+        enterApp();
+        return;
+      }
+      if (resp.status === 404 && body.error === 'no_pin_set') {
+        pinMode = 'setup1';
+        showPinHint(`Setează un PIN de ${PIN_LENGTH} cifre`);
+        pinBuffer = ''; updateDots();
+        return;
+      }
+      if (resp.status === 423) {
+        shakePinDots('pin-dots');
+        pinBuffer = ''; updateDots();
+        startLockCountdownLocal('pin-hint', body.retryAfterSeconds || 60, 'Introdu PIN-ul tău');
+        toast('Prea multe încercări greșite — blocat temporar', 'error');
+        return;
+      }
+      // PIN gresit sau alta eroare
+      shakePinDots('pin-dots');
       pinBuffer = ''; updateDots();
-      return;
-    }
-    if (hashed !== storedHash) {
-      document.getElementById('pin-dots').classList.add('shake');
-      setTimeout(() => document.getElementById('pin-dots').classList.remove('shake'), 450);
+      showPinHint('Introdu PIN-ul tău');
+      toast(body.error === 'wrong_pin' ? 'PIN incorect' : 'Eroare de conexiune la server', 'error');
+    } catch(e) {
+      shakePinDots('pin-dots');
       pinBuffer = ''; updateDots();
-      toast('PIN incorect', 'error');
-      return;
+      showPinHint('Introdu PIN-ul tău');
+      toast('Eroare de conexiune la server', 'error');
+    } finally {
+      pinRequestInFlight = false;
     }
-    // Correct PIN — enter app, update lastLogin in background
-    // Save correct PIN in session for admin visibility
-    savePinLocal(uid, pin); // pin is the 4-digit string user just typed
-    enterApp();
-    savePinCloud(uid, storedHash, pin); // refreshes lastLogin + stores pin clear
 
   } else if (pinMode === 'setup1') {
     tempPin = pin;
     pinBuffer = '';
     pinMode = 'setup2';
-    document.getElementById('pin-hint').textContent = 'Confirmă PIN-ul';
+    showPinHint('Confirmă PIN-ul');
     updateDots();
 
   } else if (pinMode === 'setup2') {
     if (pin !== tempPin) {
-      document.getElementById('pin-dots').classList.add('shake');
-      setTimeout(() => document.getElementById('pin-dots').classList.remove('shake'), 450);
+      shakePinDots('pin-dots');
       pinBuffer = ''; tempPin = ''; pinMode = 'setup1';
-      document.getElementById('pin-hint').textContent = 'PIN-urile nu coincid. Încearcă din nou.';
+      showPinHint('PIN-urile nu coincid. Încearcă din nou.');
       updateDots();
       return;
     }
-    // Save to Firestore with pin in clear for admin visibility
-    savePinLocal(uid, pin); // session cache
-    toast('PIN setat! Bun venit, ' + currentUser.name + '!');
-    enterApp();
-    savePinCloud(uid, hashed, pin); // save hash + pin clar
+    pinRequestInFlight = true;
+    showPinHint('Se salvează...');
+    try {
+      const resp = await fetch(AUTH_SERVER_BASE + '/auth/setup-pin', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ userId: uid, pin }),
+      });
+      const body = await resp.json().catch(()=>({}));
+      if (resp.ok && body.token) {
+        await firebase.auth().signInWithCustomToken(body.token);
+        toast('PIN setat! Bun venit, ' + currentUser.name + '!');
+        pinBuffer = ''; tempPin = ''; updateDots();
+        enterApp();
+      } else {
+        toast('Eroare la salvarea PIN-ului: ' + (body.error||'necunoscută'), 'error');
+        pinMode = 'setup1'; pinBuffer = ''; tempPin = ''; updateDots();
+        showPinHint(`Setează un PIN de ${PIN_LENGTH} cifre`);
+      }
+    } catch(e) {
+      toast('Eroare de conexiune la server', 'error');
+      pinMode = 'setup1'; pinBuffer = ''; tempPin = ''; updateDots();
+      showPinHint(`Setează un PIN de ${PIN_LENGTH} cifre`);
+    } finally {
+      pinRequestInFlight = false;
+    }
   }
 }
 
@@ -1611,7 +1680,7 @@ function lockLogout() {
 }
 
 function updateLockDots() {
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < PIN_LENGTH; i++) {
     const d = document.getElementById('ld'+i);
     if (!d) continue;
     if (i < lockPinBuffer.length) d.classList.add('filled');
@@ -1625,28 +1694,66 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); lockPinKey('del'); }
 });
 
+// ── Deblocare overlay — verificare 100% pe server, la fel ca la login ──
+let lockPinRequestInFlight = false;
+
 async function lockPinKey(k) {
+  if (lockPinRequestInFlight) return;
+
   if (k === 'del') { lockPinBuffer = lockPinBuffer.slice(0,-1); updateLockDots(); return; }
-  if (lockPinBuffer.length >= 4) return;
+  if (lockPinBuffer.length >= PIN_LENGTH) return;
   lockPinBuffer += k;
   updateLockDots();
-  if (lockPinBuffer.length < 4) return;
+  if (lockPinBuffer.length < PIN_LENGTH) return;
 
   const pin = lockPinBuffer;
   const uid = currentUser.id;
-  const hashed = hashPin(pin, uid);
 
-  // Admin foloseste email+parola, nu PIN — pentru el nu blocam cu PIN
-  const storedHash = await getPinCloud(uid);
-  if (storedHash && storedHash === hashed) {
-    hideLockOverlay();
-  } else {
-    const dots = document.getElementById('lock-pin-dots');
-    if (dots) {
-      dots.classList.add('shake');
-      setTimeout(() => { dots.classList.remove('shake'); lockPinBuffer=''; updateLockDots(); }, 400);
+  lockPinRequestInFlight = true;
+  const setLockHint = (t) => { const el = document.getElementById('lock-pin-hint'); if (el) el.textContent = t; };
+  setLockHint('Se verifică...');
+  try {
+    const resp = await fetch(AUTH_SERVER_BASE + '/auth/login-pin', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ userId: uid, pin }),
+    });
+    const body = await resp.json().catch(()=>({}));
+
+    if (resp.ok && body.token) {
+      await firebase.auth().signInWithCustomToken(body.token);
+      lockPinBuffer = ''; updateLockDots();
+      hideLockOverlay();
+      return;
     }
-    toast('PIN incorect', 'error');
+    if (resp.status === 423) {
+      shakePinDots('lock-pin-dots');
+      lockPinBuffer = ''; updateLockDots();
+      startLockCountdownLocal('lock-pin-hint', body.retryAfterSeconds || 60, '🔒 Sesiune blocată — introdu PIN-ul');
+      toast('Prea multe încercări greșite — blocat temporar', 'error');
+      return;
+    }
+    if (resp.status === 404 && body.error === 'no_pin_set') {
+      // Contul (de ex. Admin) nu are inca niciun PIN setat — nu putem
+      // porni fluxul de setup din overlay-ul de blocare, asa ca il
+      // deconectam curat si il lasam sa intre normal (email+parola pt
+      // Admin) si sa isi seteze un PIN din Utilizatori, evitand blocarea.
+      lockPinBuffer = ''; updateLockDots();
+      toast('Nu ai încă un PIN setat — te delogăm, autentifică-te din nou și setează-ți un PIN din Utilizatori', 'error');
+      lockLogout();
+      return;
+    }
+    // PIN gresit sau alta eroare
+    shakePinDots('lock-pin-dots');
+    lockPinBuffer = ''; updateLockDots();
+    setLockHint('🔒 Sesiune blocată — introdu PIN-ul');
+    toast(body.error === 'wrong_pin' ? 'PIN incorect' : 'Eroare de conexiune la server', 'error');
+  } catch(e) {
+    shakePinDots('lock-pin-dots');
+    lockPinBuffer = ''; updateLockDots();
+    setLockHint('🔒 Sesiune blocată — introdu PIN-ul');
+    toast('Eroare de conexiune la server', 'error');
+  } finally {
+    lockPinRequestInFlight = false;
   }
 }
 
@@ -1658,15 +1765,18 @@ function enterApp() {
   buildSidebar();
   buildMobileNav();
   updateSidebarUser();
-  // Operatori + Mihaela => direct la reclamatii
-  const startPage = (currentUser?.role === 'operator' || isLimited(currentUser)) ? 'reclamatii' : 'dashboard';
+  // Operatori + Mihaela => direct la reclamatii; Corina => direct in spatiul ei propriu
+  const startPage = currentUser?.role === 'corina' ? 'corina-reclamatii'
+    : (currentUser?.role === 'operator' || isLimited(currentUser)) ? 'reclamatii' : 'dashboard';
   showPage(startPage);
-  loadReclamatii();
-  loadSoferi();
-  renderRechnungNotifBanner();
-  checkAndRunDailyBackup();
-  checkImportAutoBadgeAtLogin();
-  setTimeout(checkVersionNotification, 800);
+  if (currentUser?.role !== 'corina') {
+    loadReclamatii();
+    loadSoferi();
+    renderRechnungNotifBanner();
+    checkAndRunDailyBackup();
+    checkImportAutoBadgeAtLogin();
+    setTimeout(checkVersionNotification, 800);
+  }
 
   // Date greeting
   const now = new Date();
@@ -1725,12 +1835,21 @@ const NAV_ITEMS = [
   { id:'utilizatori', label:'Utilizatori', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>', roles:['admin'] },
   { id:'backup', label:'Backup', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/>', roles:['admin'] },
   { id:'pachete', label:'Pachete livrate', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6.75 4.5l3-3m0 0l3 3m-3-3v6m-9-13.5h18c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125H3.375c-.621 0-1.125-.504-1.125-1.125v-1.5c0-.621.504-1.125 1.125-1.125z"/>', roles:['admin'] },
+  // ── Spatiul separat al Corinei — vizibil DOAR pentru ea (nici admin nu are aceste taburi) ──
+  { id:'corina-reclamatii', label:'Reclamațiile mele', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/>', roles:['corina'] },
+  { id:'corina-soferi', label:'Șoferii mei', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>', roles:['corina'] },
+  { id:'corina-statistici', label:'Statisticile mele', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>', roles:['corina'] },
 ];
 
 function visibleNav() {
   if (isLimited(currentUser)) {
     // Mihaela vede DOAR reclamatii
     return NAV_ITEMS.filter(n => n.id === 'reclamatii');
+  }
+  if (currentUser?.role === 'corina') {
+    // Corina vede STRICT spatiul ei — nimic din restul aplicatiei (nici Reclamatii,
+    // nici Statistici generale, nici Soferi & Ture) — spatiu complet izolat
+    return NAV_ITEMS.filter(n => n.roles.includes('corina'));
   }
   return NAV_ITEMS.filter(n => n.roles.includes('all') || n.roles.includes(currentUser?.role));
 }
@@ -1776,6 +1895,9 @@ function showPage(id) {
   if (id==='import-auto') renderImportAutoPage();
   if (id==='utilizatori') renderUtilizatori();
   if (id==='dashboard') renderDashboard();
+  if (id==='corina-reclamatii') renderCorinaReclamatii();
+  if (id==='corina-soferi') renderCorinaSoferi();
+  if (id==='corina-statistici') renderCorinaStatistici();
 }
 
 function updateSidebarUser() {
@@ -1784,7 +1906,7 @@ function updateSidebarUser() {
   av.style.background = u.bg; av.style.color = u.color;
   av.textContent = u.avatar;
   document.getElementById('sidebar-user-name').textContent = u.name;
-  document.getElementById('sidebar-user-role').textContent = u.role==='admin'?'Administrator':u.role==='tania'?'Toate locațiile':u.location;
+  document.getElementById('sidebar-user-role').textContent = u.role==='admin'?'Administrator':u.role==='tania'?'Toate locațiile':u.role==='corina'?'Spațiu personal':u.location;
 
   // Buton Mod Test — vizibil doar cand contul REAL este admin
   // (chiar daca simulam alt user, adminul real e in realAdminUser)
@@ -1979,7 +2101,8 @@ function showTestModeMenu() {
   const existing = document.getElementById('test-mode-modal');
   if (existing) { existing.remove(); return; }
 
-  const simulatable = USERS.filter(u => u.id !== 'admin');
+  // Corina e exclusa din Mod Test — spatiul ei ramane privat, inclusiv fata de admin
+  const simulatable = USERS.filter(u => u.id !== 'admin' && u.id !== 'corina');
 
   const m = document.createElement('div');
   m.id = 'test-mode-modal';
@@ -7661,7 +7784,7 @@ async function exportBackup() {
       reclamatii: reclSnap.docs.map(d => ({ _id: d.id, ...d.data() })),
       rechnunguri: rechnSnap.docs.map(d => ({ _id: d.id, ...d.data() })),
       soferi: soferiSnap.docs.map(d => ({ _id: d.id, ...d.data() })),
-      users: usersSnap.docs.map(d => ({ _id: d.id, ...omit(d.data(), ['pinHash']) })),
+      users: usersSnap.docs.map(d => ({ _id: d.id, ...omit(d.data(), ['pinHash','pinHashV2']) })),
     };
 
     // Convertim Firestore Timestamps la ISO string
@@ -8901,7 +9024,7 @@ async function renderUtilizatori() {
   }
   el.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${USERS.map(u=>{
     const info=infos[u.id]||{};
-    const hasPin=!!info.pinHash;
+    const hasPin=!!info.pinHashV2;
     const isSelf=u.id===currentUser?.id;
     return `
       <div class="card card-sm" style="display:flex;align-items:center;gap:12px">
@@ -8910,7 +9033,7 @@ async function renderUtilizatori() {
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
             <span style="font-weight:700;font-size:14px">${u.name}</span>
             ${isSelf?'<span class="badge badge-yellow">Tu</span>':''}
-            <span class="badge badge-gray">${u.role==='admin'?'Admin':u.role==='tania'?'Șefă':'Operator'}</span>
+            <span class="badge badge-gray">${u.role==='admin'?'Admin':u.role==='tania'?'Șefă':u.role==='corina'?'Spațiu personal':'Operator'}</span>
           </div>
           <div style="font-size:11px;color:${hasPin?'var(--green)':'var(--accent)'}">
             ${hasPin
@@ -8952,13 +9075,18 @@ function togglePinVisibility(userId) {
 }
 
 async function adminSetPin(userId, userName) {
-  const newPin = prompt(`Setează PIN nou pentru ${userName} (4 cifre):`);
+  const newPin = prompt(`Setează PIN nou pentru ${userName} (6 cifre):`);
   if (!newPin) return;
-  if (!/^\d{4}$/.test(newPin)) { toast('PIN-ul trebuie să fie exact 4 cifre!', 'error'); return; }
+  if (!/^\d{6}$/.test(newPin)) { toast('PIN-ul trebuie să fie exact 6 cifre!', 'error'); return; }
   try {
-    const hashed = hashPin(newPin, userId);
-    savePinLocal(userId, newPin); // session cache
-    await savePinCloud(userId, hashed, newPin); // Firestore: hash + pin clar
+    // PIN-ul e verificat/hash-uit STRICT pe server acum (nu mai reproducem hash-ul in JS client)
+    const idToken = await firebase.auth().currentUser.getIdToken();
+    const resp = await fetch(AUTH_SERVER_BASE + '/auth/admin-set-pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+      body: JSON.stringify({ targetUserId: userId, newPin }),
+    });
+    if (!resp.ok) { const errData = await resp.json().catch(()=>({})); throw new Error(errData.error || ('HTTP '+resp.status)); }
     toast(`✓ PIN setat pentru ${userName}: ${newPin}`);
     renderUtilizatori();
   } catch(e) { toast('Eroare: ' + e.message, 'error'); }
@@ -8967,12 +9095,13 @@ async function adminSetPin(userId, userName) {
 async function resetUserPin(userId,name){
   if(!confirm(`Resetezi PIN-ul pentru ${name}? Va seta unul nou la următoarea conectare.`))return;
   try{
-    // Clear from localStorage
-    const data = JSON.parse(localStorage.getItem('reclamatii_pins') || '{}');
-    delete data[userId];
-    localStorage.setItem('reclamatii_pins', JSON.stringify(data));
-    // Clear from Firestore
-    await db.collection('users').doc(userId).set({pinHash:null,pinSetAt:null,pinResetRequired:true,pinResetAt:new Date().toISOString()},{merge:true});
+    const idToken = await firebase.auth().currentUser.getIdToken();
+    const resp = await fetch(AUTH_SERVER_BASE + '/auth/admin-reset-pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+      body: JSON.stringify({ targetUserId: userId }),
+    });
+    if (!resp.ok) { const errData = await resp.json().catch(()=>({})); throw new Error(errData.error || ('HTTP '+resp.status)); }
     toast(`PIN resetat pentru ${name}`);renderUtilizatori();
   }catch(e){toast('Eroare: '+e.message,'error');}
 }
@@ -9000,6 +9129,326 @@ function initTheme() {
 }
 
 // ════════════════════════════════════════════════════════
+// SPAȚIUL CORINEI — complet separat de restul aplicației.
+// Colecții Firestore proprii (soferi_corina / reclamatii_corina) —
+// nu se ating NICIODATA de restul codului, deci admin/ceilalti useri
+// nu le vad nicaieri (dashboard, statistici generale, cautare globala etc.)
+// Formularul de reclamatie e generic deocamdata — va fi adaptat cand
+// Corina trimite formatul exact dorit.
+// ════════════════════════════════════════════════════════
+let corinaSoferi = [];
+let corinaReclamatii = [];
+let editingCorinaSoferId = null;
+let editingCorinaReclId = null;
+
+// ── ȘOFERII CORINEI ──
+async function renderCorinaSoferi() {
+  const el = document.getElementById('corina-sofer-list');
+  el.innerHTML = `<div class="loading-page"><div class="spinner"></div></div>`;
+  try {
+    const snap = await db.collection('soferi_corina').get();
+    corinaSoferi = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a,b) => (a.nume||'').localeCompare(b.nume||''));
+  } catch(e) {
+    el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Eroare la încărcare</div><div class="empty-sub">${e.message}</div></div>`;
+    return;
+  }
+  if (!corinaSoferi.length) {
+    el.innerHTML = `<div class="empty">
+      <div class="empty-icon">🚚</div>
+      <div class="empty-title">Niciun șofer adăugat încă</div>
+      <div class="empty-sub">Apasă "Adaugă" ca să-ți construiești propria listă de șoferi</div>
+    </div>`;
+    return;
+  }
+  el.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">${corinaSoferi.map(s => `
+    <div class="card card-sm" style="display:flex;align-items:center;gap:12px">
+      <div style="width:40px;height:40px;border-radius:10px;background:rgba(251,146,60,0.15);color:#fb923c;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0">${(s.nume||'?').charAt(0).toUpperCase()}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:14px">${s.nume||'—'}</div>
+        <div style="font-size:11px;color:var(--text3)">${s.cod ? 'Cod/Tură: '+s.cod : 'Fără cod'}${s.nota ? ' · '+s.nota : ''}</div>
+      </div>
+      <button class="icon-btn" onclick='toggleCorinaSoferForm(${JSON.stringify(s).replace(/'/g,"&apos;")})' title="Editează">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg>
+      </button>
+      <button class="icon-btn red" onclick="deleteCorinaSofer('${s.id}')" title="Șterge">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916"/></svg>
+      </button>
+    </div>`).join('')}</div>`;
+}
+
+function toggleCorinaSoferForm(data) {
+  const el = document.getElementById('corina-sofer-form');
+  if (el.style.display==='block' && !data) { el.style.display='none'; editingCorinaSoferId=null; return; }
+  editingCorinaSoferId = data?.id || null;
+  const v = data || {};
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="form-panel">
+      <div class="form-panel-title">${editingCorinaSoferId ? 'Editează șofer' : 'Șofer nou'}</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Nume<span class="req">*</span></label>
+          <input id="cs-nume" value="${(v.nume||'').replace(/"/g,'&quot;')}" placeholder="ex: Ion Popescu"/>
+        </div>
+        <div class="form-group">
+          <label>Cod / Tură (opțional)</label>
+          <input id="cs-cod" value="${(v.cod||'').replace(/"/g,'&quot;')}" placeholder="ex: T1"/>
+        </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label>Notă (opțional)</label>
+          <input id="cs-nota" value="${(v.nota||'').replace(/"/g,'&quot;')}" placeholder="orice detaliu suplimentar"/>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-primary" onclick="saveCorinaSofer()">${editingCorinaSoferId?'Salvează':'Adaugă'}</button>
+        <button class="btn btn-ghost" onclick="toggleCorinaSoferForm()">Anulează</button>
+      </div>
+    </div>`;
+  el.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+
+async function saveCorinaSofer() {
+  const nume = document.getElementById('cs-nume').value.trim();
+  if (!nume) { toast('Completează numele','error'); return; }
+  const payload = {
+    nume,
+    cod: document.getElementById('cs-cod').value.trim(),
+    nota: document.getElementById('cs-nota').value.trim(),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  try {
+    if (editingCorinaSoferId) {
+      await db.collection('soferi_corina').doc(editingCorinaSoferId).update(payload);
+      toast('Șofer actualizat');
+    } else {
+      payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      await db.collection('soferi_corina').add(payload);
+      toast('Șofer adăugat!');
+    }
+    toggleCorinaSoferForm();
+    editingCorinaSoferId = null;
+    renderCorinaSoferi();
+  } catch(e) { toast('Eroare: '+e.message,'error'); }
+}
+
+async function deleteCorinaSofer(id) {
+  if (!confirm('Ștergi acest șofer?')) return;
+  try { await db.collection('soferi_corina').doc(id).delete(); toast('Șofer șters'); renderCorinaSoferi(); }
+  catch(e) { toast('Eroare','error'); }
+}
+
+// ── RECLAMAȚIILE CORINEI ──
+// Format generic deocamdata — va fi inlocuit cu formatul exact cand il trimite Corina
+async function renderCorinaReclamatii() {
+  const el = document.getElementById('corina-recl-list');
+  el.innerHTML = `<div class="loading-page"><div class="spinner"></div></div>`;
+  try {
+    const [reclSnap, soferiSnap] = await Promise.all([
+      db.collection('reclamatii_corina').orderBy('createdAt','desc').get(),
+      db.collection('soferi_corina').get(),
+    ]);
+    corinaReclamatii = reclSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    corinaSoferi = soferiSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch(e) {
+    el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Eroare la încărcare</div><div class="empty-sub">${e.message}</div></div>`;
+    return;
+  }
+  if (!corinaReclamatii.length) {
+    el.innerHTML = `<div class="empty">
+      <div class="empty-icon">📋</div>
+      <div class="empty-title">Nicio reclamație adăugată încă</div>
+      <div class="empty-sub">Apasă "Adaugă" ca să introduci prima reclamație</div>
+    </div>`;
+    return;
+  }
+  el.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">${corinaReclamatii.map(r => {
+    const soferNume = corinaSoferi.find(s=>s.id===r.soferId)?.nume || r.soferNume || '—';
+    return `
+    <div class="recl-item">
+      <div class="recl-dot ${r.status==='rezolvata'?'resolved':'unresolved'}"></div>
+      <div class="recl-body">
+        <div class="recl-name">
+          ${r.numeClient||'—'}
+          <span class="badge ${r.status==='rezolvata'?'badge-green':r.status==='nerezolvata'?'badge-red':'badge-gray'}">${r.status==='rezolvata'?'✓ Rezolvată':r.status==='nerezolvata'?'✗ Nerezolvată':'⏳ Neprelucrat'}</span>
+        </div>
+        <div class="recl-meta">
+          <span>🚚 ${soferNume}</span>
+          ${r.suma?`<span>💶 €${parseFloat(r.suma).toFixed(2)}</span>`:''}
+          <span>📅 ${fmtDate(r.dataReclamatie||r.createdAt)}</span>
+          ${r.descriere?`<span style="color:var(--text3)">${r.descriere}</span>`:''}
+        </div>
+      </div>
+      <div class="recl-actions">
+        ${r.status!=='rezolvata'?`<button class="icon-btn green" onclick="setCorinaReclStatus('${r.id}','rezolvata')" title="Marchează rezolvată"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg></button>`:''}
+        ${r.status!=='nerezolvata'?`<button class="icon-btn red" onclick="setCorinaReclStatus('${r.id}','nerezolvata')" title="Marchează nerezolvată"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button>`:''}
+        <button class="icon-btn" onclick='editCorinaRecl("${r.id}")' title="Editează"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg></button>
+        <button class="icon-btn red" onclick="deleteCorinaRecl('${r.id}')" title="Șterge"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916"/></svg></button>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function editCorinaRecl(id) {
+  const r = corinaReclamatii.find(x=>x.id===id);
+  if (r) toggleCorinaReclForm(r);
+}
+
+function toggleCorinaReclForm(data) {
+  const el = document.getElementById('corina-recl-form');
+  if (el.style.display==='block' && !data) { el.style.display='none'; editingCorinaReclId=null; return; }
+  editingCorinaReclId = data?.id || null;
+  const v = data || {};
+  const soferOptions = corinaSoferi.map(s=>`<option value="${s.id}" ${v.soferId===s.id?'selected':''}>${s.nume}</option>`).join('');
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="form-panel">
+      <div class="form-panel-title">${editingCorinaReclId ? 'Editează reclamație' : 'Reclamație nouă'}</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Nume client<span class="req">*</span></label>
+          <input id="cr-numeClient" value="${(v.numeClient||'').replace(/"/g,'&quot;')}" placeholder="Nume client"/>
+        </div>
+        <div class="form-group">
+          <label>Șofer</label>
+          <select id="cr-sofer"><option value="">— fără șofer —</option>${soferOptions}</select>
+        </div>
+        <div class="form-group">
+          <label>Sumă (€)</label>
+          <input id="cr-suma" type="number" step="0.01" value="${v.suma||''}" placeholder="0.00"/>
+        </div>
+        <div class="form-group">
+          <label>Data</label>
+          <input id="cr-data" type="date" value="${v.dataReclamatie?.toDate ? v.dataReclamatie.toDate().toISOString().slice(0,10) : (v._dataStr||new Date().toISOString().slice(0,10))}"/>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="cr-status">
+            <option value="neprelucrat" ${(v.status||'neprelucrat')==='neprelucrat'?'selected':''}>⏳ Neprelucrat</option>
+            <option value="nerezolvata" ${v.status==='nerezolvata'?'selected':''}>✗ Nerezolvată</option>
+            <option value="rezolvata" ${v.status==='rezolvata'?'selected':''}>✓ Rezolvată</option>
+          </select>
+        </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label>Descriere</label>
+          <input id="cr-descriere" value="${(v.descriere||'').replace(/"/g,'&quot;')}" placeholder="Detalii..."/>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-primary" onclick="saveCorinaRecl()">${editingCorinaReclId?'Salvează':'Adaugă'}</button>
+        <button class="btn btn-ghost" onclick="toggleCorinaReclForm()">Anulează</button>
+      </div>
+    </div>`;
+  el.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+
+async function saveCorinaRecl() {
+  const numeClient = document.getElementById('cr-numeClient').value.trim();
+  if (!numeClient) { toast('Completează numele clientului','error'); return; }
+  const soferId = document.getElementById('cr-sofer').value;
+  const payload = {
+    numeClient,
+    soferId,
+    soferNume: corinaSoferi.find(s=>s.id===soferId)?.nume || '',
+    suma: parseFloat(document.getElementById('cr-suma').value) || 0,
+    dataReclamatie: new Date(document.getElementById('cr-data').value),
+    status: document.getElementById('cr-status').value,
+    descriere: document.getElementById('cr-descriere').value.trim(),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  try {
+    if (editingCorinaReclId) {
+      await db.collection('reclamatii_corina').doc(editingCorinaReclId).update(payload);
+      toast('Reclamație actualizată');
+    } else {
+      payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      await db.collection('reclamatii_corina').add(payload);
+      toast('Reclamație adăugată!');
+    }
+    toggleCorinaReclForm();
+    editingCorinaReclId = null;
+    renderCorinaReclamatii();
+  } catch(e) { toast('Eroare: '+e.message,'error'); }
+}
+
+async function setCorinaReclStatus(id, status) {
+  try {
+    await db.collection('reclamatii_corina').doc(id).update({ status, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    toast('Status actualizat');
+    renderCorinaReclamatii();
+  } catch(e) { toast('Eroare','error'); }
+}
+
+async function deleteCorinaRecl(id) {
+  if (!confirm('Ștergi această reclamație?')) return;
+  try { await db.collection('reclamatii_corina').doc(id).delete(); toast('Reclamație ștearsă'); renderCorinaReclamatii(); }
+  catch(e) { toast('Eroare','error'); }
+}
+
+// ── STATISTICILE CORINEI ──
+async function renderCorinaStatistici() {
+  const el = document.getElementById('corina-stats-view');
+  el.innerHTML = `<div class="loading-page"><div class="spinner"></div></div>`;
+  try {
+    const [reclSnap, soferiSnap] = await Promise.all([
+      db.collection('reclamatii_corina').get(),
+      db.collection('soferi_corina').get(),
+    ]);
+    corinaReclamatii = reclSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    corinaSoferi = soferiSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch(e) {
+    el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Eroare la încărcare</div><div class="empty-sub">${e.message}</div></div>`;
+    return;
+  }
+
+  const total = corinaReclamatii.length;
+  const rezolvate = corinaReclamatii.filter(r=>r.status==='rezolvata').length;
+  const nerezolvate = corinaReclamatii.filter(r=>r.status==='nerezolvata').length;
+  const neprelucrat = corinaReclamatii.filter(r=>r.status==='neprelucrat' || !r.status).length;
+  const sumaTotala = corinaReclamatii.reduce((s,r)=>s+(parseFloat(r.suma)||0),0);
+
+  if (!total) {
+    el.innerHTML = `<div class="empty">
+      <div class="empty-icon">📊</div>
+      <div class="empty-title">Nu sunt date încă</div>
+      <div class="empty-sub">Adaugă reclamații ca să vezi statisticile</div>
+    </div>`;
+    return;
+  }
+
+  const perSofer = {};
+  corinaReclamatii.forEach(r => {
+    const key = r.soferId || '—';
+    const nume = corinaSoferi.find(s=>s.id===r.soferId)?.nume || r.soferNume || 'Fără șofer';
+    if (!perSofer[key]) perSofer[key] = { nume, total:0, rezolvate:0, suma:0 };
+    perSofer[key].total++;
+    if (r.status==='rezolvata') perSofer[key].rezolvate++;
+    perSofer[key].suma += (parseFloat(r.suma)||0);
+  });
+  const soferRows = Object.values(perSofer).sort((a,b)=>b.total-a.total);
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+      <div class="card" style="padding:16px"><div style="font-size:26px;font-weight:800;color:var(--accent)">${total}</div><div style="font-size:12px;color:var(--text3)">Total reclamații</div></div>
+      <div class="card" style="padding:16px"><div style="font-size:26px;font-weight:800;color:var(--green)">${rezolvate}</div><div style="font-size:12px;color:var(--text3)">Rezolvate</div></div>
+      <div class="card" style="padding:16px"><div style="font-size:26px;font-weight:800;color:var(--red)">${nerezolvate}</div><div style="font-size:12px;color:var(--text3)">Nerezolvate</div></div>
+      <div class="card" style="padding:16px"><div style="font-size:26px;font-weight:800;color:var(--accent)">${neprelucrat}</div><div style="font-size:12px;color:var(--text3)">Neprelucrate</div></div>
+      <div class="card" style="padding:16px"><div style="font-size:26px;font-weight:800">€${sumaTotala.toFixed(2)}</div><div style="font-size:12px;color:var(--text3)">Sumă totală</div></div>
+    </div>
+    <div class="card" style="padding:16px 18px">
+      <div style="font-size:14px;font-weight:800;margin-bottom:12px">Per șofer</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${soferRows.map(s => `
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg2);border-radius:8px">
+            <div style="flex:1;font-size:13px;font-weight:600">${s.nume}</div>
+            <div style="font-size:12px;color:var(--text3)">${s.rezolvate}/${s.total} rezolvate</div>
+            <div style="font-size:12px;font-weight:700;font-family:var(--mono)">€${s.suma.toFixed(2)}</div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+// ════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════
 initTheme();
@@ -9009,7 +9458,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v4.9.1</span>
+  <span id="version-badge-text">v5.0.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
@@ -9023,13 +9472,15 @@ buildUserGrid();
     <div class="pin-user-info">
       <div class="pin-avatar" id="lock-avatar"></div>
       <div class="pin-username" id="lock-username"></div>
-      <div class="pin-hint">🔒 Sesiune blocată — introdu PIN-ul</div>
+      <div class="pin-hint" id="lock-pin-hint">🔒 Sesiune blocată — introdu PIN-ul</div>
     </div>
     <div class="pin-dots" id="lock-pin-dots">
       <div class="pin-dot" id="ld0"></div>
       <div class="pin-dot" id="ld1"></div>
       <div class="pin-dot" id="ld2"></div>
       <div class="pin-dot" id="ld3"></div>
+      <div class="pin-dot" id="ld4"></div>
+      <div class="pin-dot" id="ld5"></div>
     </div>
     <div class="keypad">
       <button class="key" onclick="lockPinKey('1')">1</button>
