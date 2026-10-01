@@ -1059,7 +1059,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.3.0';
+const APP_VERSION = '5.5.0';
 const APP_VERSION_DATE = '01.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -1229,6 +1229,12 @@ let currentUser = null;
 let pinBuffer = '';
 let pinMode = 'login'; // 'login' | 'setup1' | 'setup2'
 let tempPin = '';
+// Creste de fiecare data cand ecranul de login schimba userul/se reseteaza
+// (selectUser, backToSelect, logout) — orice raspuns de server care soseste
+// TARZIU (ex: serverul tocmai a "pornit" dupa inactivitate si a durat 30-50s)
+// verifica acest numar inainte sa modifice UI-ul, ca sa nu suprascrie cu date
+// vechi ecranul altui user sau textul "Se verifică..." ramas blocat pe ecran.
+let loginEpoch = 0;
 let currentPage = 'dashboard';
 let activeFilter = 'neprelucrat';
 let reclamatiUnsubscribe = null;
@@ -1424,6 +1430,7 @@ async function adminLogin() {
 async function selectUser(userId) {
   const user = getUserById(userId);
   if (!user) return;
+  loginEpoch++;
 
   document.getElementById('login-select').style.display = 'none';
   document.getElementById('login-admin').style.display = 'none';
@@ -1439,6 +1446,7 @@ async function selectUser(userId) {
   currentUser = user;
   pinBuffer = '';
   tempPin = '';
+  pinRequestInFlight = false;
 
   // Nu mai citim Firestore direct de aici (userul nu e inca autentificat,
   // iar regulile Firestore cer request.auth != null) — pornim mereu in
@@ -1450,6 +1458,7 @@ async function selectUser(userId) {
 }
 
 function backToSelect() {
+  loginEpoch++;
   document.getElementById('login-select').style.display = 'block';
   document.getElementById('login-admin').style.display = 'none';
   document.getElementById('login-pin').style.display = 'none';
@@ -1552,13 +1561,24 @@ async function pinKey(k) {
 
   if (pinMode === 'login') {
     pinRequestInFlight = true;
+    const myEpoch = loginEpoch;
     showPinHint('Se verifică...');
+    // Serverul (Render, plan gratuit) adoarme dupa inactivitate si poate dura
+    // 30-50s sa "porneasca" la primul request — fara acest mesaj, pare blocat.
+    const slowHintTimer = setTimeout(() => {
+      if (myEpoch === loginEpoch) showPinHint('Serverul pornește, te rog așteaptă (poate dura până la 50s)...');
+    }, 4000);
     try {
       const resp = await fetch(AUTH_SERVER_BASE + '/auth/login-pin', {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ userId: uid, pin }),
       });
       const body = await resp.json().catch(()=>({}));
+      clearTimeout(slowHintTimer);
+      // Daca intre timp userul a plecat de pe acest ecran (a dat logout, s-a
+      // intors la selectie sau a ales alt user), ignoram complet raspunsul —
+      // nu mai are ce sa faca pe un ecran care nu mai exista.
+      if (myEpoch !== loginEpoch) return;
 
       if (resp.ok && body.token) {
         await firebase.auth().signInWithCustomToken(body.token);
@@ -1585,10 +1605,13 @@ async function pinKey(k) {
       showPinHint('Introdu PIN-ul tău');
       toast(body.error === 'wrong_pin' ? 'PIN incorect' : 'Eroare de conexiune la server', 'error');
     } catch(e) {
-      shakePinDots('pin-dots');
-      pinBuffer = ''; updateDots();
-      showPinHint('Introdu PIN-ul tău');
-      toast('Eroare de conexiune la server', 'error');
+      clearTimeout(slowHintTimer);
+      if (myEpoch === loginEpoch) {
+        shakePinDots('pin-dots');
+        pinBuffer = ''; updateDots();
+        showPinHint('Introdu PIN-ul tău');
+        toast('Eroare de conexiune la server', 'error');
+      }
     } finally {
       pinRequestInFlight = false;
     }
@@ -1680,7 +1703,57 @@ function showLockOverlay() {
   document.getElementById('lock-username').textContent = currentUser.name;
   lockPinBuffer = '';
   updateLockDots();
+  // Admin foloseste email+parola, nu PIN — ii aratam si optiunea de deblocare
+  // cu parola, ca sa nu ramana blocat daca nu si-a setat niciodata un PIN
+  const isAdmin = currentUser.role === 'admin';
+  const toggleEl = document.getElementById('lock-admin-toggle');
+  if (toggleEl) toggleEl.style.display = isAdmin ? 'block' : 'none';
+  // Pornim mereu in modul PIN (chiar daca ultima oara a fost deschis cel cu parola)
+  document.getElementById('lock-keypad-section').style.display = 'block';
+  document.getElementById('lock-admin-pass-form').style.display = 'none';
+  const passHint = document.getElementById('lock-admin-pass-hint');
+  if (passHint) passHint.textContent = '';
   ov.style.display = 'flex';
+}
+
+function toggleLockAdminPassword() {
+  const keypadEl = document.getElementById('lock-keypad-section');
+  const passEl = document.getElementById('lock-admin-pass-form');
+  const showingPass = passEl.style.display !== 'none';
+  keypadEl.style.display = showingPass ? 'block' : 'none';
+  passEl.style.display = showingPass ? 'none' : 'flex';
+  if (!showingPass) setTimeout(() => document.getElementById('lock-admin-email')?.focus(), 50);
+}
+
+async function adminUnlockWithPassword() {
+  const email = document.getElementById('lock-admin-email').value.trim();
+  const pass = document.getElementById('lock-admin-pass').value;
+  const hint = document.getElementById('lock-admin-pass-hint');
+  const btn = document.getElementById('lock-admin-pass-btn');
+  if (!email || !pass) { hint.textContent = 'Completează email și parola'; return; }
+  const ADMIN_UID_LOCK = 'itgIGVH3Y2ZaGCSwJa7yt7Nd14R2';
+  btn.disabled = true; btn.textContent = 'Se verifică...';
+  hint.textContent = '';
+  try {
+    const cred = await firebase.auth().signInWithEmailAndPassword(email, pass);
+    if (cred.user.uid !== ADMIN_UID_LOCK) {
+      await firebase.auth().signOut();
+      hint.textContent = 'Acces interzis';
+      btn.disabled = false; btn.textContent = 'Deblochează';
+      return;
+    }
+    document.getElementById('lock-admin-email').value = '';
+    document.getElementById('lock-admin-pass').value = '';
+    hideLockOverlay();
+    toast('Deblocat!');
+  } catch(e) {
+    let msg = 'Email sau parolă incorecte';
+    if (e.code === 'auth/network-request-failed') msg = 'Eroare de rețea';
+    if (e.code === 'auth/too-many-requests') msg = 'Prea multe încercări';
+    hint.textContent = msg;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Deblochează';
+  }
 }
 
 function hideLockOverlay() {
@@ -1730,12 +1803,19 @@ async function lockPinKey(k) {
   lockPinRequestInFlight = true;
   const setLockHint = (t) => { const el = document.getElementById('lock-pin-hint'); if (el) el.textContent = t; };
   setLockHint('Se verifică...');
+  const slowLockHintTimer = setTimeout(() => {
+    if (isLockOverlayVisible()) setLockHint('Serverul pornește, te rog așteaptă (poate dura până la 50s)...');
+  }, 4000);
   try {
     const resp = await fetch(AUTH_SERVER_BASE + '/auth/login-pin', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ userId: uid, pin }),
     });
     const body = await resp.json().catch(()=>({}));
+    clearTimeout(slowLockHintTimer);
+    // Daca intre timp s-a deblocat altfel (ex: Admin cu email+parola) sau s-a
+    // dat deja logout, ignoram raspunsul — ecranul de lock nu mai exista.
+    if (!isLockOverlayVisible()) return;
 
     if (resp.ok && body.token) {
       await firebase.auth().signInWithCustomToken(body.token);
@@ -1766,10 +1846,13 @@ async function lockPinKey(k) {
     setLockHint('🔒 Sesiune blocată — introdu PIN-ul');
     toast(body.error === 'wrong_pin' ? 'PIN incorect' : 'Eroare de conexiune la server', 'error');
   } catch(e) {
-    shakePinDots('lock-pin-dots');
-    lockPinBuffer = ''; updateLockDots();
-    setLockHint('🔒 Sesiune blocată — introdu PIN-ul');
-    toast('Eroare de conexiune la server', 'error');
+    clearTimeout(slowLockHintTimer);
+    if (isLockOverlayVisible()) {
+      shakePinDots('lock-pin-dots');
+      lockPinBuffer = ''; updateLockDots();
+      setLockHint('🔒 Sesiune blocată — introdu PIN-ul');
+      toast('Eroare de conexiune la server', 'error');
+    }
   } finally {
     lockPinRequestInFlight = false;
   }
@@ -1803,6 +1886,7 @@ function enterApp() {
 }
 
 function logout() {
+  loginEpoch++;
   if (reclamatiUnsubscribe) reclamatiUnsubscribe();
   cancelAlerteSeenTimer();
   stopInactivityTimer();
@@ -9203,16 +9287,25 @@ async function renderPachetePierdute() {
   }
 
   // Pentru fiecare pachet nerecunoscut, cautam potriviri in pozitiile din rechnunguri
-  // dupa: acelasi numar de tura SAU (strada asemanatoare + oras asemanator)
+  // STRICT dupa: numarul de urmarire (singur, e unic) SAU (nume client + adresa,
+  // AMBELE impreuna) — NU dupa tura sau adresa singura, ca sa nu iasa potriviri
+  // eronate intre doi clienti diferiti de pe aceeasi tura/strada
+  const norm = (s) => (s||'').toString().toLowerCase().replace(/[^a-z0-9ăâîșşţț]/gi, '');
   function findMatches(pp) {
-    const ppStrada = (pp.strada||'').toLowerCase().replace(/\s/g,'').replace(/[.,]/g,'');
-    const ppTour = String(pp.tour||'').trim();
+    const ppTracking = norm(pp.numarPachet);
+    const ppName = norm(pp.numeClient);
+    const ppStrada = norm(pp.strada);
+    const ppPlz = (pp.plz||'').trim();
     return rechnPozitiiFlat.filter(p => {
-      const pTour = String(p.tour||'').trim();
-      const pStrada = (p.strasse||'').toLowerCase().replace(/\s/g,'').replace(/[.,]/g,'');
-      const tourMatch = ppTour && pTour && ppTour === pTour;
-      const stradaMatch = ppStrada.length>=4 && pStrada.includes(ppStrada.slice(0, Math.min(ppStrada.length,10)));
-      return tourMatch || stradaMatch;
+      const pTracking = norm(p.sendungsnummer || p.identnummer || p.numarPachet);
+      if (ppTracking.length>=6 && pTracking.length>=6 && ppTracking === pTracking) return true;
+
+      const pName = norm(p.name);
+      const pStrada = norm(p.strasse);
+      const pPlz = (p.plz||'').trim();
+      const nameMatch = ppName.length>=4 && pName.length>=4 && (pName.includes(ppName) || ppName.includes(pName));
+      const addrMatch = ppStrada.length>=4 && pStrada.length>=4 && (pStrada.includes(ppStrada) || ppStrada.includes(pStrada)) && (!ppPlz || !pPlz || ppPlz===pPlz);
+      return nameMatch && addrMatch;
     }).slice(0, 5);
   }
 
@@ -9223,11 +9316,13 @@ async function renderPachetePierdute() {
     <div class="card card-sm" style="display:flex;flex-direction:column;gap:8px">
       <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:200px">
-          <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px">
-            📦 ${pp.oras||'—'}, ${pp.strada||'—'}
+          <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            📦 ${pp.numeClient||'—'}
             <span class="badge ${pp.status==='recunoscut'?'badge-green':'badge-red'}">${pp.status==='recunoscut'?'✓ Recunoscut':'❓ Nerecunoscut'}</span>
           </div>
           <div style="font-size:11px;color:var(--text3);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap">
+            ${pp.numarPachet?`<span>🔢 ${pp.numarPachet}</span>`:''}
+            <span>📍 ${[pp.strada,pp.plz,pp.oras].filter(Boolean).join(', ')||'—'}</span>
             <span>🚚 ${soferNume}${pp.tour?' (Tour '+pp.tour+')':''}</span>
             <span>📅 Pierdut: ${pp.dataPierdere||'—'}</span>
             ${pp.observatii?`<span>📝 ${pp.observatii}</span>`:''}
@@ -9249,7 +9344,7 @@ async function renderPachetePierdute() {
           <div style="display:flex;flex-direction:column;gap:6px">
             ${matches.map(m => `
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;background:var(--bg2);padding:6px 10px;border-radius:6px">
-                <span style="flex:1;min-width:150px">${m.name||'—'} · ${[m.strasse,m.plz,m.ort].filter(Boolean).join(' ')} · Tour ${m.tour||'—'}</span>
+                <span style="flex:1;min-width:150px">${m.name||'—'} · 🔢${m.sendungsnummer||m.identnummer||'—'} · ${[m.strasse,m.plz,m.ort].filter(Boolean).join(' ')}</span>
                 <span style="color:var(--text3)">📄${m.belegNr||'—'}</span>
                 <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick='confirmPachetMatch("${pp.id}", ${JSON.stringify(m).replace(/'/g,"&apos;")})'>✓ Recunoaște ca acesta</button>
               </div>`).join('')}
@@ -9270,7 +9365,16 @@ function togglePachetPierdutForm(data) {
   el.innerHTML = `
     <div class="form-panel">
       <div class="form-panel-title">${editingPachetPierdutId ? 'Editează pachet pierdut' : 'Pachet pierdut nou'}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">💡 Completează cât mai multe detalii — nr. de urmărire + nume client sunt cele mai sigure pentru a găsi pachetul mai târziu într-o factură.</div>
       <div class="form-grid">
+        <div class="form-group">
+          <label>Nume client<span class="req">*</span></label>
+          <input id="pp-numeClient" value="${(v.numeClient||'').replace(/"/g,'&quot;')}" placeholder="ex: Moritz Gammel"/>
+        </div>
+        <div class="form-group">
+          <label>Nr. de urmărire (tracking)</label>
+          <input id="pp-numarPachet" value="${(v.numarPachet||'').replace(/"/g,'&quot;')}" placeholder="ex: 01565202623586"/>
+        </div>
         <div class="form-group">
           <label>Șofer (Tour)<span class="req">*</span></label>
           <select id="pp-tour"><option value="">— alege șofer —</option>${soferOptions}</select>
@@ -9279,13 +9383,17 @@ function togglePachetPierdutForm(data) {
           <label>Data pierderii<span class="req">*</span></label>
           <input id="pp-dataPierdere" type="date" value="${v._dataStr || (v.dataPierdere ? '' : new Date().toISOString().slice(0,10))}"/>
         </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label>Stradă<span class="req">*</span></label>
+          <input id="pp-strada" value="${(v.strada||'').replace(/"/g,'&quot;')}" placeholder="ex: Volkartstr. 39"/>
+        </div>
+        <div class="form-group">
+          <label>Cod poștal</label>
+          <input id="pp-plz" value="${(v.plz||'').replace(/"/g,'&quot;')}" placeholder="ex: 80636"/>
+        </div>
         <div class="form-group">
           <label>Oraș<span class="req">*</span></label>
           <input id="pp-oras" value="${(v.oras||'').replace(/"/g,'&quot;')}" placeholder="ex: München"/>
-        </div>
-        <div class="form-group">
-          <label>Stradă<span class="req">*</span></label>
-          <input id="pp-strada" value="${(v.strada||'').replace(/"/g,'&quot;')}" placeholder="ex: Volkartstr. 39"/>
         </div>
         <div class="form-group" style="grid-column:1/-1">
           <label>Observații</label>
@@ -9301,15 +9409,20 @@ function togglePachetPierdutForm(data) {
 }
 
 async function savePachetPierdut() {
+  const numeClient = document.getElementById('pp-numeClient').value.trim();
   const tour = document.getElementById('pp-tour').value.trim();
   const oras = document.getElementById('pp-oras').value.trim();
   const strada = document.getElementById('pp-strada').value.trim();
   const dataPierdereRaw = document.getElementById('pp-dataPierdere').value;
-  if (!tour || !oras || !strada || !dataPierdereRaw) { toast('Completează câmpurile obligatorii (*)','error'); return; }
+  if (!numeClient || !tour || !oras || !strada || !dataPierdereRaw) { toast('Completează câmpurile obligatorii (*)','error'); return; }
   const soferNume = allSoferi.find(s=>s.tura===tour)?.numeSofer || '';
   const dataPierdere = new Date(dataPierdereRaw).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
   const payload = {
-    tour, soferNume, oras, strada, dataPierdere,
+    numeClient,
+    numarPachet: document.getElementById('pp-numarPachet').value.trim(),
+    tour, soferNume, oras, strada,
+    plz: document.getElementById('pp-plz').value.trim(),
+    dataPierdere,
     observatii: document.getElementById('pp-observatii').value.trim(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
@@ -9331,13 +9444,15 @@ async function savePachetPierdut() {
 }
 
 async function confirmPachetMatch(ppId, matchData) {
-  if (!confirm(`Confirmi că acest colet e "${matchData.name||'—'}" din Rechnung Nr. ${matchData.belegNr||'—'}?`)) return;
+  const tracking = matchData.sendungsnummer || matchData.identnummer || '—';
+  if (!confirm(`Confirmi că acest colet e "${matchData.name||'—'}" (nr. ${tracking}) din Rechnung Nr. ${matchData.belegNr||'—'}?`)) return;
   try {
     await db.collection('pachete_pierdute').doc(ppId).update({
       status: 'recunoscut',
       recunoscutBelegNr: matchData.belegNr || '',
       recunoscutRechnId: matchData.rechnId || '',
       recunoscutNumeClient: matchData.name || '',
+      recunoscutNumarPachet: tracking,
       recunoscutLa: firebase.firestore.FieldValue.serverTimestamp(),
     });
     toast('✓ Pachet recunoscut!');
@@ -9825,7 +9940,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.3.0</span>
+  <span id="version-badge-text">v5.5.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
@@ -9841,31 +9956,49 @@ buildUserGrid();
       <div class="pin-username" id="lock-username"></div>
       <div class="pin-hint" id="lock-pin-hint">🔒 Sesiune blocată — introdu PIN-ul</div>
     </div>
-    <div class="pin-dots" id="lock-pin-dots">
-      <div class="pin-dot" id="ld0"></div>
-      <div class="pin-dot" id="ld1"></div>
-      <div class="pin-dot" id="ld2"></div>
-      <div class="pin-dot" id="ld3"></div>
-      <div class="pin-dot" id="ld4"></div>
-      <div class="pin-dot" id="ld5"></div>
+    <div id="lock-keypad-section">
+      <div class="pin-dots" id="lock-pin-dots">
+        <div class="pin-dot" id="ld0"></div>
+        <div class="pin-dot" id="ld1"></div>
+        <div class="pin-dot" id="ld2"></div>
+        <div class="pin-dot" id="ld3"></div>
+        <div class="pin-dot" id="ld4"></div>
+        <div class="pin-dot" id="ld5"></div>
+      </div>
+      <div class="keypad">
+        <button class="key" onclick="lockPinKey('1')">1</button>
+        <button class="key" onclick="lockPinKey('2')">2</button>
+        <button class="key" onclick="lockPinKey('3')">3</button>
+        <button class="key" onclick="lockPinKey('4')">4</button>
+        <button class="key" onclick="lockPinKey('5')">5</button>
+        <button class="key" onclick="lockPinKey('6')">6</button>
+        <button class="key" onclick="lockPinKey('7')">7</button>
+        <button class="key" onclick="lockPinKey('8')">8</button>
+        <button class="key" onclick="lockPinKey('9')">9</button>
+        <button class="key empty"></button>
+        <button class="key" onclick="lockPinKey('0')">0</button>
+        <button class="key del" onclick="lockPinKey('del')">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9.75L14.25 12m0 0l2.25 2.25M14.25 12l2.25-2.25M14.25 12L12 14.25m-2.58 4.92l-6.375-6.375a1.125 1.125 0 010-1.59L9.42 4.83c.211-.211.498-.33.796-.33H19.5a2.25 2.25 0 012.25 2.25v10.5a2.25 2.25 0 01-2.25 2.25h-9.284c-.298 0-.585-.119-.796-.33z"/></svg>
+        </button>
+      </div>
     </div>
-    <div class="keypad">
-      <button class="key" onclick="lockPinKey('1')">1</button>
-      <button class="key" onclick="lockPinKey('2')">2</button>
-      <button class="key" onclick="lockPinKey('3')">3</button>
-      <button class="key" onclick="lockPinKey('4')">4</button>
-      <button class="key" onclick="lockPinKey('5')">5</button>
-      <button class="key" onclick="lockPinKey('6')">6</button>
-      <button class="key" onclick="lockPinKey('7')">7</button>
-      <button class="key" onclick="lockPinKey('8')">8</button>
-      <button class="key" onclick="lockPinKey('9')">9</button>
-      <button class="key empty"></button>
-      <button class="key" onclick="lockPinKey('0')">0</button>
-      <button class="key del" onclick="lockPinKey('del')">
-        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9.75L14.25 12m0 0l2.25 2.25M14.25 12l2.25-2.25M14.25 12L12 14.25m-2.58 4.92l-6.375-6.375a1.125 1.125 0 010-1.59L9.42 4.83c.211-.211.498-.33.796-.33H19.5a2.25 2.25 0 012.25 2.25v10.5a2.25 2.25 0 01-2.25 2.25h-9.284c-.298 0-.585-.119-.796-.33z"/></svg>
+
+    <!-- Doar pentru Admin, care foloseste email+parolă, nu PIN — altfel ar
+         ramane blocat fara nicio iesire daca nu si-a setat un PIN din Utilizatori -->
+    <div id="lock-admin-toggle" style="display:none;margin-top:12px;text-align:center">
+      <button type="button" onclick="toggleLockAdminPassword()" style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;text-decoration:underline">
+        🔑 Am email și parolă, nu PIN
       </button>
     </div>
-    <button class="pin-back" style="margin-top:18px;justify-content:center;width:100%" onclick="lockLogout()">
+    <div id="lock-admin-pass-form" style="display:none;margin-top:10px;width:100%;display:flex;flex-direction:column;gap:8px">
+      <input type="email" id="lock-admin-email" placeholder="Email" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px"/>
+      <input type="password" id="lock-admin-pass" placeholder="Parolă" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px" onkeydown="if(event.key==='Enter')adminUnlockWithPassword()"/>
+      <button class="btn-admin-login" style="width:100%" onclick="adminUnlockWithPassword()" id="lock-admin-pass-btn">Deblochează</button>
+      <div id="lock-admin-pass-hint" style="font-size:11px;color:var(--red);text-align:center;min-height:14px"></div>
+      <button type="button" onclick="toggleLockAdminPassword()" style="background:none;border:none;color:var(--text3);font-size:11px;cursor:pointer;text-decoration:underline;margin-top:2px">← Înapoi la PIN</button>
+    </div>
+
+    <button class="pin-back" id="lock-logout-btn" style="margin-top:18px;justify-content:center;width:100%" onclick="lockLogout()">
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/></svg>
       Ieși din cont
     </button>
