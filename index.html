@@ -9,6 +9,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -988,6 +989,22 @@ textarea{resize:vertical;min-height:80px}
         <div id="pachete-stats-view"></div>
       </div>
 
+      <!-- PACHETE PIERDUTE — inregistrare manuala de catre soferi/operatori, inainte de orice reclamatie -->
+      <div class="page" id="page-pachete-pierdute">
+        <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div>
+            <div class="page-title">📦❓ Pachete pierdute</div>
+            <div class="page-sub">Înregistrare manuală a pachetelor pierdute de șoferi, înainte să existe o reclamație sau un rechnung</div>
+          </div>
+          <button class="btn btn-primary" id="btn-add-pachet-pierdut" onclick="togglePachetPierdutForm()">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+            Adaugă pachet pierdut
+          </button>
+        </div>
+        <div id="pachet-pierdut-form" style="display:none"></div>
+        <div id="pachete-pierdute-list"></div>
+      </div>
+
       <!-- ═══════════════ SPAȚIUL CORINEI — complet separat, vizibil doar pentru ea ═══════════════ -->
       <div class="page" id="page-corina-reclamatii">
         <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
@@ -1042,8 +1059,8 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.0.0';
-const APP_VERSION_DATE = '30.09.2026';
+const APP_VERSION = '5.2.2';
+const APP_VERSION_DATE = '01.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
 // "SPAȚIUL CORINEI" / "AUTENTIFICARE PIN" mai jos pentru detalii
@@ -1188,6 +1205,7 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+const storage = firebase.storage();
 
 // ════════════════════════════════════════════════════════
 // USERS CONFIG
@@ -1342,7 +1360,7 @@ function buildUserGrid() {
       <div class="user-avatar" style="background:${u.bg};color:${u.color}">${u.avatar}</div>
       <div>
         <div class="user-name">${u.name}</div>
-        <div class="user-role">${u.role==='tania'?'Toate locațiile':u.location}</div>
+        <div class="user-role">${u.role==='tania'?'Toate locațiile':u.role==='corina'?'Spațiu personal':(u.location||'')}</div>
       </div>
     </div>
   `).join('');
@@ -1835,6 +1853,7 @@ const NAV_ITEMS = [
   { id:'utilizatori', label:'Utilizatori', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>', roles:['admin'] },
   { id:'backup', label:'Backup', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/>', roles:['admin'] },
   { id:'pachete', label:'Pachete livrate', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6.75 4.5l3-3m0 0l3 3m-3-3v6m-9-13.5h18c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125H3.375c-.621 0-1.125-.504-1.125-1.125v-1.5c0-.621.504-1.125 1.125-1.125z"/>', roles:['admin'] },
+  { id:'pachete-pierdute', label:'Pachete pierdute', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.611L5 14.5"/>', roles:['admin','operator','tania'] },
   // ── Spatiul separat al Corinei — vizibil DOAR pentru ea (nici admin nu are aceste taburi) ──
   { id:'corina-reclamatii', label:'Reclamațiile mele', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/>', roles:['corina'] },
   { id:'corina-soferi', label:'Șoferii mei', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>', roles:['corina'] },
@@ -1892,6 +1911,7 @@ function showPage(id) {
   if (id==='arhiva-soferi') renderArhivaSoferi();
   if (id==='backup') renderBackupPage();
   if (id==='pachete') renderPacheteStatsView();
+  if (id==='pachete-pierdute') renderPachetePierdute();
   if (id==='import-auto') renderImportAutoPage();
   if (id==='utilizatori') renderUtilizatori();
   if (id==='dashboard') renderDashboard();
@@ -9140,6 +9160,196 @@ let corinaSoferi = [];
 let corinaReclamatii = [];
 let editingCorinaSoferId = null;
 let editingCorinaReclId = null;
+let pachetePierdute = [];
+let editingPachetPierdutId = null;
+
+// ══════════════════════════════════════════════════════
+// PACHETE PIERDUTE — inregistrare manuala facuta de soferi/operatori
+// INAINTE sa existe o reclamatie sau un rechnung, ca sa nu se piarda
+// urma pachetului. Cand se incarca ulterior un rechnung, cautam automat
+// potriviri (dupa numarul turei si adresa) si le aratam ca sugestii —
+// confirmarea e mereu manuala (butonul "Recunoaște ca acesta").
+// Colectie separata: pachete_pierdute. Nu are nicio legatura cu spatiul
+// Corinei (ea are propriul ei flux, complet izolat).
+// ══════════════════════════════════════════════════════
+async function renderPachetePierdute() {
+  const el = document.getElementById('pachete-pierdute-list');
+  el.innerHTML = `<div class="loading-page"><div class="spinner"></div></div>`;
+  let rechnPozitiiFlat = [];
+  try {
+    const [ppSnap, rechnSnap] = await Promise.all([
+      db.collection('pachete_pierdute').orderBy('createdAt','desc').get(),
+      db.collection('rechnunguri').get(),
+    ]);
+    pachetePierdute = ppSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    rechnSnap.docs.forEach(d => {
+      const r = d.data();
+      (r.pozitii||[]).forEach(p => rechnPozitiiFlat.push({
+        ...p, belegNr: r.belegNr, dataEmitere: r.dataEmitere, rechnId: d.id,
+      }));
+    });
+  } catch(e) {
+    el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Eroare la încărcare</div><div class="empty-sub">${e.message}</div></div>`;
+    return;
+  }
+
+  if (!pachetePierdute.length) {
+    el.innerHTML = `<div class="empty">
+      <div class="empty-icon">📦</div>
+      <div class="empty-title">Niciun pachet pierdut înregistrat</div>
+      <div class="empty-sub">Apasă "Adaugă pachet pierdut" când un șofer semnalează că a pierdut un colet</div>
+    </div>`;
+    return;
+  }
+
+  // Pentru fiecare pachet nerecunoscut, cautam potriviri in pozitiile din rechnunguri
+  // dupa: acelasi numar de tura SAU (strada asemanatoare + oras asemanator)
+  function findMatches(pp) {
+    const ppStrada = (pp.strada||'').toLowerCase().replace(/\s/g,'').replace(/[.,]/g,'');
+    const ppTour = String(pp.tour||'').trim();
+    return rechnPozitiiFlat.filter(p => {
+      const pTour = String(p.tour||'').trim();
+      const pStrada = (p.strasse||'').toLowerCase().replace(/\s/g,'').replace(/[.,]/g,'');
+      const tourMatch = ppTour && pTour && ppTour === pTour;
+      const stradaMatch = ppStrada.length>=4 && pStrada.includes(ppStrada.slice(0, Math.min(ppStrada.length,10)));
+      return tourMatch || stradaMatch;
+    }).slice(0, 5);
+  }
+
+  el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">${pachetePierdute.map(pp => {
+    const soferNume = allSoferi.find(s=>s.tura===pp.tura)?.numeSofer || pp.soferNume || '—';
+    const matches = pp.status==='recunoscut' ? [] : findMatches(pp);
+    return `
+    <div class="card card-sm" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px">
+            📦 ${pp.oras||'—'}, ${pp.strada||'—'}
+            <span class="badge ${pp.status==='recunoscut'?'badge-green':'badge-red'}">${pp.status==='recunoscut'?'✓ Recunoscut':'❓ Nerecunoscut'}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap">
+            <span>🚚 ${soferNume}${pp.tour?' (Tour '+pp.tour+')':''}</span>
+            <span>📅 Pierdut: ${pp.dataPierdere||'—'}</span>
+            ${pp.observatii?`<span>📝 ${pp.observatii}</span>`:''}
+          </div>
+          ${pp.status==='recunoscut' && pp.recunoscutBelegNr?`<div style="font-size:11px;color:var(--green);margin-top:4px">📄 Recunoscut în Rechnung Nr. ${pp.recunoscutBelegNr}</div>`:''}
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="icon-btn" onclick='togglePachetPierdutForm(${JSON.stringify(pp).replace(/'/g,"&apos;")})' title="Editează">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg>
+          </button>
+          <button class="icon-btn red" onclick="deletePachetPierdut('${pp.id}')" title="Șterge">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916"/></svg>
+          </button>
+        </div>
+      </div>
+      ${matches.length ? `
+        <div style="background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:8px;padding:10px 12px">
+          <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">🔍 Posibile potriviri găsite în Rechnunguri:</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${matches.map(m => `
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;background:var(--bg2);padding:6px 10px;border-radius:6px">
+                <span style="flex:1;min-width:150px">${m.name||'—'} · ${[m.strasse,m.plz,m.ort].filter(Boolean).join(' ')} · Tour ${m.tour||'—'}</span>
+                <span style="color:var(--text3)">📄${m.belegNr||'—'}</span>
+                <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick='confirmPachetMatch("${pp.id}", ${JSON.stringify(m).replace(/'/g,"&apos;")})'>✓ Recunoaște ca acesta</button>
+              </div>`).join('')}
+          </div>
+        </div>` : ''}
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function togglePachetPierdutForm(data) {
+  const el = document.getElementById('pachet-pierdut-form');
+  if (el.style.display==='block' && !data) { el.style.display='none'; editingPachetPierdutId=null; return; }
+  editingPachetPierdutId = data?.id || null;
+  const v = data || {};
+  const soferOptions = allSoferi.filter(s=>!s.arhivat && s.tura).sort((a,b)=>parseInt(a.tura||0)-parseInt(b.tura||0))
+    .map(s=>`<option value="${s.tura}" ${v.tour===s.tura?'selected':''}>${s.tura} — ${s.numeSofer}</option>`).join('');
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="form-panel">
+      <div class="form-panel-title">${editingPachetPierdutId ? 'Editează pachet pierdut' : 'Pachet pierdut nou'}</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Șofer (Tour)<span class="req">*</span></label>
+          <select id="pp-tour"><option value="">— alege șofer —</option>${soferOptions}</select>
+        </div>
+        <div class="form-group">
+          <label>Data pierderii<span class="req">*</span></label>
+          <input id="pp-dataPierdere" type="date" value="${v._dataStr || (v.dataPierdere ? '' : new Date().toISOString().slice(0,10))}"/>
+        </div>
+        <div class="form-group">
+          <label>Oraș<span class="req">*</span></label>
+          <input id="pp-oras" value="${(v.oras||'').replace(/"/g,'&quot;')}" placeholder="ex: München"/>
+        </div>
+        <div class="form-group">
+          <label>Stradă<span class="req">*</span></label>
+          <input id="pp-strada" value="${(v.strada||'').replace(/"/g,'&quot;')}" placeholder="ex: Volkartstr. 39"/>
+        </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label>Observații</label>
+          <input id="pp-observatii" value="${(v.observatii||'').replace(/"/g,'&quot;')}" placeholder="orice detaliu suplimentar"/>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-primary" onclick="savePachetPierdut()">${editingPachetPierdutId?'Salvează':'Adaugă'}</button>
+        <button class="btn btn-ghost" onclick="togglePachetPierdutForm()">Anulează</button>
+      </div>
+    </div>`;
+  el.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+
+async function savePachetPierdut() {
+  const tour = document.getElementById('pp-tour').value.trim();
+  const oras = document.getElementById('pp-oras').value.trim();
+  const strada = document.getElementById('pp-strada').value.trim();
+  const dataPierdereRaw = document.getElementById('pp-dataPierdere').value;
+  if (!tour || !oras || !strada || !dataPierdereRaw) { toast('Completează câmpurile obligatorii (*)','error'); return; }
+  const soferNume = allSoferi.find(s=>s.tura===tour)?.numeSofer || '';
+  const dataPierdere = new Date(dataPierdereRaw).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const payload = {
+    tour, soferNume, oras, strada, dataPierdere,
+    observatii: document.getElementById('pp-observatii').value.trim(),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  try {
+    if (editingPachetPierdutId) {
+      await db.collection('pachete_pierdute').doc(editingPachetPierdutId).update(payload);
+      toast('Pachet pierdut actualizat');
+    } else {
+      payload.status = 'nerecunoscut';
+      payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      payload.createdBy = currentUser?.name || '';
+      await db.collection('pachete_pierdute').add(payload);
+      toast('Pachet pierdut înregistrat!');
+    }
+    togglePachetPierdutForm();
+    editingPachetPierdutId = null;
+    renderPachetePierdute();
+  } catch(e) { toast('Eroare: '+e.message,'error'); }
+}
+
+async function confirmPachetMatch(ppId, matchData) {
+  if (!confirm(`Confirmi că acest colet e "${matchData.name||'—'}" din Rechnung Nr. ${matchData.belegNr||'—'}?`)) return;
+  try {
+    await db.collection('pachete_pierdute').doc(ppId).update({
+      status: 'recunoscut',
+      recunoscutBelegNr: matchData.belegNr || '',
+      recunoscutRechnId: matchData.rechnId || '',
+      recunoscutNumeClient: matchData.name || '',
+      recunoscutLa: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('✓ Pachet recunoscut!');
+    renderPachetePierdute();
+  } catch(e) { toast('Eroare: '+e.message,'error'); }
+}
+
+async function deletePachetPierdut(id) {
+  if (!confirm('Ștergi această înregistrare de pachet pierdut?')) return;
+  try { await db.collection('pachete_pierdute').doc(id).delete(); toast('Șters'); renderPachetePierdute(); }
+  catch(e) { toast('Eroare','error'); }
+}
 
 // ── ȘOFERII CORINEI ──
 async function renderCorinaSoferi() {
@@ -9239,7 +9449,11 @@ async function deleteCorinaSofer(id) {
 }
 
 // ── RECLAMAȚIILE CORINEI ──
-// Format generic deocamdata — va fi inlocuit cu formatul exact cand il trimite Corina
+// Format bazat pe datele reale din PDF-ul Sachverhalt (DPD):
+//  - numeClient + adresa de livrare (strada, cod poștal, oraș) — din LIEFERADRESSE
+//  - numărul turei (Tour) și data/ora exactă a livrării — din linia "Zustellungan: ..."
+// Factura (Rechnung) e doar ATAȘATĂ ca PDF (nu se extrage nimic din ea) — Corina o
+// încarcă o singură dată, o poate vizualiza oricând, și o leagă de reclamația respectivă.
 async function renderCorinaReclamatii() {
   const el = document.getElementById('corina-recl-list');
   el.innerHTML = `<div class="loading-page"><div class="spinner"></div></div>`;
@@ -9264,6 +9478,7 @@ async function renderCorinaReclamatii() {
   }
   el.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">${corinaReclamatii.map(r => {
     const soferNume = corinaSoferi.find(s=>s.id===r.soferId)?.nume || r.soferNume || '—';
+    const adresa = [r.strada, r.plz, r.oras].filter(Boolean).join(', ');
     return `
     <div class="recl-item">
       <div class="recl-dot ${r.status==='rezolvata'?'resolved':'unresolved'}"></div>
@@ -9271,15 +9486,26 @@ async function renderCorinaReclamatii() {
         <div class="recl-name">
           ${r.numeClient||'—'}
           <span class="badge ${r.status==='rezolvata'?'badge-green':r.status==='nerezolvata'?'badge-red':'badge-gray'}">${r.status==='rezolvata'?'✓ Rezolvată':r.status==='nerezolvata'?'✗ Nerezolvată':'⏳ Neprelucrat'}</span>
+          ${r.rechnungUrl?`<span class="badge badge-blue" title="${r.rechnungNume||''}">📄 Factură atașată</span>`:''}
         </div>
         <div class="recl-meta">
           <span>🚚 ${soferNume}</span>
+          ${r.numarPachet?`<span>📦 ${r.numarPachet}</span>`:''}
+          ${r.tour?`<span>🧭 Tour ${r.tour}</span>`:''}
+          ${adresa?`<span>📍 ${adresa}</span>`:''}
+          ${r.dataOraLivrare?`<span>🕐 Livrat: ${r.dataOraLivrare}</span>`:''}
           ${r.suma?`<span>💶 €${parseFloat(r.suma).toFixed(2)}</span>`:''}
           <span>📅 ${fmtDate(r.dataReclamatie||r.createdAt)}</span>
           ${r.descriere?`<span style="color:var(--text3)">${r.descriere}</span>`:''}
         </div>
       </div>
       <div class="recl-actions">
+        <input type="file" id="corina-rechn-input-${r.id}" accept=".pdf" style="display:none" onchange="uploadCorinaRechnung('${r.id}',this.files[0])"/>
+        ${r.rechnungUrl
+          ? `<button class="icon-btn" onclick="window.open('${r.rechnungUrl}','_blank')" title="Vezi factura"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg></button>
+             <button class="icon-btn red" onclick="deleteCorinaRechnung('${r.id}')" title="Șterge factura"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg></button>`
+          : `<button class="icon-btn" onclick="document.getElementById('corina-rechn-input-${r.id}').click()" title="Atașează factura (PDF)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg></button>`
+        }
         ${r.status!=='rezolvata'?`<button class="icon-btn green" onclick="setCorinaReclStatus('${r.id}','rezolvata')" title="Marchează rezolvată"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg></button>`:''}
         ${r.status!=='nerezolvata'?`<button class="icon-btn red" onclick="setCorinaReclStatus('${r.id}','nerezolvata')" title="Marchează nerezolvată"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button>`:''}
         <button class="icon-btn" onclick='editCorinaRecl("${r.id}")' title="Editează"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg></button>
@@ -9289,9 +9515,82 @@ async function renderCorinaReclamatii() {
   }).join('')}</div>`;
 }
 
+// ── Atașare factură (Rechnung) PDF — doar stocare + vizualizare, fara parsare ──
+async function uploadCorinaRechnung(reclId, file) {
+  if (!file) return;
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+    toast('Trebuie să fie un fișier PDF', 'error'); return;
+  }
+  toast('Se încarcă factura...');
+  try {
+    const path = `rechnunguri_corina/${reclId}/${Date.now()}_${file.name}`;
+    const ref = storage.ref(path);
+    await ref.put(file);
+    const url = await ref.getDownloadURL();
+    await db.collection('reclamatii_corina').doc(reclId).update({
+      rechnungUrl: url,
+      rechnungNume: file.name,
+      rechnungPath: path,
+      rechnungUploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('✓ Factură atașată!');
+    renderCorinaReclamatii();
+  } catch(e) { toast('Eroare la încărcarea facturii: '+e.message, 'error'); }
+}
+
+async function deleteCorinaRechnung(reclId) {
+  if (!confirm('Ștergi factura atașată acestei reclamații?')) return;
+  const r = corinaReclamatii.find(x=>x.id===reclId);
+  try {
+    if (r?.rechnungPath) { try { await storage.ref(r.rechnungPath).delete(); } catch(e) {} }
+    await db.collection('reclamatii_corina').doc(reclId).update({
+      rechnungUrl: firebase.firestore.FieldValue.delete(),
+      rechnungNume: firebase.firestore.FieldValue.delete(),
+      rechnungPath: firebase.firestore.FieldValue.delete(),
+      rechnungUploadedAt: firebase.firestore.FieldValue.delete(),
+    });
+    toast('Factură ștearsă');
+    renderCorinaReclamatii();
+  } catch(e) { toast('Eroare: '+e.message, 'error'); }
+}
+
 function editCorinaRecl(id) {
   const r = corinaReclamatii.find(x=>x.id===id);
   if (r) toggleCorinaReclForm(r);
+}
+
+// Incarca PDF-ul Sachverhalt (DPD) pe server, care extrage determinist (pdfplumber,
+// fara AI) numele clientului, adresa de livrare, tour-ul si data/ora livrarii.
+// Suma NU e in acest PDF (vine din factura, pe care Corina o ataseaza separat dupa
+// salvare) — ramane mereu de completat manual.
+async function importCorinaSachverhalt(file) {
+  if (!file) return;
+  const statusEl = document.getElementById('cr-sachverhalt-status');
+  if (statusEl) { statusEl.textContent = 'Se citește PDF-ul...'; statusEl.style.color = 'var(--accent)'; }
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await fetch(AUTH_SERVER_BASE + '/parse-sachverhalt-dpd', { method: 'POST', body: fd });
+    const parsed = await resp.json();
+    if (!resp.ok) throw new Error(parsed.error || 'Eroare server');
+
+    if (parsed.numeClient) document.getElementById('cr-numeClient').value = parsed.numeClient;
+    if (parsed.numarPachet) document.getElementById('cr-numarPachet').value = parsed.numarPachet;
+    if (parsed.strada) document.getElementById('cr-strada').value = parsed.strada;
+    if (parsed.plz) document.getElementById('cr-plz').value = parsed.plz;
+    if (parsed.oras) document.getElementById('cr-oras').value = parsed.oras;
+    if (parsed.tour) document.getElementById('cr-tour').value = parsed.tour;
+    if (parsed.dataOraLivrare) document.getElementById('cr-dataOraLivrare').value = parsed.dataOraLivrare;
+
+    if (statusEl) {
+      statusEl.textContent = '✓ Completat automat din PDF! Verifică datele, apoi adaugă manual suma.';
+      statusEl.style.color = 'var(--green)';
+    }
+    toast('✓ Date completate din Sachverhalt!');
+  } catch(e) {
+    if (statusEl) { statusEl.textContent = 'Eroare la citirea PDF-ului: ' + e.message; statusEl.style.color = 'var(--red)'; }
+    toast('Eroare la citirea PDF-ului', 'error');
+  }
 }
 
 function toggleCorinaReclForm(data) {
@@ -9304,21 +9603,52 @@ function toggleCorinaReclForm(data) {
   el.innerHTML = `
     <div class="form-panel">
       <div class="form-panel-title">${editingCorinaReclId ? 'Editează reclamație' : 'Reclamație nouă'}</div>
+      <div style="background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:8px;padding:10px 12px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <input type="file" id="cr-sachverhalt-input" accept=".pdf" style="display:none" onchange="importCorinaSachverhalt(this.files[0])"/>
+        <button class="btn btn-ghost" style="font-size:12px;padding:7px 12px" onclick="document.getElementById('cr-sachverhalt-input').click()">
+          📎 Încarcă Sachverhalt (PDF) — completează automat
+        </button>
+        <span id="cr-sachverhalt-status" style="font-size:11px;color:var(--text3)">Nume, adresă, tour și data livrării se completează automat. Suma rămâne de introdus manual (nu e în acest PDF — vine din factură).</span>
+      </div>
       <div class="form-grid">
         <div class="form-group">
           <label>Nume client<span class="req">*</span></label>
-          <input id="cr-numeClient" value="${(v.numeClient||'').replace(/"/g,'&quot;')}" placeholder="Nume client"/>
+          <input id="cr-numeClient" value="${(v.numeClient||'').replace(/"/g,'&quot;')}" placeholder="ex: Moritz Gammel"/>
         </div>
         <div class="form-group">
           <label>Șofer</label>
           <select id="cr-sofer"><option value="">— fără șofer —</option>${soferOptions}</select>
+        </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label>Nr. colet (tracking)</label>
+          <input id="cr-numarPachet" value="${(v.numarPachet||'').replace(/"/g,'&quot;')}" placeholder="ex: 01565202623586"/>
+        </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label>Stradă (adresă livrare)</label>
+          <input id="cr-strada" value="${(v.strada||'').replace(/"/g,'&quot;')}" placeholder="ex: Volkartstr. 39"/>
+        </div>
+        <div class="form-group">
+          <label>Cod poștal</label>
+          <input id="cr-plz" value="${(v.plz||'').replace(/"/g,'&quot;')}" placeholder="ex: 80636"/>
+        </div>
+        <div class="form-group">
+          <label>Oraș</label>
+          <input id="cr-oras" value="${(v.oras||'').replace(/"/g,'&quot;')}" placeholder="ex: München"/>
+        </div>
+        <div class="form-group">
+          <label>Nr. Tour</label>
+          <input id="cr-tour" value="${(v.tour||'').replace(/"/g,'&quot;')}" placeholder="ex: 501"/>
+        </div>
+        <div class="form-group">
+          <label>Data și ora livrării</label>
+          <input id="cr-dataOraLivrare" value="${(v.dataOraLivrare||'').replace(/"/g,'&quot;')}" placeholder="ex: 15.09.2026 18:05"/>
         </div>
         <div class="form-group">
           <label>Sumă (€)</label>
           <input id="cr-suma" type="number" step="0.01" value="${v.suma||''}" placeholder="0.00"/>
         </div>
         <div class="form-group">
-          <label>Data</label>
+          <label>Data reclamației</label>
           <input id="cr-data" type="date" value="${v.dataReclamatie?.toDate ? v.dataReclamatie.toDate().toISOString().slice(0,10) : (v._dataStr||new Date().toISOString().slice(0,10))}"/>
         </div>
         <div class="form-group">
@@ -9334,6 +9664,7 @@ function toggleCorinaReclForm(data) {
           <input id="cr-descriere" value="${(v.descriere||'').replace(/"/g,'&quot;')}" placeholder="Detalii..."/>
         </div>
       </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">💡 Poți atașa factura (PDF) direct de pe card, după salvare, apăsând butonul de atașare.</div>
       <div style="display:flex;gap:8px;margin-top:16px">
         <button class="btn btn-primary" onclick="saveCorinaRecl()">${editingCorinaReclId?'Salvează':'Adaugă'}</button>
         <button class="btn btn-ghost" onclick="toggleCorinaReclForm()">Anulează</button>
@@ -9350,6 +9681,12 @@ async function saveCorinaRecl() {
     numeClient,
     soferId,
     soferNume: corinaSoferi.find(s=>s.id===soferId)?.nume || '',
+    numarPachet: document.getElementById('cr-numarPachet').value.trim(),
+    strada: document.getElementById('cr-strada').value.trim(),
+    plz: document.getElementById('cr-plz').value.trim(),
+    oras: document.getElementById('cr-oras').value.trim(),
+    tour: document.getElementById('cr-tour').value.trim(),
+    dataOraLivrare: document.getElementById('cr-dataOraLivrare').value.trim(),
     suma: parseFloat(document.getElementById('cr-suma').value) || 0,
     dataReclamatie: new Date(document.getElementById('cr-data').value),
     status: document.getElementById('cr-status').value,
@@ -9458,7 +9795,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.0.0</span>
+  <span id="version-badge-text">v5.2.2</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
