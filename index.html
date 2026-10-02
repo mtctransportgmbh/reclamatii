@@ -1059,8 +1059,8 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.5.1';
-const APP_VERSION_DATE = '01.10.2026';
+const APP_VERSION = '5.6.0';
+const APP_VERSION_DATE = '02.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
 // "SPAȚIUL CORINEI" / "AUTENTIFICARE PIN" mai jos pentru detalii
@@ -9269,6 +9269,16 @@ async function renderPachetePierdute() {
       db.collection('rechnunguri').get(),
     ]);
     pachetePierdute = ppSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Fiecare operator vede doar pachetele pierdute din locatia lui
+    // (Ruhstorf / Eiselfing) — ca sa nu vada Madalina pachetele adaugate
+    // de Admin/Raluca din Ruhstorf si invers. Admin si Tania vad tot.
+    if (!canSeeAll(currentUser)) {
+      const userLoc = currentUser.location;
+      pachetePierdute = pachetePierdute.filter(pp => {
+        const loc = pp.locatie || allSoferi.find(s => s.tura === pp.tour)?.locatie || '';
+        return loc === userLoc;
+      });
+    }
     rechnSnap.docs.forEach(d => {
       const r = d.data();
       (r.pozitii||[]).forEach(p => rechnPozitiiFlat.push({
@@ -9327,6 +9337,7 @@ async function renderPachetePierdute() {
             ${pp.numarPachet?`<span>🔢 ${pp.numarPachet}</span>`:''}
             <span>📍 ${[pp.strada,pp.plz,pp.oras].filter(Boolean).join(', ')||'—'}</span>
             <span>🚚 ${soferNume}${pp.tour?' (Tour '+pp.tour+')':''}</span>
+            ${canSeeAll(currentUser) && pp.locatie?`<span class="badge badge-gray">${pp.locatie}</span>`:''}
             <span>📅 Pierdut: ${pp.dataPierdere||'—'}</span>
             ${pp.observatii?`<span>📝 ${pp.observatii}</span>`:''}
           </div>
@@ -9418,12 +9429,14 @@ async function savePachetPierdut() {
   const strada = document.getElementById('pp-strada').value.trim();
   const dataPierdereRaw = document.getElementById('pp-dataPierdere').value;
   if (!numeClient || !tour || !oras || !strada || !dataPierdereRaw) { toast('Completează câmpurile obligatorii (*)','error'); return; }
-  const soferNume = allSoferi.find(s=>s.tura===tour)?.numeSofer || '';
+  const soferSelectat = allSoferi.find(s=>s.tura===tour);
+  const soferNume = soferSelectat?.numeSofer || '';
+  const locatie = soferSelectat?.locatie || '';
   const dataPierdere = new Date(dataPierdereRaw).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
   const payload = {
     numeClient,
     numarPachet: document.getElementById('pp-numarPachet').value.trim(),
-    tour, soferNume, oras, strada,
+    tour, soferNume, locatie, oras, strada,
     plz: document.getElementById('pp-plz').value.trim(),
     dataPierdere,
     observatii: document.getElementById('pp-observatii').value.trim(),
@@ -9943,7 +9956,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.5.1</span>
+  <span id="version-badge-text">v5.6.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
