@@ -1059,7 +1059,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.5.0';
+const APP_VERSION = '5.5.1';
 const APP_VERSION_DATE = '01.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -1663,11 +1663,12 @@ async function pinKey(k) {
 // APP ENTRY
 // ════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════
-// LOCK OVERLAY — blocheaza aplicatia dupa 10s de inactivitate,
-// cere PIN-ul userului curent pentru deblocare (ca la Concedii)
+// LOCK OVERLAY — blocheaza aplicatia dupa X secunde de inactivitate
+// (timp diferit pentru Admin fata de restul userilor), cere PIN-ul
+// userului curent pentru deblocare (ca la Concedii)
 // ════════════════════════════════════════════════════════
-const INACTIVITY_LOCK_MS_ADMIN = 20000;
-const INACTIVITY_LOCK_MS_USER = 45000;
+const INACTIVITY_LOCK_MS_ADMIN = 20000;  // Admin: 20s
+const INACTIVITY_LOCK_MS_USER = 45000;   // Restul userilor: 45s
 let inactivityTimer = null;
 let lockPinBuffer = '';
 
@@ -1681,7 +1682,8 @@ function isLockOverlayVisible() {
 function resetInactivityTimer() {
   if (!currentUser || !isAppScreenActive() || isLockOverlayVisible()) return;
   clearTimeout(inactivityTimer);
-  inactivityTimer = setTimeout(showLockOverlay, INACTIVITY_LOCK_MS);
+  const ms = currentUser.role === 'admin' ? INACTIVITY_LOCK_MS_ADMIN : INACTIVITY_LOCK_MS_USER;
+  inactivityTimer = setTimeout(showLockOverlay, ms);
 }
 function stopInactivityTimer() {
   clearTimeout(inactivityTimer);
@@ -9941,7 +9943,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.5.0</span>
+  <span id="version-badge-text">v5.5.1</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
