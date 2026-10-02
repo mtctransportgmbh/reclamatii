@@ -1666,7 +1666,8 @@ async function pinKey(k) {
 // LOCK OVERLAY — blocheaza aplicatia dupa 10s de inactivitate,
 // cere PIN-ul userului curent pentru deblocare (ca la Concedii)
 // ════════════════════════════════════════════════════════
-const INACTIVITY_LOCK_MS = 10000;
+const INACTIVITY_LOCK_MS_ADMIN = 20000;
+const INACTIVITY_LOCK_MS_USER = 45000;
 let inactivityTimer = null;
 let lockPinBuffer = '';
 
