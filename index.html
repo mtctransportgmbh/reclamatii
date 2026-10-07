@@ -1059,7 +1059,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.7.0';
+const APP_VERSION = '5.8.0';
 const APP_VERSION_DATE = '02.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -1904,6 +1904,7 @@ function enterApp() {
     loadReclamatii();
     loadSoferi();
     startPierduteWatch();
+    if (canSeeAll(currentUser)) setTimeout(scanPierduteInRechnunguri, 3000);
     renderRechnungNotifBanner();
     checkAndRunDailyBackup();
     checkImportAutoBadgeAtLogin();
@@ -2961,6 +2962,7 @@ let pierduteActive = [];        // pachete pierdute nerecunoscute (live, scoped 
 let pierduteUnsub = null;
 let pierduteLoaded = false;
 let alertedReclIds = new Set();
+let alertedFactIds = new Set();
 
 function startPierduteWatch() {
   stopPierduteWatch();
@@ -2968,11 +2970,19 @@ function startPierduteWatch() {
   const myEpoch = loginEpoch;
   pierduteUnsub = db.collection('pachete_pierdute').onSnapshot(snap => {
     if (myEpoch !== loginEpoch) return;
-    let arr = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(pp => pp.status !== 'recunoscut');
+    let all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (!canSeeAll(currentUser)) {
       const userLoc = currentUser.location;
-      arr = arr.filter(pp => (pp.locatie || allSoferi.find(s => s.tura === pp.tour)?.locatie || userLoc) === userLoc);
+      all = all.filter(pp => (pp.locatie || allSoferi.find(s => s.tura === pp.tour)?.locatie || userLoc) === userLoc);
     }
+    // Pachete aparute in factura si inca neimputate -> notificare (o data pe sesiune per pachet)
+    all.filter(pp => (pp.facturaGasita || pp.status === 'recunoscut') && !pp.imputat).forEach(pp => {
+      if (alertedFactIds.has(pp.id)) return;
+      alertedFactIds.add(pp.id);
+      const f = pp.facturaGasita || {};
+      toast(`💶 Pachet pierdut FACTURAT: ${pp.numeClient||'—'}${f.belegNr?' (Rechnung '+f.belegNr+')':''} — de imputat șoferului ${pp.soferNume||''}`, 'error');
+    });
+    let arr = all.filter(pp => pp.status !== 'recunoscut');
     pierduteActive = arr;
     pierduteLoaded = true;
     renderReclamatii();
@@ -2980,7 +2990,7 @@ function startPierduteWatch() {
 }
 function stopPierduteWatch() {
   if (pierduteUnsub) { pierduteUnsub(); pierduteUnsub = null; }
-  pierduteActive = []; pierduteLoaded = false; alertedReclIds = new Set(); window._pierdutAlertSeeded = false;
+  pierduteActive = []; pierduteLoaded = false; alertedReclIds = new Set(); alertedFactIds = new Set(); window._pierdutAlertSeeded = false;
 }
 
 function _pn(s) { // normalizare text: minuscule, umlauturi -> ae/oe/ue, fara diacritice, doar a-z0-9
@@ -3012,6 +3022,69 @@ function findPierdutForRecl(r) {
     if (nameMatch && addrMatch) return { pp, by: 'nume + adresă' };
   }
   return null;
+}
+
+// Potrivire STRICTA pachet pierdut <-> pozitie din Rechnung:
+// nr. de urmarire identic SAU (nume + adresa, ambele). Intoarce motivul sau null.
+function matchPierdutPozitie(pp, p) {
+  const t1 = _pn(pp.numarPachet), t2 = _pn(p.sendungsnummer || p.identnummer || p.numarPachet);
+  if (t1.length >= 6 && t2.length >= 6 && t1 === t2) return 'nr. de urmărire';
+  const a = _pnTokens(pp.numeClient), b = _pnTokens(p.name);
+  if (!a.length || !b.length) return null;
+  const small = a.length <= b.length ? a : b, big = a.length <= b.length ? b : a;
+  const nameMatch = small.every(t => big.includes(t)) && (small.length >= 2 || small[0].length >= 5);
+  const s1 = _pnStreet(pp.strada), s2 = _pnStreet(p.strasse);
+  const plz1 = (pp.plz||'').trim(), plz2 = (p.plz||'').trim();
+  const addrMatch = s1.length >= 4 && s2.length >= 4 && (s1.includes(s2) || s2.includes(s1)) && (!plz1 || !plz2 || plz1 === plz2);
+  return (nameMatch && addrMatch) ? 'nume + adresă' : null;
+}
+
+// Cauta pachetele pierdute (inca nefacturate) in TOATE rechnungurile si, daca apar,
+// salveaza pe pachet `facturaGasita` — ca sa stii ca trebuie imputat soferului.
+// Ruleaza dupa fiecare incarcare de Rechnung si la logarea Admin/Tania.
+async function scanPierduteInRechnunguri() {
+  try {
+    const [ppSnap, rSnap] = await Promise.all([
+      db.collection('pachete_pierdute').get(),
+      db.collection('rechnunguri').get(),
+    ]);
+    const pend = ppSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(pp => pp.status !== 'recunoscut' && !pp.facturaGasita);
+    if (!pend.length) return 0;
+    const poz = [];
+    rSnap.docs.forEach(d => { const r = d.data(); (r.pozitii||[]).forEach(p => poz.push({ ...p, belegNr: r.belegNr, dataEmitere: r.dataEmitere, rechnId: d.id })); });
+    let found = 0;
+    for (const pp of pend) {
+      let best = null;
+      for (const p of poz) {
+        const by = matchPierdutPozitie(pp, p);
+        if (!by) continue;
+        if (by === 'nr. de urmărire') { best = { p, by }; break; }
+        if (!best) best = { p, by };
+      }
+      if (!best) continue;
+      await db.collection('pachete_pierdute').doc(pp.id).update({
+        facturaGasita: {
+          belegNr: best.p.belegNr || '', rechnId: best.p.rechnId || '', dataEmitere: best.p.dataEmitere || '',
+          numeClient: best.p.name || '', numarPachet: best.p.sendungsnummer || best.p.identnummer || '',
+          suma: best.p.forderung != null ? String(best.p.forderung) : '', by: best.by,
+        },
+        facturaGasitaLa: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      found++;
+    }
+    return found;
+  } catch(e) { console.warn('scanPierduteInRechnunguri:', e.message); return 0; }
+}
+
+async function marcheazaImputat(ppId) {
+  if (!confirm('Marchezi acest pachet ca IMPUTAT șoferului?')) return;
+  try {
+    await db.collection('pachete_pierdute').doc(ppId).update({
+      imputat: true, imputatLa: firebase.firestore.FieldValue.serverTimestamp(), imputatDe: currentUser?.name || '',
+    });
+    toast('✓ Marcat ca imputat');
+    if (document.getElementById('page-pachete-pierdute')?.classList.contains('active')) renderPachetePierdute();
+  } catch(e) { toast('Eroare: ' + e.message, 'error'); }
 }
 
 async function confirmPierdutRecl(reclId, ppId) {
@@ -3073,7 +3146,6 @@ function renderReclamatii() {
       const m = findPierdutForRecl(r);
       if (m) matches.push({ r, by: m.by });
     });
-    if (matches.length && el && list.length) el.insertAdjacentHTML('afterbegin', pierdutBanner(matches));
     matches.forEach(m => {
       if (!alertedReclIds.has(m.r.id)) {
         if (window._pierdutAlertSeeded) toast(`⚠️ Pachet pierdut înregistrat: ${m.r.numeClient||'—'}`, 'error');
@@ -3103,7 +3175,8 @@ function reclItemHTML(r, compact) {
     <button class="icon-btn red" onclick="deleteReclamatie('${r.id}')" title="Șterge"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916"/></svg></button>
   ` : '';
 
-  return `<div class="recl-item">
+  const _pm = (r.status!=='rezolvata') ? findPierdutForRecl(r) : null;
+  return `<div class="recl-item"${_pm?' style="border:1px solid rgba(248,113,113,0.6);box-shadow:0 0 0 2px rgba(248,113,113,0.12)"':''}>
     <div class="recl-dot ${resolved?'resolved':'unresolved'}"></div>
     <div class="recl-body">
       <div class="recl-name">
@@ -3113,6 +3186,7 @@ function reclItemHTML(r, compact) {
         ${r.tipReclamatie && r.tipReclamatie!=='adresa gresita'?`<span class="badge badge-blue">${r.tipReclamatie}</span>`:''}
         ${(() => { if (r.status==='rezolvata') return ''; const m = findPierdutForRecl(r); return m ? `<span onclick="confirmPierdutRecl('${r.id}','${m.pp.id}')" title="Potrivire după ${m.by} — click pentru a confirma" style="cursor:pointer;color:#fff;background:linear-gradient(135deg,#dc2626,#ea580c);padding:3px 10px;border-radius:5px;font-weight:800;font-size:11px;letter-spacing:0.4px;text-transform:uppercase;animation:pulse-red 1.5s infinite;display:inline-flex;align-items:center;gap:4px">⚠️ PACHET PIERDUT ÎNREGISTRAT</span>` : ''; })()}
       </div>
+      ${_pm?`<div style="font-size:12px;color:var(--red);font-weight:700;margin-bottom:4px">⚠️ Pachet pierdut înregistrat (${_pm.by}) — ${_pm.pp.soferNume||'—'}${_pm.pp.tour?', Tour '+_pm.pp.tour:''}, pierdut pe ${_pm.pp.dataPierdere||'—'}</div>`:''}
       <div class="recl-meta">
         <span>📦 ${r.numePachet||'—'}</span>
         ${r.numarPachet ? `<span style="font-family:var(--mono);font-size:11px;background:var(--bg3);padding:1px 6px;border-radius:4px;letter-spacing:0.3px" title="Număr pachet / Sendungs-ID">#${r.numarPachet}</span>` : ''}
@@ -7096,6 +7170,7 @@ async function saveOneRechn(qid) {
 
     // Publicam notificarea pentru Tania/Raluca/Madalina
     if (luna && an) await publishRechnungNotification(luna, an, [parsed.belegNr].filter(Boolean));
+    scanPierduteInRechnunguri();
 
     renderRechnQueue();
     renderRechnunguri();
@@ -7167,6 +7242,7 @@ async function saveAllRechn() {
     const belegNrs = savedEntries.map(e => e.parsed?.belegNr).filter(Boolean);
     const { luna, an } = savedEntries[0] || {};
     if (luna && an) await publishRechnungNotification(luna, an, belegNrs);
+    scanPierduteInRechnunguri();
   }
 
   renderRechnQueue();
@@ -9436,27 +9512,12 @@ async function renderPachetePierdute() {
   // STRICT dupa: numarul de urmarire (singur, e unic) SAU (nume client + adresa,
   // AMBELE impreuna) — NU dupa tura sau adresa singura, ca sa nu iasa potriviri
   // eronate intre doi clienti diferiti de pe aceeasi tura/strada
-  const norm = (s) => (s||'').toString().toLowerCase().replace(/[^a-z0-9ăâîșşţț]/gi, '');
   function findMatches(pp) {
-    const ppTracking = norm(pp.numarPachet);
-    const ppName = norm(pp.numeClient);
-    const ppStrada = norm(pp.strada);
-    const ppPlz = (pp.plz||'').trim();
-    return rechnPozitiiFlat.filter(p => {
-      const pTracking = norm(p.sendungsnummer || p.identnummer || p.numarPachet);
-      if (ppTracking.length>=6 && pTracking.length>=6 && ppTracking === pTracking) return true;
-
-      const pName = norm(p.name);
-      const pStrada = norm(p.strasse);
-      const pPlz = (p.plz||'').trim();
-      const nameMatch = ppName.length>=4 && pName.length>=4 && (pName.includes(ppName) || ppName.includes(pName));
-      const addrMatch = ppStrada.length>=4 && pStrada.length>=4 && (pStrada.includes(ppStrada) || ppStrada.includes(pStrada)) && (!ppPlz || !pPlz || ppPlz===pPlz);
-      return nameMatch && addrMatch;
-    }).slice(0, 5);
+    return rechnPozitiiFlat.filter(p => matchPierdutPozitie(pp, p)).slice(0, 5);
   }
 
   el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">${pachetePierdute.map(pp => {
-    const soferNume = allSoferi.find(s=>s.tura===pp.tura)?.numeSofer || pp.soferNume || '—';
+    const soferNume = allSoferi.find(s=>s.tura===pp.tour)?.numeSofer || pp.soferNume || '—';
     const matches = pp.status==='recunoscut' ? [] : findMatches(pp);
     return `
     <div class="card card-sm" style="display:flex;flex-direction:column;gap:8px">
@@ -9475,6 +9536,16 @@ async function renderPachetePierdute() {
             ${pp.observatii?`<span>📝 ${pp.observatii}</span>`:''}
           </div>
           ${pp.status==='recunoscut' && pp.recunoscutBelegNr?`<div style="font-size:11px;color:var(--green);margin-top:4px">📄 Recunoscut în Rechnung Nr. ${pp.recunoscutBelegNr}</div>`:''}
+          ${(()=>{ const f = pp.facturaGasita; const fact = f || (pp.status==='recunoscut' ? { belegNr: pp.recunoscutBelegNr, suma:'', by:'confirmat manual' } : null);
+            if (!fact) return '';
+            if (pp.imputat) return `<div style="font-size:12px;color:var(--green);font-weight:700;margin-top:6px">✓ Imputat șoferului${pp.imputatDe?' de '+pp.imputatDe:''}</div>`;
+            return `<div style="margin-top:8px;background:linear-gradient(135deg,rgba(220,38,38,0.16),rgba(234,88,12,0.16));border:1px solid rgba(248,113,113,0.55);border-radius:8px;padding:10px 12px">
+              <div style="font-size:13px;font-weight:800;color:var(--red)">💶 FACTURAT — de imputat șoferului ${soferNume}${pp.tour?' (Tour '+pp.tour+')':''}</div>
+              <div style="font-size:12px;color:var(--text2);margin-top:3px">📄 Rechnung Nr. ${fact.belegNr||'—'}${fact.dataEmitere?' · '+fact.dataEmitere:''}${fact.suma?' · Sumă: '+fact.suma+' €':''} <span style="color:var(--text3)">(găsit după ${fact.by||'—'})</span></div>
+              <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+                <button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="marcheazaImputat('${pp.id}')">✓ Am imputat șoferului</button>
+              </div>
+            </div>`; })()}
         </div>
         <div style="display:flex;gap:6px">
           <button class="icon-btn" onclick='togglePachetPierdutForm(${JSON.stringify(pp).replace(/'/g,"&apos;")})' title="Editează">
@@ -9602,6 +9673,7 @@ async function confirmPachetMatch(ppId, matchData) {
       recunoscutRechnId: matchData.rechnId || '',
       recunoscutNumeClient: matchData.name || '',
       recunoscutNumarPachet: tracking,
+      facturaGasita: { belegNr: matchData.belegNr||'', rechnId: matchData.rechnId||'', dataEmitere: matchData.dataEmitere||'', numeClient: matchData.name||'', numarPachet: tracking, suma: matchData.forderung!=null?String(matchData.forderung):'', by:'confirmat manual' },
       recunoscutLa: firebase.firestore.FieldValue.serverTimestamp(),
     });
     toast('✓ Pachet recunoscut!');
@@ -10089,7 +10161,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.7.0</span>
+  <span id="version-badge-text">v5.8.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
