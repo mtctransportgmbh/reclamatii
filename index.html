@@ -1059,7 +1059,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.6.0';
+const APP_VERSION = '5.7.0';
 const APP_VERSION_DATE = '02.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -1522,6 +1522,45 @@ document.addEventListener('keydown', (e) => {
 // ne autentificam REAL — abia dupa asta regulile Firestore permit acces.
 let pinRequestInFlight = false;
 
+// Trezeste serverul (Render adoarme) cat timp userul inca alege contul / scrie PIN-ul,
+// ca la verificarea PIN-ului sa fie deja pornit. Fire-and-forget, erorile se ignora.
+function warmUpAuthServer() {
+  try { fetch(AUTH_SERVER_BASE + '/', { method: 'GET', cache: 'no-store' }).catch(()=>{}); } catch(e) {}
+}
+warmUpAuthServer();
+
+// POST catre serverul de auth cu timeout per incercare + reincercari automate.
+// Un request blocat (cold start / retea) NU mai ramane agatat la nesfarsit:
+// dupa 15s il abandonam si reincercam, pana la ~75s in total; apoi eroare clara.
+async function authPost(path, payload, opts) {
+  const attempts = (opts && opts.attempts) || 5;
+  const timeoutMs = (opts && opts.timeoutMs) || 15000;
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const resp = await fetch(AUTH_SERVER_BASE + path, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload), signal: ctrl.signal,
+      });
+      clearTimeout(t);
+      // 502/503/504 = serverul Render inca porneste -> reincercam
+      if ([502,503,504].includes(resp.status) && i < attempts - 1) {
+        await new Promise(r => setTimeout(r, 2000));
+        continue;
+      }
+      const body = await resp.json().catch(()=>({}));
+      return { resp, body };
+    } catch (e) {
+      clearTimeout(t);
+      lastErr = e;
+      if (i < attempts - 1) await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+  throw lastErr || new Error('timeout');
+}
+
 function showPinHint(text) {
   const el = document.getElementById('pin-hint');
   if (el) el.textContent = text;
@@ -1569,11 +1608,7 @@ async function pinKey(k) {
       if (myEpoch === loginEpoch) showPinHint('Serverul pornește, te rog așteaptă (poate dura până la 50s)...');
     }, 4000);
     try {
-      const resp = await fetch(AUTH_SERVER_BASE + '/auth/login-pin', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ userId: uid, pin }),
-      });
-      const body = await resp.json().catch(()=>({}));
+      const { resp, body } = await authPost('/auth/login-pin', { userId: uid, pin });
       clearTimeout(slowHintTimer);
       // Daca intre timp userul a plecat de pe acest ecran (a dat logout, s-a
       // intors la selectie sau a ales alt user), ignoram complet raspunsul —
@@ -1634,11 +1669,7 @@ async function pinKey(k) {
     pinRequestInFlight = true;
     showPinHint('Se salvează...');
     try {
-      const resp = await fetch(AUTH_SERVER_BASE + '/auth/setup-pin', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ userId: uid, pin }),
-      });
-      const body = await resp.json().catch(()=>({}));
+      const { resp, body } = await authPost('/auth/setup-pin', { userId: uid, pin });
       if (resp.ok && body.token) {
         await firebase.auth().signInWithCustomToken(body.token);
         toast('PIN setat! Bun venit, ' + currentUser.name + '!');
@@ -1810,11 +1841,7 @@ async function lockPinKey(k) {
     if (isLockOverlayVisible()) setLockHint('Serverul pornește, te rog așteaptă (poate dura până la 50s)...');
   }, 4000);
   try {
-    const resp = await fetch(AUTH_SERVER_BASE + '/auth/login-pin', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ userId: uid, pin }),
-    });
-    const body = await resp.json().catch(()=>({}));
+    const { resp, body } = await authPost('/auth/login-pin', { userId: uid, pin });
     clearTimeout(slowLockHintTimer);
     // Daca intre timp s-a deblocat altfel (ex: Admin cu email+parola) sau s-a
     // dat deja logout, ignoram raspunsul — ecranul de lock nu mai exista.
@@ -1876,6 +1903,7 @@ function enterApp() {
   if (currentUser?.role !== 'corina') {
     loadReclamatii();
     loadSoferi();
+    startPierduteWatch();
     renderRechnungNotifBanner();
     checkAndRunDailyBackup();
     checkImportAutoBadgeAtLogin();
@@ -1891,6 +1919,7 @@ function enterApp() {
 function logout() {
   loginEpoch++;
   if (reclamatiUnsubscribe) reclamatiUnsubscribe();
+  stopPierduteWatch();
   cancelAlerteSeenTimer();
   stopInactivityTimer();
   const lockOv = document.getElementById('lock-overlay');
@@ -2922,6 +2951,91 @@ async function deleteImportAuto(id) {
 }
 
 
+// ════════════════════════════════════════════════════════
+// AVERTIZARE: reclamatie noua care corespunde unui PACHET PIERDUT inregistrat
+// Potrivire STRICTA (ca la compararea cu rechnunguri): nr. de urmarire identic
+// SAU (nume client + adresa, AMBELE). Numele se compara indiferent de ordine
+// ("Gruber Marianne" = "Marianne Gruber"), cu umlauturi normalizate (ü = ue).
+// ════════════════════════════════════════════════════════
+let pierduteActive = [];        // pachete pierdute nerecunoscute (live, scoped pe locatie)
+let pierduteUnsub = null;
+let pierduteLoaded = false;
+let alertedReclIds = new Set();
+
+function startPierduteWatch() {
+  stopPierduteWatch();
+  if (!currentUser || currentUser.role === 'corina') return;
+  const myEpoch = loginEpoch;
+  pierduteUnsub = db.collection('pachete_pierdute').onSnapshot(snap => {
+    if (myEpoch !== loginEpoch) return;
+    let arr = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(pp => pp.status !== 'recunoscut');
+    if (!canSeeAll(currentUser)) {
+      const userLoc = currentUser.location;
+      arr = arr.filter(pp => (pp.locatie || allSoferi.find(s => s.tura === pp.tour)?.locatie || userLoc) === userLoc);
+    }
+    pierduteActive = arr;
+    pierduteLoaded = true;
+    renderReclamatii();
+  }, err => console.warn('pachete_pierdute watch:', err.message));
+}
+function stopPierduteWatch() {
+  if (pierduteUnsub) { pierduteUnsub(); pierduteUnsub = null; }
+  pierduteActive = []; pierduteLoaded = false; alertedReclIds = new Set(); window._pierdutAlertSeeded = false;
+}
+
+function _pn(s) { // normalizare text: minuscule, umlauturi -> ae/oe/ue, fara diacritice, doar a-z0-9
+  return (s||'').toString().toLowerCase()
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
+    .normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+}
+function _pnTokens(s) {
+  return (s||'').toString().toLowerCase().split(/[^a-zäöüßăâîșşţț]+/i).map(_pn).filter(w => w.length >= 2);
+}
+function _pnStreet(s) { return _pn(s).replace(/strasse|str/g,'str'); }
+
+function findPierdutForRecl(r) {
+  if (!pierduteActive.length) return null;
+  const rTrack = _pn(r.numarPachet || r.identnummer);
+  const rTokens = _pnTokens(r.numeClient);
+  const rHay = _pnStreet([r.strada, r.adresaClient, r.strasse, r.plz, r.ort].filter(Boolean).join(' '));
+  for (const pp of pierduteActive) {
+    const pTrack = _pn(pp.numarPachet);
+    if (rTrack.length >= 6 && pTrack.length >= 6 && rTrack === pTrack) return { pp, by: 'nr. de urmărire' };
+    const ppTokens = _pnTokens(pp.numeClient);
+    if (!rTokens.length || !ppTokens.length) continue;
+    const small = rTokens.length <= ppTokens.length ? rTokens : ppTokens;
+    const big = rTokens.length <= ppTokens.length ? ppTokens : rTokens;
+    const nameMatch = small.every(t => big.includes(t)) && (small.length >= 2 || small[0].length >= 5);
+    const ppStr = _pnStreet(pp.strada);
+    const ppPlz = (pp.plz||'').trim();
+    const addrMatch = ppStr.length >= 4 && rHay.includes(ppStr) && (!ppPlz || rHay.includes(ppPlz));
+    if (nameMatch && addrMatch) return { pp, by: 'nume + adresă' };
+  }
+  return null;
+}
+
+async function confirmPierdutRecl(reclId, ppId) {
+  const r = allReclamatii.find(x => x.id === reclId);
+  if (!confirm('Confirmi că această reclamație este pentru pachetul pierdut înregistrat? Avertizarea va dispărea.')) return;
+  try {
+    await db.collection('pachete_pierdute').doc(ppId).update({
+      status: 'recunoscut',
+      recunoscutReclamatieId: reclId,
+      recunoscutNumeClient: r?.numeClient || '',
+      recunoscutNumarPachet: r?.numarPachet || '',
+      recunoscutLa: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    toast('✓ Pachet pierdut marcat ca recunoscut');
+  } catch(e) { toast('Eroare: ' + e.message, 'error'); }
+}
+
+function pierdutBanner(matches) {
+  return `<div style="background:linear-gradient(135deg,rgba(220,38,38,0.18),rgba(234,88,12,0.18));border:1px solid rgba(248,113,113,0.5);border-radius:10px;padding:12px 14px;margin-bottom:12px;color:var(--text)">
+    <div style="font-weight:800;font-size:13px">⚠️ ${matches.length} reclamați${matches.length===1?'e':'i'} corespund unor PACHETE PIERDUTE înregistrate</div>
+    <div style="font-size:12px;color:var(--text2);margin-top:4px">${matches.map(m => `${m.r.numeClient||'—'} (${m.by})`).join(' · ')}</div>
+  </div>`;
+}
+
 function renderReclamatii() {
   renderTerminUrgentBanner('termin-urgent-banner');
   const search = (document.getElementById('search-input')?.value||'').toLowerCase();
@@ -2949,6 +3063,24 @@ function renderReclamatii() {
     el.innerHTML = `<div class="empty"><div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg></div><div class="empty-title">Nicio reclamație găsită</div><div class="empty-sub">Schimbă filtrele sau adaugă o reclamație</div></div>`;
   } else {
     el.innerHTML = list.map(r=>reclItemHTML(r,false)).join('');
+  }
+
+  // Avertizare pachete pierdute (banner sus + toast la reclamatii noi care se potrivesc)
+  if (pierduteLoaded) {
+    const matches = [];
+    allReclamatii.forEach(r => {
+      if (r.status === 'rezolvata') return;
+      const m = findPierdutForRecl(r);
+      if (m) matches.push({ r, by: m.by });
+    });
+    if (matches.length && el && list.length) el.insertAdjacentHTML('afterbegin', pierdutBanner(matches));
+    matches.forEach(m => {
+      if (!alertedReclIds.has(m.r.id)) {
+        if (window._pierdutAlertSeeded) toast(`⚠️ Pachet pierdut înregistrat: ${m.r.numeClient||'—'}`, 'error');
+        alertedReclIds.add(m.r.id);
+      }
+    });
+    if (allReclamatii.length) window._pierdutAlertSeeded = true;
   }
 }
 
@@ -2979,6 +3111,7 @@ function reclItemHTML(r, compact) {
         <span class="badge ${r.status==='rezolvata'?'badge-green':r.status==='nerezolvata'?'badge-red':'badge-gray'}">${r.status==='rezolvata'?'✓ Rezolvată':r.status==='nerezolvata'?'✗ Nerezolvată':'⏳ Neprelucrat'}</span>
         ${r.locatie?`<span class="badge badge-gray">${r.locatie}</span>`:''}
         ${r.tipReclamatie && r.tipReclamatie!=='adresa gresita'?`<span class="badge badge-blue">${r.tipReclamatie}</span>`:''}
+        ${(() => { if (r.status==='rezolvata') return ''; const m = findPierdutForRecl(r); return m ? `<span onclick="confirmPierdutRecl('${r.id}','${m.pp.id}')" title="Potrivire după ${m.by} — click pentru a confirma" style="cursor:pointer;color:#fff;background:linear-gradient(135deg,#dc2626,#ea580c);padding:3px 10px;border-radius:5px;font-weight:800;font-size:11px;letter-spacing:0.4px;text-transform:uppercase;animation:pulse-red 1.5s infinite;display:inline-flex;align-items:center;gap:4px">⚠️ PACHET PIERDUT ÎNREGISTRAT</span>` : ''; })()}
       </div>
       <div class="recl-meta">
         <span>📦 ${r.numePachet||'—'}</span>
@@ -9956,7 +10089,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.6.0</span>
+  <span id="version-badge-text">v5.7.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
