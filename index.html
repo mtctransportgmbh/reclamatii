@@ -1080,7 +1080,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.10.0';
+const APP_VERSION = '5.11.0';
 const APP_VERSION_DATE = '02.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -4905,6 +4905,11 @@ let topSoferiMode = 'total'; // 'total' | 'an' | 'luna'
 let topSoferiYear = null;
 let topSoferiMonth = null; // 1-12
 
+let topSortMode = 'ajustat';   // 'ajustat' (corect, tine cont de volum) | 'brut' (doar rata)
+let topMinPachete = 3000;      // sub acest nr. de pachete in perioada, soferul nu intra in top
+function setTopSortMode(m) { topSortMode = m; if (statsCache) renderStatsTopSoferi(statsCache); }
+function setTopMinPachete(n) { topMinPachete = n; if (statsCache) renderStatsTopSoferi(statsCache); }
+
 function setTopSoferiMode(mode) {
   topSoferiMode = mode;
   if (!statsCache) return;
@@ -5007,7 +5012,19 @@ function renderStatsTopSoferi(d) {
     .filter(x => x.pachete > 0 && !x.arhivat);
 
   const TOP_N = 40;
-  const sortedAll = [...rankList].sort((a,b) => a.procent - b.procent);
+  // Rata medie a tuturor soferilor activi = "punctul de pornire" pentru cei cu putine date
+  const _totR = rankList.reduce((s,x)=>s+x.total,0), _totP = rankList.reduce((s,x)=>s+x.pachete,0);
+  const rataMedie = _totP > 0 ? _totR/_totP : 0;
+  const K_PRIOR = 5000; // "greutatea" ratei medii, echivalent cu 5000 pachete
+  // Scor ajustat: un sofer cu putine pachete e tras spre media generala; cu cat are mai multe
+  // pachete (istoric mai lung), cu atat scorul lui real conteaza mai mult. Evita ca un nou
+  // angajat cu 600 pachete si 0 reclamatii sa depaseasca soferi cu zeci de mii de pachete.
+  rankList.forEach(x => { x.scor = (x.total + rataMedie*K_PRIOR) / (x.pachete + K_PRIOR); });
+  const eligibili = rankList.filter(x => x.pachete >= topMinPachete);
+  const subPrag = rankList.length - eligibili.length;
+  const sortedAll = [...eligibili].sort((a,b) => topSortMode==='ajustat'
+    ? (a.scor - b.scor) || (b.pachete - a.pachete)
+    : (a.procent - b.procent) || (b.pachete - a.pachete));
   const topBuni = sortedAll.filter(x => !topSoferiExcluse.includes(String(x.tura))).slice(0, TOP_N);
   const scosi = sortedAll.filter(x => topSoferiExcluse.includes(String(x.tura)));
   const canRemove = canSeeAll(currentUser);
@@ -5030,9 +5047,25 @@ function renderStatsTopSoferi(d) {
       ${MONTHS_RO.map((m,i) => `<button class="filter-btn" style="${topSoferiMonth===i+1?'background:var(--accent);color:#000;border-color:var(--accent)':''}" onclick="setTopSoferiMonth(${i+1})">${m.slice(0,3)}</button>`).join('')}
     </div>` : ''}`;
 
+  const rankControls = `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--text3);font-weight:700">Clasament:</span>
+        <button class="filter-btn ${topSortMode==='ajustat'?'active':''}" onclick="setTopSortMode('ajustat')" title="Ține cont și de câte pachete a livrat — recomandat">⚖️ Corect (ajustat)</button>
+        <button class="filter-btn ${topSortMode==='brut'?'active':''}" onclick="setTopSortMode('brut')" title="Doar raportul reclamații/pachete">📉 Rată brută</button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--text3);font-weight:700">Minim pachete:</span>
+        ${[0,1000,3000,5000,10000].map(n => `<button class="filter-btn ${topMinPachete===n?'active':''}" onclick="setTopMinPachete(${n})">${n===0?'fără':n.toLocaleString()}</button>`).join('')}
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">${topSortMode==='ajustat'
+      ? 'Clasamentul ajustat ține cont de volum: un șofer nou, cu puține pachete, nu poate depăși șoferii cu istoric lung și rată bună.'
+      : 'Rata brută compară doar reclamațiile raportate la pachete, fără să țină cont de câte pachete a livrat șoferul.'}${subPrag>0?` · ${subPrag} șoferi sub ${topMinPachete.toLocaleString()} pachete nu apar în top.`:''}</div>`;
+
   if (!topBuni.length) {
     el.innerHTML = `
-      <div class="card" style="margin-bottom:14px;padding:14px 16px">${modeButtons}</div>
+      <div class="card" style="margin-bottom:14px;padding:14px 16px">${modeButtons}${rankControls}</div>
       <div class="empty">
         <div class="empty-icon">🏆</div>
         <div class="empty-title">Nu sunt date suficiente</div>
@@ -5042,7 +5075,7 @@ function renderStatsTopSoferi(d) {
   }
 
   el.innerHTML = `
-    <div class="card" style="margin-bottom:14px;padding:14px 16px">${modeButtons}</div>
+    <div class="card" style="margin-bottom:14px;padding:14px 16px">${modeButtons}${rankControls}</div>
     <div class="card" style="margin-bottom:14px;padding:14px 16px;border-color:rgba(52,211,153,0.3);background:var(--green-bg)">
       <div style="font-size:13px;font-weight:800;color:var(--green);margin-bottom:2px">🏆 Top ${TOP_N} cei mai buni șoferi — ${periodLabel}</div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Cele mai puține reclamații raportat la pachetele livrate${canRemove?' · ✕ = scoate din top':''}</div>
@@ -10223,7 +10256,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.10.0</span>
+  <span id="version-badge-text">v5.11.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
