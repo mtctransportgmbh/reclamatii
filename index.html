@@ -1089,7 +1089,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.12.0';
+const APP_VERSION = '5.12.1';
 const APP_VERSION_DATE = '02.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -1923,12 +1923,13 @@ async function lockPinKey(k) {
       hideLockOverlay();
       return;
     }
+    if (resp.status === 403) console.warn('admin-unlock refuzat:', body.reason || body.error);
     if (currentUser?.role === 'admin' && (resp.status === 403 || (resp.status === 404 && body.error === 'no_pin_set'))) {
       lockPinBuffer = ''; updateLockDots();
       setLockHint('🔒 Sesiune blocată — introdu PIN-ul');
       openAdminPasswordForm(resp.status === 404
         ? 'Nu ai încă un PIN setat — deblochează cu parola, apoi setează-ți PIN-ul'
-        : 'Sesiunea a expirat — deblochează cu email și parolă');
+        : 'Sesiunea nu a putut fi verificată (' + (body.reason || 'refuzat') + ') — deblochează cu email și parolă');
       return;
     }
     if (resp.status === 423) {
@@ -10542,7 +10543,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.12.0</span>
+  <span id="version-badge-text">v5.12.1</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
