@@ -1089,7 +1089,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.12.1';
+const APP_VERSION = '5.12.2';
 const APP_VERSION_DATE = '02.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -1907,7 +1907,7 @@ async function lockPinKey(k) {
       // (verificat pe server, cerere semnata cu ID token-ul sesiunii Admin)
       const fu = firebase.auth().currentUser;
       if (!fu) throw new Error('no_session');
-      const idToken = await fu.getIdToken();
+      const idToken = await fu.getIdToken(true);
       ({ resp, body } = await authPost('/auth/admin-unlock', { pin }, { headers: { 'Authorization': 'Bearer ' + idToken } }));
     } else {
       ({ resp, body } = await authPost('/auth/login-pin', { userId: uid, pin }));
@@ -9778,13 +9778,15 @@ async function adminSetPin(userId, userName) {
   if (!/^\d{6}$/.test(newPin)) { toast('PIN-ul trebuie să fie exact 6 cifre!', 'error'); return; }
   try {
     // PIN-ul e verificat/hash-uit STRICT pe server acum (nu mai reproducem hash-ul in JS client)
-    const idToken = await firebase.auth().currentUser.getIdToken();
+    const fu = firebase.auth().currentUser;
+    if (!fu) throw new Error('Sesiune Firebase inexistentă — deloghează-te și intră din nou cu email și parolă');
+    const idToken = await fu.getIdToken(true);
     const resp = await fetch(AUTH_SERVER_BASE + '/auth/admin-set-pin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
       body: JSON.stringify({ targetUserId: userId, newPin }),
     });
-    if (!resp.ok) { const errData = await resp.json().catch(()=>({})); throw new Error(errData.error || ('HTTP '+resp.status)); }
+    if (!resp.ok) { const errData = await resp.json().catch(()=>({})); console.warn('admin-set-pin refuzat:', errData); throw new Error((errData.error || ('HTTP '+resp.status)) + (errData.reason ? ' — ' + errData.reason : '')); }
     toast(`✓ PIN setat pentru ${userName}: ${newPin}`);
     renderUtilizatori();
   } catch(e) { toast('Eroare: ' + e.message, 'error'); }
@@ -9793,13 +9795,15 @@ async function adminSetPin(userId, userName) {
 async function resetUserPin(userId,name){
   if(!confirm(`Resetezi PIN-ul pentru ${name}? Va seta unul nou la următoarea conectare.`))return;
   try{
-    const idToken = await firebase.auth().currentUser.getIdToken();
+    const fu = firebase.auth().currentUser;
+    if (!fu) throw new Error('Sesiune Firebase inexistentă — deloghează-te și intră din nou cu email și parolă');
+    const idToken = await fu.getIdToken(true);
     const resp = await fetch(AUTH_SERVER_BASE + '/auth/admin-reset-pin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
       body: JSON.stringify({ targetUserId: userId }),
     });
-    if (!resp.ok) { const errData = await resp.json().catch(()=>({})); throw new Error(errData.error || ('HTTP '+resp.status)); }
+    if (!resp.ok) { const errData = await resp.json().catch(()=>({})); throw new Error((errData.error || ('HTTP '+resp.status)) + (errData.reason ? ' — ' + errData.reason : '')); }
     toast(`PIN resetat pentru ${name}`);renderUtilizatori();
   }catch(e){toast('Eroare: '+e.message,'error');}
 }
@@ -10543,7 +10547,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.12.1</span>
+  <span id="version-badge-text">v5.12.2</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
