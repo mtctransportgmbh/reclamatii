@@ -856,7 +856,16 @@ textarea{resize:vertical;min-height:80px}
             </button>
           </div>
         </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+          <div class="search-wrap" style="flex:1;min-width:260px">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+            <input type="text" id="rechn-search-input" placeholder="Caută în toate rechnungurile: nr. pachet, nume client, adresă, tură, sumă..." oninput="renderRechnSearch()" autocomplete="off"/>
+          </div>
+          <button class="btn btn-ghost" style="font-size:12px;padding:9px 14px" onclick="clearRechnSearch()">✕ Șterge căutarea</button>
+        </div>
+        <div id="rechn-search-results"></div>
         <div id="rechn-form" style="display:none"></div>
+        <div id="rechn-lipsa-section"></div>
         <div id="rechn-fara-tura-section"></div>
         <div id="rechn-list"></div>
       </div>
@@ -1080,7 +1089,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.11.0';
+const APP_VERSION = '5.12.0';
 const APP_VERSION_DATE = '02.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -1431,6 +1440,7 @@ async function adminLogin() {
     currentUser = USERS.find(u => u.id === 'admin');
     toast('Bun venit, Administrator!');
     enterApp();
+    setTimeout(maybeOfferAdminPinSetup, 2500);
   } catch(e) {
     console.error('Auth error:', e.code, e.message);
     let msg = 'Email sau parolă incorecte';
@@ -1562,7 +1572,7 @@ async function authPost(path, payload, opts) {
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       const resp = await fetch(AUTH_SERVER_BASE + path, {
-        method: 'POST', headers: {'Content-Type':'application/json'},
+        method: 'POST', headers: Object.assign({'Content-Type':'application/json'}, (opts && opts.headers) || {}),
         body: JSON.stringify(payload), signal: ctrl.signal,
       });
       clearTimeout(t);
@@ -1771,6 +1781,31 @@ function showLockOverlay() {
   ov.style.display = 'flex';
 }
 
+function openAdminPasswordForm(msg) {
+  const keypadEl = document.getElementById('lock-keypad-section');
+  const passEl = document.getElementById('lock-admin-pass-form');
+  if (!keypadEl || !passEl) return;
+  keypadEl.style.display = 'none';
+  passEl.style.display = 'flex';
+  const hint = document.getElementById('lock-admin-pass-hint');
+  if (hint && msg) hint.textContent = msg;
+  setTimeout(() => document.getElementById('lock-admin-email')?.focus(), 50);
+}
+
+// Dupa logarea Admin cu email+parola: daca nu are PIN de deblocare rapida, il invitam sa-l seteze
+let _adminPinOffered = false;
+async function maybeOfferAdminPinSetup() {
+  if (_adminPinOffered || currentUser?.role !== 'admin') return;
+  try {
+    const snap = await db.collection('users').doc('admin').get();
+    if (snap.exists && snap.data().pinHashV2) return;
+    _adminPinOffered = true;
+    if (confirm('Nu ai încă un PIN pentru deblocarea rapidă a ecranului.\nVrei să-l setezi acum (6 cifre)? Parola rămâne necesară doar la prima conectare.')) {
+      await adminSetPin('admin', 'Admin');
+    }
+  } catch(e) { console.warn('offer admin pin:', e.message); }
+}
+
 function toggleLockAdminPassword() {
   const keypadEl = document.getElementById('lock-keypad-section');
   const passEl = document.getElementById('lock-admin-pass-form');
@@ -1801,6 +1836,7 @@ async function adminUnlockWithPassword() {
     document.getElementById('lock-admin-pass').value = '';
     hideLockOverlay();
     toast('Deblocat!');
+    setTimeout(maybeOfferAdminPinSetup, 800);
   } catch(e) {
     let msg = 'Email sau parolă incorecte';
     if (e.code === 'auth/network-request-failed') msg = 'Eroare de rețea';
@@ -1865,16 +1901,34 @@ async function lockPinKey(k) {
     if (isLockOverlayVisible()) setLockHint('Serverul pornește, te rog așteaptă (poate dura până la 50s)...');
   }, 4000);
   try {
-    const { resp, body } = await authPost('/auth/login-pin', { userId: uid, pin });
+    let resp, body;
+    if (currentUser?.role === 'admin') {
+      // Admin e deja autentificat cu email+parola: PIN-ul doar deblocheaza sesiunea
+      // (verificat pe server, cerere semnata cu ID token-ul sesiunii Admin)
+      const fu = firebase.auth().currentUser;
+      if (!fu) throw new Error('no_session');
+      const idToken = await fu.getIdToken();
+      ({ resp, body } = await authPost('/auth/admin-unlock', { pin }, { headers: { 'Authorization': 'Bearer ' + idToken } }));
+    } else {
+      ({ resp, body } = await authPost('/auth/login-pin', { userId: uid, pin }));
+    }
     clearTimeout(slowLockHintTimer);
     // Daca intre timp s-a deblocat altfel (ex: Admin cu email+parola) sau s-a
     // dat deja logout, ignoram raspunsul — ecranul de lock nu mai exista.
     if (!isLockOverlayVisible()) return;
 
-    if (resp.ok && body.token) {
-      await firebase.auth().signInWithCustomToken(body.token);
+    if (resp.ok && (body.token || body.ok)) {
+      if (body.token) await firebase.auth().signInWithCustomToken(body.token);
       lockPinBuffer = ''; updateLockDots();
       hideLockOverlay();
+      return;
+    }
+    if (currentUser?.role === 'admin' && (resp.status === 403 || (resp.status === 404 && body.error === 'no_pin_set'))) {
+      lockPinBuffer = ''; updateLockDots();
+      setLockHint('🔒 Sesiune blocată — introdu PIN-ul');
+      openAdminPasswordForm(resp.status === 404
+        ? 'Nu ai încă un PIN setat — deblochează cu parola, apoi setează-ți PIN-ul'
+        : 'Sesiunea a expirat — deblochează cu email și parolă');
       return;
     }
     if (resp.status === 423) {
@@ -1905,7 +1959,11 @@ async function lockPinKey(k) {
       shakePinDots('lock-pin-dots');
       lockPinBuffer = ''; updateLockDots();
       setLockHint('🔒 Sesiune blocată — introdu PIN-ul');
-      toast('Eroare de conexiune la server', 'error');
+      if (currentUser?.role === 'admin' && e && e.message === 'no_session') {
+        openAdminPasswordForm('Sesiunea a expirat — deblochează cu email și parolă');
+      } else {
+        toast('Eroare de conexiune la server', 'error');
+      }
     }
   } finally {
     lockPinRequestInFlight = false;
@@ -1928,7 +1986,7 @@ function enterApp() {
     loadReclamatii();
     loadSoferi();
     startPierduteWatch();
-    if (canSeeAll(currentUser)) setTimeout(scanPierduteInRechnunguri, 3000);
+    if (canSeeAll(currentUser)) { setTimeout(scanPierduteInRechnunguri, 3000); setTimeout(notifyRechnLipsa, 6000); }
     renderRechnungNotifBanner();
     checkAndRunDailyBackup();
     checkImportAutoBadgeAtLogin();
@@ -3133,26 +3191,44 @@ function pierdutBanner(matches) {
   </div>`;
 }
 
+// ════════════════════════════════════════════════════════
+// CAUTARE ROBUSTA — merge si cu text lipit (copy/paste): ignora spatii invizibile,
+// NBSP, '#', majuscule, umlauturi (ü = ue), spatii/cratime din numere de pachet,
+// ordinea cuvintelor ("Gruber Marianne" = "Marianne Gruber").
+// ════════════════════════════════════════════════════════
+function _foldQ(s) {
+  return (s == null ? '' : String(s)).toLowerCase()
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
+function makeSearcher(raw) {
+  const q = (raw == null ? '' : String(raw))
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u00A0\u202F]/g,' ')
+    .replace(/\s+/g,' ').trim().replace(/^#+\s*/,'');
+  const fq = _foldQ(q);
+  const cq = fq.replace(/[^a-z0-9]/g,'');
+  const tokens = fq.split(/[^a-z0-9]+/).filter(Boolean);
+  return {
+    empty: !fq,
+    test(...fields) {
+      if (!fq) return true;
+      const hay = _foldQ(fields.filter(x => x != null && x !== '').join(' | '));
+      if (hay.includes(fq)) return true;
+      if (cq.length >= 3 && hay.replace(/[^a-z0-9]/g,'').includes(cq)) return true;
+      return tokens.length > 1 && tokens.every(t => hay.includes(t));
+    }
+  };
+}
+
 function renderReclamatii() {
   renderTerminUrgentBanner('termin-urgent-banner');
-  const search = (document.getElementById('search-input')?.value||'').toLowerCase();
+  const searcher = makeSearcher(document.getElementById('search-input')?.value || '');
   let list = allReclamatii;
   if (activeFilter!=='all') list = list.filter(r=>r.status===activeFilter);
-  if (search) list = list.filter(r=>
-    (r.numeClient||'').toLowerCase().includes(search) ||
-    (r.numarPachet||'').toLowerCase().includes(search) ||
-    (r.identnummer||'').toLowerCase().includes(search) ||
-    (r.belegNr||'').toLowerCase().includes(search) ||
-    (r.numePachet||'').toLowerCase().includes(search) ||
-    (r.atg||'').toLowerCase().includes(search) ||
-    (r.adresaClient||'').toLowerCase().includes(search) ||
-    (r.strada||'').toLowerCase().includes(search) ||
-    (r.strasse||'').toLowerCase().includes(search) ||
-    (r.plz||'').toLowerCase().includes(search) ||
-    (r.ort||'').toLowerCase().includes(search) ||
-    (r.turaSofer||r.tour||'').toString().includes(search) ||
-    (r.descriere||'').toLowerCase().includes(search)
-  );
+  if (!searcher.empty) list = list.filter(r => searcher.test(
+    r.numeClient, r.numarPachet, r.identnummer, r.belegNr, r.numePachet, r.atg,
+    r.adresaClient, r.strada, r.strasse, r.plz, r.ort, r.turaSofer || r.tour, r.descriere
+  ));
 
   document.getElementById('recl-count').textContent = list.length+' înregistrări';
   const el = document.getElementById('recl-list');
@@ -6253,13 +6329,234 @@ function renderStatsNefacturate(d) {
 }
 
 
+// ════════════════════════════════════════════════════════
+// CAUTARE IN RECHNUNGURI — gaseste orice (nr. pachet, nume, adresa, tura, suma...)
+// si arata EXACT din ce rechnung face parte fiecare rezultat
+// ════════════════════════════════════════════════════════
+function _rechnGroupKey(r) {
+  let an = r.an, luna = r.luna;
+  if (!an || !luna) {
+    const parts = (r.dataEmitere||'').split('.');
+    if (parts.length === 3) { luna = parseInt(parts[1]); an = parseInt(parts[2]); }
+  }
+  return an && luna ? `${an}-${String(luna).padStart(2,'0')}` : 'necunoscut';
+}
+function _rechnLunaLabel(r) {
+  const k = _rechnGroupKey(r);
+  if (k === 'necunoscut') return 'Fără dată';
+  const [a, l] = k.split('-');
+  return MONTHS_RO[parseInt(l)-1] + ' ' + a;
+}
+const _esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+
+function clearRechnSearch() {
+  const inp = document.getElementById('rechn-search-input');
+  if (inp) inp.value = '';
+  renderRechnSearch();
+}
+
+function renderRechnSearch() {
+  const inp = document.getElementById('rechn-search-input');
+  const out = document.getElementById('rechn-search-results');
+  if (!inp || !out) return;
+  const searcher = makeSearcher(inp.value);
+  const lists = ['rechn-list','rechn-fara-tura-section','rechn-lipsa-section'].map(id => document.getElementById(id));
+  if (searcher.empty) {
+    out.innerHTML = '';
+    lists.forEach(el => { if (el) el.style.display = ''; });
+    return;
+  }
+  lists.forEach(el => { if (el) el.style.display = 'none'; });
+
+  const data = rechnunguriData || [];
+  if (!data.length) {
+    out.innerHTML = '<div class="empty"><div class="empty-title">Rechnunguri nu sunt încărcate încă</div></div>';
+    return;
+  }
+  const hits = [];
+  data.forEach(r => {
+    const rechnHit = searcher.test(r.belegNr, r.dataEmitere, r.fileName);
+    (r.pozitii||[]).forEach(p => {
+      if (searcher.test(p.name, p.vorname, p.nachname, p.identnummer, p.sendungsnummer, p.atg, p.strasse, p.plz, p.ort,
+                        p.tour, p.datum, p.schadenart, p.forderung != null ? String(p.forderung) : '', r.belegNr)) {
+        hits.push({ r, p });
+      }
+    });
+    if (rechnHit && !(r.pozitii||[]).length) hits.push({ r, p: null });
+  });
+
+  const nrRechn = new Set(hits.map(x => x.r.id)).size;
+  if (!hits.length) {
+    out.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Niciun rezultat</div><div class="empty-sub">Nu s-a găsit nimic în rechnunguri pentru „${_esc(inp.value.trim())}"</div></div>`;
+    return;
+  }
+  const shown = hits.slice(0, 150);
+  out.innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${hits.length} rezultat${hits.length===1?'':'e'} în ${nrRechn} rechnung${nrRechn===1?'':'-uri'}${hits.length>shown.length?' (primele '+shown.length+')':''}</div>
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
+      <div style="overflow-x:auto">
+      <table class="data-table" style="font-size:12px;min-width:900px">
+        <thead><tr><th>Rechnung</th><th>Luna</th><th>Tour</th><th>Nume</th><th>Nr. urmărire</th><th>Adresă</th><th>Tip</th><th>Data</th><th style="text-align:right">€</th><th></th></tr></thead>
+        <tbody>
+          ${shown.map(({r, p}) => `
+          <tr>
+            <td><span style="font-family:var(--mono);font-weight:800;color:var(--accent);background:var(--accent-bg);border:1px solid var(--accent-border);padding:2px 8px;border-radius:6px;white-space:nowrap">📄 ${_esc(r.belegNr||'—')}</span></td>
+            <td style="white-space:nowrap;color:var(--text2)">${_esc(_rechnLunaLabel(r))}${r.dataEmitere?`<div style="font-size:10px;color:var(--text3)">${_esc(r.dataEmitere)}</div>`:''}</td>
+            <td style="font-family:var(--mono);font-weight:700;color:var(--accent)">${p ? _esc(p.tour||'—') : '—'}</td>
+            <td style="font-weight:600">${p ? _esc(p.name||'—') : '<span style="color:var(--text3)">(rechnung fără poziții)</span>'}</td>
+            <td style="font-family:var(--mono);font-size:11px;white-space:nowrap;user-select:all">${p ? _esc(p.identnummer||p.sendungsnummer||'—') : '—'}</td>
+            <td style="color:var(--text2);font-size:11px">${p ? _esc([p.strasse,p.plz,p.ort].filter(Boolean).join(' ')||'—') : '—'}</td>
+            <td style="font-size:11px;font-weight:600;color:${p && (p.schadenart||'').includes('Verlust')?'var(--red)':'var(--accent)'}">${p ? _esc(p.schadenart||'—') : '—'}</td>
+            <td style="font-family:var(--mono);font-size:11px;color:var(--text3);white-space:nowrap">${p ? _esc(p.datum||'—') : '—'}</td>
+            <td style="text-align:right;font-weight:700;font-family:var(--mono)">${p ? '€'+(p.forderung||0).toFixed(2) : ''}</td>
+            <td><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;white-space:nowrap" onclick="openRechnungFromSearch('${r.id}')">Deschide rechnung →</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>`;
+}
+
+function openRechnungFromSearch(rechnId) {
+  const r = (rechnunguriData||[]).find(x => x.id === rechnId);
+  if (!r) return;
+  clearRechnSearch();
+  const groupId = 'rechn-luna-' + _rechnGroupKey(r);
+  const content = document.getElementById(groupId + '-content');
+  if (content && content.style.display === 'none') toggleRechnLunaGroup(groupId);
+  const details = document.getElementById('rechn-card-' + rechnId + '-details');
+  if (details && details.style.display === 'none') toggleRechnCard(rechnId);
+  setTimeout(() => {
+    const card = details?.closest('.card');
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const old = card.style.boxShadow;
+      card.style.boxShadow = '0 0 0 3px var(--accent)';
+      setTimeout(() => { card.style.boxShadow = old; }, 2500);
+    }
+  }, 120);
+}
+
+// ════════════════════════════════════════════════════════
+// ALERTA SUPLIMENTARA: pozitii FACTURATE (de platit) care NU sunt introduse in sistem
+// Potrivire stricta: nr. de urmarire identic SAU (nume + adresa). Doar Admin/Tania
+// (vad toate locatiile — altfel pozitiile din alta locatie ar aparea gresit ca lipsa).
+// ════════════════════════════════════════════════════════
+let rechnLipsaIgnorate = [];
+let rechnLipsaIgnorateLoaded = false;
+async function loadRechnLipsaIgnorate() {
+  try {
+    const doc = await db.collection('setari').doc('rechn_lipsa_ignorate').get();
+    rechnLipsaIgnorate = doc.exists ? (doc.data().chei || []) : [];
+  } catch(e) { console.warn('loadRechnLipsaIgnorate:', e.message); }
+  rechnLipsaIgnorateLoaded = true;
+}
+async function ignoreRechnLipsa(rechnId, pozIdx) {
+  if (!confirm('Marchezi această poziție ca verificată/ignorată? Nu va mai apărea în alertă.')) return;
+  const key = rechnId + '|' + pozIdx;
+  if (!rechnLipsaIgnorate.includes(key)) rechnLipsaIgnorate.push(key);
+  try { await db.collection('setari').doc('rechn_lipsa_ignorate').set({ chei: rechnLipsaIgnorate }); }
+  catch(e) { toast('Eroare la salvare: ' + e.message, 'error'); }
+  renderRechnLipsaSection();
+}
+
+function computeRechnLipsa(rechnList) {
+  const recl = allReclamatii || [];
+  if (!recl.length) return [];
+  const reclPseudo = recl.map(r => ({
+    numarPachet: r.numarPachet || r.identnummer || '',
+    numeClient: r.numeClient || '',
+    strada: r.strada || r.adresaClient || r.strasse || '',
+    plz: r.plz || '',
+  }));
+  const out = [];
+  (rechnList||[]).forEach(rn => {
+    (rn.pozitii||[]).forEach((p, idx) => {
+      if (rechnLipsaIgnorate.includes(rn.id + '|' + idx)) return;
+      const exista = reclPseudo.some(pp => matchPierdutPozitie(pp, p));
+      if (!exista) out.push({ ...p, rechnId: rn.id, belegNr: rn.belegNr, dataEmitere: rn.dataEmitere, pozIdx: idx });
+    });
+  });
+  return out;
+}
+
+function renderRechnLipsaSection() {
+  const el = document.getElementById('rechn-lipsa-section');
+  if (!el) return;
+  if (!canSeeAll(currentUser)) { el.innerHTML = ''; return; }
+  const lipsa = computeRechnLipsa(rechnunguriData);
+  if (!lipsa.length) { el.innerHTML = ''; return; }
+  const total = lipsa.reduce((s,p) => s + (p.forderung||0), 0);
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:16px;border:1px solid rgba(248,113,113,0.55);background:var(--red-bg)">
+      <div style="display:flex;align-items:center;gap:10px;cursor:pointer" onclick="toggleRechnLipsaList()">
+        <div style="width:36px;height:36px;background:rgba(248,113,113,0.2);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px">🚨</div>
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:800;color:var(--red)">${lipsa.length} poziți${lipsa.length===1?'e':'i'} de plată în rechnunguri care NU sunt introduse în sistem · €${total.toFixed(2)}</div>
+          <div style="font-size:11px;color:var(--text3)">Facturate de Hermes, dar fără nicio reclamație înregistrată la tine — click pentru detalii</div>
+        </div>
+        <div id="rechn-lipsa-arrow" style="color:var(--red);transition:transform 0.2s"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></div>
+      </div>
+      <div id="rechn-lipsa-list" style="display:none;margin-top:14px;border-top:1px solid rgba(248,113,113,0.4);padding-top:14px">
+        <div style="overflow-x:auto">
+          <table class="data-table" style="font-size:12px;min-width:900px">
+            <thead><tr><th>Rechnung</th><th>Tour</th><th>Nume</th><th>Nr. urmărire</th><th>Adresă</th><th>Tip</th><th>Data</th><th style="text-align:right">€</th><th></th></tr></thead>
+            <tbody>
+              ${lipsa.map(p => `
+              <tr>
+                <td><span style="font-family:var(--mono);font-size:11px;background:var(--bg3);padding:2px 6px;border-radius:4px;white-space:nowrap" title="${_esc(p.dataEmitere||'')}">📄 ${_esc(p.belegNr||'—')}</span></td>
+                <td style="font-family:var(--mono);font-weight:700;color:var(--accent)">${_esc(p.tour||'—')}</td>
+                <td style="font-weight:600">${_esc(p.name||'—')}</td>
+                <td style="font-family:var(--mono);font-size:11px;white-space:nowrap;user-select:all">${_esc(p.identnummer||p.sendungsnummer||'—')}</td>
+                <td style="color:var(--text2);font-size:11px">${_esc([p.strasse,p.plz,p.ort].filter(Boolean).join(' ')||'—')}</td>
+                <td style="font-size:11px;font-weight:600;color:${(p.schadenart||'').includes('Verlust')?'var(--red)':'var(--accent)'}">${_esc(p.schadenart||'—')}</td>
+                <td style="font-family:var(--mono);font-size:11px;color:var(--text3);white-space:nowrap">${_esc(p.datum||'—')}</td>
+                <td style="text-align:right;font-weight:700;font-family:var(--mono)">€${(p.forderung||0).toFixed(2)}</td>
+                <td style="white-space:nowrap">
+                  <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="openRechnungFromSearch('${p.rechnId}')">Deschide</button>
+                  <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="ignoreRechnLipsa('${p.rechnId}',${p.pozIdx})" title="Marchează ca verificată">✓ Ignoră</button>
+                </td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+function toggleRechnLipsaList() {
+  const list = document.getElementById('rechn-lipsa-list');
+  const arrow = document.getElementById('rechn-lipsa-arrow');
+  if (!list) return;
+  const isOpen = list.style.display !== 'none';
+  list.style.display = isOpen ? 'none' : 'block';
+  if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(180deg)';
+}
+
+// Notificare scurta (toast) — la logarea Admin/Tania si dupa fiecare upload de rechnung
+async function notifyRechnLipsa() {
+  try {
+    if (!canSeeAll(currentUser)) return;
+    if (!rechnLipsaIgnorateLoaded) await loadRechnLipsaIgnorate();
+    const snap = await db.collection('rechnunguri').get();
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const lipsa = computeRechnLipsa(list);
+    if (lipsa.length) {
+      const total = lipsa.reduce((s,p) => s + (p.forderung||0), 0);
+      toast(`🚨 ${lipsa.length} poziți${lipsa.length===1?'e':'i'} facturate nu sunt în sistem (€${total.toFixed(2)}) — vezi Rechnunguri`, 'error');
+    }
+  } catch(e) { console.warn('notifyRechnLipsa:', e.message); }
+}
+
 async function renderRechnunguri() {
   const snap = await db.collection('rechnunguri').orderBy('uploadedAt','desc').get();
   rechnunguriData = snap.docs.map(d=>({id:d.id,...d.data()}));
   // Expunem pentru cautarea globala (dupa fetch)
   window.allRechnunguri = rechnunguriData;
 
+  if (!rechnLipsaIgnorateLoaded) await loadRechnLipsaIgnorate();
+  renderRechnLipsaSection();
   renderFaraTuraSection();
+  renderRechnSearch();
 
   const el = document.getElementById('rechn-list');
   if (rechnunguriData.length===0) {
@@ -7266,6 +7563,7 @@ async function saveOneRechn(qid) {
     // Publicam notificarea pentru Tania/Raluca/Madalina
     if (luna && an) await publishRechnungNotification(luna, an, [parsed.belegNr].filter(Boolean));
     scanPierduteInRechnunguri();
+    notifyRechnLipsa();
 
     renderRechnQueue();
     renderRechnunguri();
@@ -7338,6 +7636,7 @@ async function saveAllRechn() {
     const { luna, an } = savedEntries[0] || {};
     if (luna && an) await publishRechnungNotification(luna, an, belegNrs);
     scanPierduteInRechnunguri();
+    notifyRechnLipsa();
   }
 
   renderRechnQueue();
@@ -8708,7 +9007,7 @@ let globalSearchDebounce = null;
 async function globalSearchRender(query) {
   const el = document.getElementById('global-search-results');
   if (!el) return;
-  const q = query.trim().toLowerCase();
+  const q = makeSearcher(query).empty ? '' : String(query).replace(/[\u200B-\u200D\u2060\uFEFF\u00A0\u202F]/g,' ').replace(/\s+/g,' ').trim();
 
   if (q.length < 2) {
     el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Scrie cel puțin 2 caractere pentru a căuta</div>';
@@ -8745,33 +9044,20 @@ async function globalSearchExecute(q, el) {
     } catch(e) { console.warn('Global search: fetch rechnunguri failed', e.message); }
   }
 
-  const matchRecs = allRecs.filter(r =>
-    (r.numeClient||'').toLowerCase().includes(q) ||
-    (r.numarPachet||'').toLowerCase().includes(q) ||
-    (r.identnummer||'').toLowerCase().includes(q) ||
-    (r.belegNr||'').toLowerCase().includes(q) ||
-    (r.numePachet||r.atg||'').toLowerCase().includes(q) ||
-    (r.strada||r.strasse||r.adresaClient||'').toLowerCase().includes(q) ||
-    (r.plz||'').includes(q) ||
-    (r.ort||'').toLowerCase().includes(q) ||
-    (r.turaSofer||r.tour||'').toString().includes(q) ||
-    (r.descriere||'').toLowerCase().includes(q)
-  ).slice(0, 20);
+  const gs = makeSearcher(q);
+  const matchRecs = allRecs.filter(r => gs.test(
+    r.numeClient, r.numarPachet, r.identnummer, r.belegNr, r.numePachet || r.atg,
+    r.strada || r.strasse || r.adresaClient, r.plz, r.ort, r.turaSofer || r.tour, r.descriere
+  )).slice(0, 20);
 
   // Cauta in rechnunguri (belegNr + pozitii) — rechnunguri deja definit mai sus
   const matchRechn = [];
   rechnunguri.forEach(r => {
-    if ((r.belegNr||'').includes(q) || (r.dataEmitere||'').includes(q)) {
+    if (gs.test(r.belegNr, r.dataEmitere)) {
       matchRechn.push({ type:'rechnung', r });
     }
     (r.pozitii||[]).forEach(p => {
-      if (
-        (p.name||'').toLowerCase().includes(q) ||
-        (p.identnummer||'').toLowerCase().includes(q) ||
-        (p.atg||'').toLowerCase().includes(q) ||
-        (p.strasse||'').toLowerCase().includes(q) ||
-        (p.plz||'').includes(q) || (p.ort||'').toLowerCase().includes(q)
-      ) {
+      if (gs.test(p.name, p.identnummer, p.sendungsnummer, p.atg, p.strasse, p.plz, p.ort)) {
         matchRechn.push({ type:'pozitie', r, p });
       }
     });
@@ -8779,7 +9065,7 @@ async function globalSearchExecute(q, el) {
 
   const total = matchRecs.length + matchRechn.slice(0,10).length;
   if (total === 0) {
-    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Niciun rezultat pentru <strong>' + query + '</strong></div>';
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Niciun rezultat pentru <strong>' + String(q).replace(/</g,'&lt;') + '</strong></div>';
     return;
   }
 
@@ -10256,7 +10542,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.11.0</span>
+  <span id="version-badge-text">v5.12.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
