@@ -1089,7 +1089,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.12.2';
+const APP_VERSION = '5.13.0';
 const APP_VERSION_DATE = '02.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -3127,12 +3127,11 @@ function matchPierdutPozitie(pp, p) {
 // Ruleaza dupa fiecare incarcare de Rechnung si la logarea Admin/Tania.
 async function scanPierduteInRechnunguri() {
   try {
-    const [ppSnap, rSnap] = await Promise.all([
-      db.collection('pachete_pierdute').get(),
-      db.collection('rechnunguri').get(),
-    ]);
+    // Intai doar pachetele pierdute (putine); rechnungurile (multe) se incarca DOAR daca exista ce cauta
+    const ppSnap = await db.collection('pachete_pierdute').get();
     const pend = ppSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(pp => pp.status !== 'recunoscut' && !pp.facturaGasita);
     if (!pend.length) return 0;
+    const rSnap = await db.collection('rechnunguri').get();
     const poz = [];
     rSnap.docs.forEach(d => { const r = d.data(); (r.pozitii||[]).forEach(p => poz.push({ ...p, belegNr: r.belegNr, dataEmitere: r.dataEmitere, rechnId: d.id })); });
     let found = 0;
@@ -6439,26 +6438,39 @@ function openRechnungFromSearch(rechnId) {
 }
 
 // ════════════════════════════════════════════════════════
-// ALERTA SUPLIMENTARA: pozitii FACTURATE (de platit) care NU sunt introduse in sistem
-// Potrivire stricta: nr. de urmarire identic SAU (nume + adresa). Doar Admin/Tania
-// (vad toate locatiile — altfel pozitiile din alta locatie ar aparea gresit ca lipsa).
+// POZITII FACTURATE CARE NU SUNT IN SISTEM — evidenta PERSISTENTA
+// Se calculeaza o singura data (la upload de rechnung sau manual, "Recalculeaza") si
+// se salveaza in Firestore (rechnung_lipsa). La logare se citeste doar un mic rezumat
+// (setari/rechn_lipsa_summary) — nu mai recalculam nimic si nu mai incarcam rechnungurile.
+// Pentru fiecare pozitie: Rezolvat / Nerezolvat / In asteptare + nota + soferul vinovat.
+// Potrivire stricta: nr. de urmarire identic SAU (nume + adresa). Doar Admin/Tania.
 // ════════════════════════════════════════════════════════
-let rechnLipsaIgnorate = [];
-let rechnLipsaIgnorateLoaded = false;
-async function loadRechnLipsaIgnorate() {
+let rechnLipsaDocs = [];
+let rechnLipsaLoaded = false;
+let rechnLipsaSummaryExists = false;
+let rechnLipsaFilter = 'active';   // active | nou | nerezolvat | asteptare | rezolvat | toate
+let rechnLipsaMonth = '';          // '' = toate lunile (cheie an-luna)
+let rechnLipsaShown = 40;
+let rechnLipsaOpen = false;
+const RECHN_LIPSA_STATUS = {
+  nou:        { label: 'Nou',          color: 'var(--accent)' },
+  nerezolvat: { label: 'Nerezolvat',   color: 'var(--red)' },
+  asteptare:  { label: 'În așteptare', color: '#f59e0b' },
+  rezolvat:   { label: 'Rezolvat',     color: 'var(--green)' },
+};
+const _lipsaActive = (d) => d.status !== 'rezolvat';
+
+async function loadRechnLipsa(force) {
+  if (rechnLipsaLoaded && !force) return;
   try {
-    const doc = await db.collection('setari').doc('rechn_lipsa_ignorate').get();
-    rechnLipsaIgnorate = doc.exists ? (doc.data().chei || []) : [];
-  } catch(e) { console.warn('loadRechnLipsaIgnorate:', e.message); }
-  rechnLipsaIgnorateLoaded = true;
-}
-async function ignoreRechnLipsa(rechnId, pozIdx) {
-  if (!confirm('Marchezi această poziție ca verificată/ignorată? Nu va mai apărea în alertă.')) return;
-  const key = rechnId + '|' + pozIdx;
-  if (!rechnLipsaIgnorate.includes(key)) rechnLipsaIgnorate.push(key);
-  try { await db.collection('setari').doc('rechn_lipsa_ignorate').set({ chei: rechnLipsaIgnorate }); }
-  catch(e) { toast('Eroare la salvare: ' + e.message, 'error'); }
-  renderRechnLipsaSection();
+    const [snap, sum] = await Promise.all([
+      db.collection('rechnung_lipsa').get(),
+      db.collection('setari').doc('rechn_lipsa_summary').get(),
+    ]);
+    rechnLipsaDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    rechnLipsaSummaryExists = sum.exists;
+    rechnLipsaLoaded = true;
+  } catch(e) { console.warn('loadRechnLipsa:', e.message); }
 }
 
 function computeRechnLipsa(rechnList) {
@@ -6473,78 +6485,235 @@ function computeRechnLipsa(rechnList) {
   const out = [];
   (rechnList||[]).forEach(rn => {
     (rn.pozitii||[]).forEach((p, idx) => {
-      if (rechnLipsaIgnorate.includes(rn.id + '|' + idx)) return;
-      const exista = reclPseudo.some(pp => matchPierdutPozitie(pp, p));
-      if (!exista) out.push({ ...p, rechnId: rn.id, belegNr: rn.belegNr, dataEmitere: rn.dataEmitere, pozIdx: idx });
+      if (!reclPseudo.some(pp => matchPierdutPozitie(pp, p))) {
+        out.push({ ...p, rechnId: rn.id, belegNr: rn.belegNr, dataEmitere: rn.dataEmitere, pozIdx: idx, _luna: _rechnGroupKey(rn) });
+      }
     });
   });
   return out;
 }
 
+async function writeRechnLipsaSummary() {
+  const active = rechnLipsaDocs.filter(_lipsaActive);
+  try {
+    await db.collection('setari').doc('rechn_lipsa_summary').set({
+      nou: rechnLipsaDocs.filter(d => d.status === 'nou').length,
+      active: active.length,
+      suma: Math.round(active.reduce((s,d) => s + (d.forderung||0), 0) * 100) / 100,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    rechnLipsaSummaryExists = true;
+  } catch(e) { console.warn('writeRechnLipsaSummary:', e.message); }
+}
+
+// Recalculeaza: adauga pozitiile lipsa noi, scoate pe cele "Nou" care au intrat intre timp in sistem.
+// NU atinge pozitiile pe care le-ai marcat tu (rezolvat / nerezolvat / in asteptare / cu nota).
+async function syncRechnLipsa(opts) {
+  opts = opts || {};
+  if (!canSeeAll(currentUser)) return;
+  try {
+    await loadRechnLipsa();
+    let list = rechnunguriData;
+    if (opts.fetchFresh || !list || !list.length) {
+      const snap = await db.collection('rechnunguri').get();
+      list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+    if (!(allReclamatii||[]).length) return;
+    const missing = computeRechnLipsa(list);
+    const existing = new Map(rechnLipsaDocs.map(d => [d.id, d]));
+    const missingIds = new Set(missing.map(p => p.rechnId + '_' + p.pozIdx));
+    const toCreate = missing.filter(p => !existing.has(p.rechnId + '_' + p.pozIdx));
+    const toDelete = rechnLipsaDocs.filter(d => d.status === 'nou' && !missingIds.has(d.id));
+
+    const ops = [];
+    toCreate.forEach(p => {
+      const id = p.rechnId + '_' + p.pozIdx;
+      const data = {
+        rechnId: p.rechnId, belegNr: p.belegNr || '', dataEmitere: p.dataEmitere || '', pozIdx: p.pozIdx, luna: p._luna || '',
+        tour: p.tour || '', name: p.name || '', tracking: p.identnummer || p.sendungsnummer || '',
+        strasse: p.strasse || '', plz: p.plz || '', ort: p.ort || '', schadenart: p.schadenart || '', atg: p.atg || '',
+        datum: p.datum || '', forderung: p.forderung || 0,
+        status: 'nou', nota: '', soferTura: '', soferNume: '',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      ops.push({ type: 'set', id, data });
+    });
+    toDelete.forEach(d => ops.push({ type: 'del', id: d.id }));
+
+    for (let i = 0; i < ops.length; i += 400) {
+      const batch = db.batch();
+      ops.slice(i, i + 400).forEach(o => {
+        const ref = db.collection('rechnung_lipsa').doc(o.id);
+        if (o.type === 'set') batch.set(ref, o.data); else batch.delete(ref);
+      });
+      await batch.commit();
+    }
+    toCreate.forEach(p => {
+      const id = p.rechnId + '_' + p.pozIdx;
+      rechnLipsaDocs.push({ id, rechnId: p.rechnId, belegNr: p.belegNr||'', dataEmitere: p.dataEmitere||'', pozIdx: p.pozIdx, luna: p._luna||'',
+        tour: p.tour||'', name: p.name||'', tracking: p.identnummer||p.sendungsnummer||'', strasse: p.strasse||'', plz: p.plz||'', ort: p.ort||'',
+        schadenart: p.schadenart||'', atg: p.atg||'', datum: p.datum||'', forderung: p.forderung||0, status: 'nou', nota: '', soferTura: '', soferNume: '' });
+    });
+    const delIds = new Set(toDelete.map(d => d.id));
+    rechnLipsaDocs = rechnLipsaDocs.filter(d => !delIds.has(d.id));
+    await writeRechnLipsaSummary();
+    if (opts.toast && toCreate.length) {
+      const suma = toCreate.reduce((s,p) => s + (p.forderung||0), 0);
+      toast(`🚨 ${toCreate.length} poziți${toCreate.length===1?'e':'i'} noi facturate nu sunt în sistem (€${suma.toFixed(2)}) — vezi Rechnunguri`, 'error');
+    }
+    if (document.getElementById('page-rechnunguri')?.classList.contains('active')) renderRechnLipsaSection();
+  } catch(e) { console.warn('syncRechnLipsa:', e.message); toast('Eroare la recalculare: ' + e.message, 'error'); }
+}
+
+function _lipsaFiltered() {
+  return rechnLipsaDocs.filter(d => {
+    if (rechnLipsaMonth && d.luna !== rechnLipsaMonth) return false;
+    if (rechnLipsaFilter === 'active') return _lipsaActive(d);
+    if (rechnLipsaFilter === 'toate') return true;
+    return d.status === rechnLipsaFilter;
+  }).sort((a,b) => (b.luna||'').localeCompare(a.luna||'') || (b.forderung||0) - (a.forderung||0));
+}
+
+async function setRechnLipsaField(id, patch) {
+  const d = rechnLipsaDocs.find(x => x.id === id);
+  if (!d) return;
+  Object.assign(d, patch);
+  try {
+    await db.collection('rechnung_lipsa').doc(id).update({ ...patch, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: currentUser?.name || '' });
+  } catch(e) { toast('Eroare la salvare: ' + e.message, 'error'); }
+}
+async function setRechnLipsaStatus(id, status) {
+  await setRechnLipsaField(id, { status });
+  await writeRechnLipsaSummary();
+  renderRechnLipsaSection();
+}
+function setRechnLipsaSofer(id, tura) {
+  const s = allSoferi.find(x => String(x.tura) === String(tura));
+  setRechnLipsaField(id, { soferTura: tura || '', soferNume: s ? s.numeSofer : '' });
+}
+function setRechnLipsaNota(id, el) {
+  const d = rechnLipsaDocs.find(x => x.id === id);
+  if (d && d.nota === el.value) return;
+  setRechnLipsaField(id, { nota: el.value.trim() });
+}
+function setRechnLipsaFilter(f) { rechnLipsaFilter = f; rechnLipsaShown = 40; renderRechnLipsaSection(); }
+function setRechnLipsaMonth(m) { rechnLipsaMonth = m; rechnLipsaShown = 40; renderRechnLipsaSection(); }
+function showMoreRechnLipsa() { rechnLipsaShown += 40; renderRechnLipsaSection(); }
+
+async function bulkRechnLipsa(status) {
+  const list = _lipsaFiltered().filter(d => d.status !== status);
+  if (!list.length) { toast('Nimic de modificat în lista curentă'); return; }
+  if (!confirm(`Marchezi ${list.length} poziții (cele din lista curentă filtrată) ca „${RECHN_LIPSA_STATUS[status].label}"?`)) return;
+  try {
+    for (let i = 0; i < list.length; i += 400) {
+      const batch = db.batch();
+      list.slice(i, i + 400).forEach(d => {
+        batch.update(db.collection('rechnung_lipsa').doc(d.id), { status, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: currentUser?.name || '' });
+        d.status = status;
+      });
+      await batch.commit();
+    }
+    await writeRechnLipsaSummary();
+    toast(`✓ ${list.length} poziții marcate: ${RECHN_LIPSA_STATUS[status].label}`);
+  } catch(e) { toast('Eroare: ' + e.message, 'error'); }
+  renderRechnLipsaSection();
+}
+
+function toggleRechnLipsaList() {
+  rechnLipsaOpen = !rechnLipsaOpen;
+  renderRechnLipsaSection();
+}
+
 function renderRechnLipsaSection() {
   const el = document.getElementById('rechn-lipsa-section');
   if (!el) return;
-  if (!canSeeAll(currentUser)) { el.innerHTML = ''; return; }
-  const lipsa = computeRechnLipsa(rechnunguriData);
-  if (!lipsa.length) { el.innerHTML = ''; return; }
-  const total = lipsa.reduce((s,p) => s + (p.forderung||0), 0);
-  el.innerHTML = `
-    <div class="card" style="margin-bottom:16px;border:1px solid rgba(248,113,113,0.55);background:var(--red-bg)">
-      <div style="display:flex;align-items:center;gap:10px;cursor:pointer" onclick="toggleRechnLipsaList()">
-        <div style="width:36px;height:36px;background:rgba(248,113,113,0.2);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px">🚨</div>
-        <div style="flex:1">
-          <div style="font-size:14px;font-weight:800;color:var(--red)">${lipsa.length} poziți${lipsa.length===1?'e':'i'} de plată în rechnunguri care NU sunt introduse în sistem · €${total.toFixed(2)}</div>
-          <div style="font-size:11px;color:var(--text3)">Facturate de Hermes, dar fără nicio reclamație înregistrată la tine — click pentru detalii</div>
-        </div>
-        <div id="rechn-lipsa-arrow" style="color:var(--red);transition:transform 0.2s"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></div>
+  if (!canSeeAll(currentUser) || !rechnLipsaDocs.length) { el.innerHTML = ''; return; }
+
+  const active = rechnLipsaDocs.filter(_lipsaActive);
+  const suma = active.reduce((s,d) => s + (d.forderung||0), 0);
+  const cnt = (st) => rechnLipsaDocs.filter(d => d.status === st).length;
+  const allGood = active.length === 0;
+  const col = allGood ? 'var(--green)' : 'var(--red)';
+
+  let body = '';
+  if (rechnLipsaOpen) {
+    const filtered = _lipsaFiltered();
+    const shown = filtered.slice(0, rechnLipsaShown);
+    const months = [...new Set(rechnLipsaDocs.map(d => d.luna).filter(Boolean))].sort().reverse();
+    const monthLabel = (k) => { const [a,l] = k.split('-'); return MONTHS_RO[parseInt(l)-1] + ' ' + a; };
+    const soferOpts = (sel) => '<option value="">— șofer —</option>' + allSoferi.filter(s => s.tura)
+      .sort((a,b) => parseInt(a.tura||0) - parseInt(b.tura||0))
+      .map(s => `<option value="${_esc(s.tura)}" ${String(sel)===String(s.tura)?'selected':''}>${_esc(s.tura)} — ${_esc(s.numeSofer)}</option>`).join('');
+    const chip = (key, label, n) => `<button class="filter-btn ${rechnLipsaFilter===key?'active':''}" onclick="setRechnLipsaFilter('${key}')">${label}${n!=null?' ('+n+')':''}</button>`;
+
+    body = `
+    <div style="margin-top:14px;border-top:1px solid ${col};padding-top:12px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        ${chip('active','Active',active.length)}${chip('nou','Noi',cnt('nou'))}${chip('nerezolvat','Nerezolvate',cnt('nerezolvat'))}${chip('asteptare','În așteptare',cnt('asteptare'))}${chip('rezolvat','Rezolvate',cnt('rezolvat'))}${chip('toate','Toate',rechnLipsaDocs.length)}
+        <select onchange="setRechnLipsaMonth(this.value)" style="font-size:12px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text)">
+          <option value="">Toate lunile</option>
+          ${months.map(m => `<option value="${m}" ${rechnLipsaMonth===m?'selected':''}>${monthLabel(m)}</option>`).join('')}
+        </select>
+        <span style="flex:1"></span>
+        <span style="font-size:11px;color:var(--text3)">Pentru toată lista afișată (${filtered.length}):</span>
+        <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px" onclick="bulkRechnLipsa('rezolvat')">✓ Toate rezolvate</button>
+        <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px" onclick="bulkRechnLipsa('asteptare')">⏳ Toate în așteptare</button>
       </div>
-      <div id="rechn-lipsa-list" style="display:none;margin-top:14px;border-top:1px solid rgba(248,113,113,0.4);padding-top:14px">
-        <div style="overflow-x:auto">
-          <table class="data-table" style="font-size:12px;min-width:900px">
-            <thead><tr><th>Rechnung</th><th>Tour</th><th>Nume</th><th>Nr. urmărire</th><th>Adresă</th><th>Tip</th><th>Data</th><th style="text-align:right">€</th><th></th></tr></thead>
-            <tbody>
-              ${lipsa.map(p => `
+      ${!filtered.length ? '<div style="padding:16px;text-align:center;color:var(--text3);font-size:12px">Nicio poziție în această listă</div>' : `
+      <div style="overflow-x:auto">
+        <table class="data-table" style="font-size:12px;min-width:1150px">
+          <thead><tr><th>Rechnung</th><th>Tour</th><th>Nume</th><th>Nr. urmărire</th><th>Adresă</th><th>Tip</th><th style="text-align:right">€</th><th>Status</th><th>Spart de șofer</th><th>Notă</th><th></th></tr></thead>
+          <tbody>
+            ${shown.map(d => {
+              const st = RECHN_LIPSA_STATUS[d.status] || RECHN_LIPSA_STATUS.nou;
+              const sbtn = (key, label) => `<button onclick="setRechnLipsaStatus('${d.id}','${key}')" title="${RECHN_LIPSA_STATUS[key].label}" style="border:1px solid ${d.status===key?RECHN_LIPSA_STATUS[key].color:'var(--border)'};background:${d.status===key?RECHN_LIPSA_STATUS[key].color:'transparent'};color:${d.status===key?'#fff':'var(--text2)'};border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;font-weight:700">${label}</button>`;
+              return `
               <tr>
-                <td><span style="font-family:var(--mono);font-size:11px;background:var(--bg3);padding:2px 6px;border-radius:4px;white-space:nowrap" title="${_esc(p.dataEmitere||'')}">📄 ${_esc(p.belegNr||'—')}</span></td>
-                <td style="font-family:var(--mono);font-weight:700;color:var(--accent)">${_esc(p.tour||'—')}</td>
-                <td style="font-weight:600">${_esc(p.name||'—')}</td>
-                <td style="font-family:var(--mono);font-size:11px;white-space:nowrap;user-select:all">${_esc(p.identnummer||p.sendungsnummer||'—')}</td>
-                <td style="color:var(--text2);font-size:11px">${_esc([p.strasse,p.plz,p.ort].filter(Boolean).join(' ')||'—')}</td>
-                <td style="font-size:11px;font-weight:600;color:${(p.schadenart||'').includes('Verlust')?'var(--red)':'var(--accent)'}">${_esc(p.schadenart||'—')}</td>
-                <td style="font-family:var(--mono);font-size:11px;color:var(--text3);white-space:nowrap">${_esc(p.datum||'—')}</td>
-                <td style="text-align:right;font-weight:700;font-family:var(--mono)">€${(p.forderung||0).toFixed(2)}</td>
-                <td style="white-space:nowrap">
-                  <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="openRechnungFromSearch('${p.rechnId}')">Deschide</button>
-                  <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="ignoreRechnLipsa('${p.rechnId}',${p.pozIdx})" title="Marchează ca verificată">✓ Ignoră</button>
-                </td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
+                <td><span style="font-family:var(--mono);font-size:11px;background:var(--bg3);padding:2px 6px;border-radius:4px;white-space:nowrap" title="${_esc(d.dataEmitere||'')}">📄 ${_esc(d.belegNr||'—')}</span></td>
+                <td style="font-family:var(--mono);font-weight:700;color:var(--accent)">${_esc(d.tour||'—')}</td>
+                <td style="font-weight:600">${_esc(d.name||'—')}</td>
+                <td style="font-family:var(--mono);font-size:11px;white-space:nowrap;user-select:all">${_esc(d.tracking||'—')}</td>
+                <td style="color:var(--text2);font-size:11px">${_esc([d.strasse,d.plz,d.ort].filter(Boolean).join(' ')||'—')}</td>
+                <td style="font-size:11px;font-weight:600;color:${(d.schadenart||'').includes('Verlust')?'var(--red)':'var(--accent)'}">${_esc(d.schadenart||'—')}</td>
+                <td style="text-align:right;font-weight:700;font-family:var(--mono)">€${(d.forderung||0).toFixed(2)}</td>
+                <td style="white-space:nowrap"><div style="display:flex;gap:3px;align-items:center">${sbtn('rezolvat','✓')}${sbtn('nerezolvat','✗')}${sbtn('asteptare','⏳')}<span style="font-size:10px;font-weight:700;color:${st.color};margin-left:4px">${st.label}</span></div></td>
+                <td><select onchange="setRechnLipsaSofer('${d.id}', this.value)" style="font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text);max-width:170px">${soferOpts(d.soferTura)}</select></td>
+                <td><input type="text" value="${_esc(d.nota||'')}" placeholder="ex: pachet spart de șofer" onblur="setRechnLipsaNota('${d.id}', this)" onkeydown="if(event.key==='Enter')this.blur()" style="font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text);min-width:180px;width:100%"/></td>
+                <td style="white-space:nowrap"><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="openRechnungFromSearch('${d.rechnId}')">Deschide</button></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
       </div>
+      ${filtered.length > shown.length ? `<div style="text-align:center;margin-top:10px"><button class="btn btn-ghost" style="font-size:12px" onclick="showMoreRechnLipsa()">Arată încă 40 (${filtered.length - shown.length} rămase)</button></div>` : ''}`}
+    </div>`;
+  }
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:16px;border:1px solid ${allGood?'rgba(52,211,153,0.5)':'rgba(248,113,113,0.55)'};background:${allGood?'var(--green-bg)':'var(--red-bg)'}">
+      <div style="display:flex;align-items:center;gap:10px;cursor:pointer" onclick="toggleRechnLipsaList()">
+        <div style="width:36px;height:36px;background:rgba(248,113,113,0.2);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px">${allGood?'✅':'🚨'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:800;color:${col}">${allGood
+            ? 'Toate pozițiile facturate fără reclamație au fost verificate'
+            : `${active.length} poziți${active.length===1?'e':'i'} de plată în rechnunguri care NU sunt introduse în sistem · €${suma.toFixed(2)}`}</div>
+          <div style="font-size:11px;color:var(--text3)">${cnt('nou')} noi · ${cnt('nerezolvat')} nerezolvate · ${cnt('asteptare')} în așteptare · ${cnt('rezolvat')} rezolvate — click pentru detalii</div>
+        </div>
+        <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px;flex-shrink:0" onclick="event.stopPropagation();syncRechnLipsa({fetchFresh:true,toast:true}).then(()=>toast('Recalculat'))" title="Caută din nou pozițiile facturate care lipsesc din sistem">🔄 Recalculează</button>
+        <div style="color:${col};transition:transform 0.2s;transform:${rechnLipsaOpen?'rotate(180deg)':''}"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></div>
+      </div>
+      ${body}
     </div>`;
 }
-function toggleRechnLipsaList() {
-  const list = document.getElementById('rechn-lipsa-list');
-  const arrow = document.getElementById('rechn-lipsa-arrow');
-  if (!list) return;
-  const isOpen = list.style.display !== 'none';
-  list.style.display = isOpen ? 'none' : 'block';
-  if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(180deg)';
-}
 
-// Notificare scurta (toast) — la logarea Admin/Tania si dupa fiecare upload de rechnung
+// La logare: doar citim rezumatul salvat (1 document) — fara recalculare, fara lag
 async function notifyRechnLipsa() {
   try {
     if (!canSeeAll(currentUser)) return;
-    if (!rechnLipsaIgnorateLoaded) await loadRechnLipsaIgnorate();
-    const snap = await db.collection('rechnunguri').get();
-    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const lipsa = computeRechnLipsa(list);
-    if (lipsa.length) {
-      const total = lipsa.reduce((s,p) => s + (p.forderung||0), 0);
-      toast(`🚨 ${lipsa.length} poziți${lipsa.length===1?'e':'i'} facturate nu sunt în sistem (€${total.toFixed(2)}) — vezi Rechnunguri`, 'error');
-    }
+    const doc = await db.collection('setari').doc('rechn_lipsa_summary').get();
+    if (!doc.exists) return;
+    const s = doc.data();
+    if (s.nou > 0) toast(`🚨 ${s.nou} poziți${s.nou===1?'e':'i'} facturate noi de verificat (nu sunt în sistem) — vezi Rechnunguri`, 'error');
   } catch(e) { console.warn('notifyRechnLipsa:', e.message); }
 }
 
@@ -6554,7 +6723,11 @@ async function renderRechnunguri() {
   // Expunem pentru cautarea globala (dupa fetch)
   window.allRechnunguri = rechnunguriData;
 
-  if (!rechnLipsaIgnorateLoaded) await loadRechnLipsaIgnorate();
+  if (canSeeAll(currentUser)) {
+    await loadRechnLipsa();
+    // Prima data (nu exista rezumat salvat) calculam o singura data; apoi ramane salvat
+    if (!rechnLipsaSummaryExists) await syncRechnLipsa();
+  }
   renderRechnLipsaSection();
   renderFaraTuraSection();
   renderRechnSearch();
@@ -7564,7 +7737,7 @@ async function saveOneRechn(qid) {
     // Publicam notificarea pentru Tania/Raluca/Madalina
     if (luna && an) await publishRechnungNotification(luna, an, [parsed.belegNr].filter(Boolean));
     scanPierduteInRechnunguri();
-    notifyRechnLipsa();
+    syncRechnLipsa({ fetchFresh: true, toast: true });
 
     renderRechnQueue();
     renderRechnunguri();
@@ -7637,7 +7810,7 @@ async function saveAllRechn() {
     const { luna, an } = savedEntries[0] || {};
     if (luna && an) await publishRechnungNotification(luna, an, belegNrs);
     scanPierduteInRechnunguri();
-    notifyRechnLipsa();
+    syncRechnLipsa({ fetchFresh: true, toast: true });
   }
 
   renderRechnQueue();
@@ -10547,7 +10720,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.12.2</span>
+  <span id="version-badge-text">v5.13.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
