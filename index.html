@@ -1099,7 +1099,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.17.0';
+const APP_VERSION = '5.17.1';
 const APP_VERSION_DATE = '21.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -9301,8 +9301,10 @@ async function renderGithubList() {
     if (!resp.ok) { el.innerHTML = ''; return; }
     const cs = body.commits || [];
     window._ghCommits = cs;
-    if (!cs.length) { el.innerHTML = ''; return; }
-    el.innerHTML = `<div style="font-size:12px;font-weight:800;margin:2px 2px 8px">🐙 Backup-uri în GitHub (${cs.length}) <span style="font-weight:500;color:var(--text3)">· ${_esc(body.repo || '')}</span></div>` +
+    const warn = (body.private === false ? `<div class="card" style="margin-bottom:10px;border-color:var(--red);background:var(--red-bg)"><div style="font-weight:800;color:var(--red);font-size:13px">🚨 Repo-ul de backup este PUBLIC — oricine poate vedea datele</div><div style="font-size:12px;color:var(--text2);margin-top:4px">GitHub → repo-ul de backup → Settings → Danger Zone → Change repository visibility → Make private. Serverul refuză să mai facă backup cât timp e public.</div></div>` : '')
+      + (body.encrypted === false ? `<div class="card" style="margin-bottom:10px;border-color:#f59e0b"><div style="font-weight:800;font-size:13px">🔑 Lipsește cheia de criptare pe server (BACKUP_ENCRYPTION_KEY) — backup-ul nu se face până nu o pui pe Render</div></div>` : '');
+    if (!cs.length) { el.innerHTML = warn; return; }
+    el.innerHTML = warn + `<div style="font-size:12px;font-weight:800;margin:2px 2px 8px">🐙 Backup-uri în GitHub (${cs.length}) <span style="font-weight:500;color:var(--text3)">· ${_esc(body.repo || '')}</span></div>` +
       cs.map((c, i) => `<div class="card" style="margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <div style="flex:1;min-width:220px"><div style="font-weight:800;font-size:13px">${i === 0 ? '🟢 ' : ''}${bkFmtDate(c.date)} <span style="font-family:var(--mono);font-size:10px;color:var(--text3);font-weight:500">${c.sha.slice(0, 7)}</span></div>
@@ -11748,7 +11750,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.17.0</span>
+  <span id="version-badge-text">v5.17.1</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
