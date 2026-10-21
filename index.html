@@ -1099,7 +1099,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.17.2';
+const APP_VERSION = '5.17.3';
 const APP_VERSION_DATE = '21.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -5919,7 +5919,6 @@ function renderStatsTipuri(d) {
         <div><div style="font-size:10px;color:var(--text3)">La 1.000 pachete</div><div style="font-size:18px;font-weight:800;color:${color}">${c.per1000.toFixed(2)}</div></div>
         <div><div style="font-size:10px;color:var(--text3)">1 reclamație la</div><div style="font-size:14px;font-weight:700">${c.recl?Math.round(c.pachete/c.recl).toLocaleString()+' pachete':'—'}</div></div>
         <div><div style="font-size:10px;color:var(--text3)">Medie / șofer</div><div style="font-size:14px;font-weight:700">${c.medie.toFixed(1)} recl.</div></div>
-        <div><div style="font-size:10px;color:var(--text3)">Vechime medie</div><div style="font-size:14px;font-weight:700">${c.vechimeMedie != null ? fmtVechime(c.vechimeMedie) : '—'}</div></div>
       </div>
       <div style="font-size:11px;font-weight:800;color:var(--text2);margin-bottom:6px">Top ${TOPN} cu cele mai multe reclamații${noPackages?'':' (raportat la pachete)'}</div>
       ${c.top.length ? c.top.map((s,i) => `
@@ -5927,7 +5926,7 @@ function renderStatsTipuri(d) {
           <span class="top-rank" style="background:${i<3?'var(--red)':'var(--bg3)'};color:${i<3?'#fff':'var(--text3)'}">${i+1}</span>
           <div class="top-main">
             <div class="top-name"><span style="font-family:var(--mono);color:var(--accent)">T.${s.tura}</span> ${s.numeSofer||''}</div>
-            <div class="top-sub">${noPackages ? s.total + ' recl.' : s.total + ' recl. / ' + s.pachete.toLocaleString() + ' pachete'} ${vechimeBadge(s)}</div>
+            <div class="top-sub">${noPackages ? s.total + ' recl.' : s.total + ' recl. / ' + s.pachete.toLocaleString() + ' pachete'}</div>
           </div>
           <span class="top-ratio" style="color:var(--red)">${noPackages ? s.total + ' recl.' : s.total?('1 la '+Math.round(s.pachete/s.total).toLocaleString()):'0 recl.'}</span>
         </div>`).join('') : '<div style="font-size:12px;color:var(--text3);padding:8px 0">Niciun șofer clasificat în această categorie.</div>'}
@@ -11749,7 +11748,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.17.2</span>
+  <span id="version-badge-text">v5.17.3</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
