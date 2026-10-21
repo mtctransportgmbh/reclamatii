@@ -814,7 +814,7 @@ textarea{resize:vertical;min-height:80px}
           <button class="stats-tab" data-tab="general" onclick="switchStatsTab('general',this)">📊 General</button>
           <button class="stats-tab" data-tab="soferi" onclick="switchStatsTab('soferi',this)">🚚 Per șofer</button>
           <button class="stats-tab" data-tab="topsoferi" onclick="switchStatsTab('topsoferi',this)">🏆 Top șoferi</button>
-          <button class="stats-tab" data-tab="tipuri" onclick="switchStatsTab('tipuri',this)">🔀 Springer vs Fix</button>
+          <button class="stats-tab" data-tab="tipuri" onclick="switchStatsTab('tipuri',this)">🔀 Fix · Springer · Paketshop</button>
           <button class="stats-tab" data-tab="persoane" onclick="switchStatsTab('persoane',this)">👤 Per client</button>
           <button class="stats-tab" data-tab="zile" onclick="switchStatsTab('zile',this)">📅 Per zi / lună</button>
           <button class="stats-tab" data-tab="lunar" onclick="switchStatsTab('lunar',this)">📆 Lunar detaliat</button>
@@ -1099,7 +1099,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.16.5';
+const APP_VERSION = '5.17.0';
 const APP_VERSION_DATE = '21.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -2378,6 +2378,19 @@ function angItemName(it) {
   if (full) return full;
   return [g('numeFamilie', 'lastName', 'familie', 'nume'), g('prenume', 'firstName')].filter(Boolean).join(' ');
 }
+function angParseDate(v) {
+  if (!v) return '';
+  if (v && typeof v.toDate === 'function') { try { return v.toDate().toISOString().slice(0, 10); } catch (e) { return ''; } }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  m = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/);
+  if (m) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return y + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0'); }
+  return '';
+}
+function angDatesOf(a) {
+  const r = a.raw || {};
+  return { angStart: angParseDate(r.start || r.dataAngajare || r.dataAngajarii), angEnd: angParseDate(r.end || r.dataIncetare) };
+}
 function startAngajatiSync() {
   if (_angDocUnsub || angUnsub || _angPoll || !currentUser || currentUser.role === 'corina') return;
   angStatus = { state: 'connecting', n: 0, err: '' };
@@ -2451,7 +2464,9 @@ async function pullAngajatiFromServer(manual) {
     applyAngajatiDocs(list, true);
   } catch (e) {
     console.warn('pullAngajatiFromServer:', e);
-    if (manual) toast('Nu pot citi Angajați acum: ' + e.message, 'error');
+    pullAngajatiFromServer._fails = (pullAngajatiFromServer._fails || 0) + 1;
+    if (pullAngajatiFromServer._fails >= 2 && _angPoll) { clearInterval(_angPoll); _angPoll = null; console.warn('Citirea prin server oprită (serverul nu are ruta /angajati/list — lipsește redeploy-ul).'); }
+    if (manual) toast('Nu pot citi Angajați prin server (serverul de pe Render nu e actualizat). Folosește trimiterea din aplicația Angajați.', 'error');
   }
 }
 function startAngajatiViaServer() {
@@ -2523,16 +2538,19 @@ async function reconcileAngajati(manual) {
         const cands = unlinked.filter(u => _nameKey(u.numeSofer) === key);
         if (cands.length === 1) {
           s = cands[0]; unlinked.splice(unlinked.indexOf(s), 1);
-          updates.push([s.id, { angajatId: a.id, numeAngajat: a.name, sursa: 'angajati' }]); stat.linked++;
+          updates.push([s.id, Object.assign({ angajatId: a.id, numeAngajat: a.name, sursa: 'angajati' }, angDatesOf(a))]); stat.linked++;
           if (s.stersDinAngajati) { updates[updates.length-1][1].stersDinAngajati = false; }
         } else {
-          creates.push([ 'ang_' + a.id, { angajatId: a.id, numeSofer: a.name, numeAngajat: a.name, tura: '', locatie: '', tipSofer: '', sursa: 'angajati', createdAt: FV.serverTimestamp() } ]);
+          creates.push([ 'ang_' + a.id, Object.assign({ angajatId: a.id, numeSofer: a.name, numeAngajat: a.name, tura: '', locatie: '', tipSofer: '', sursa: 'angajati', createdAt: FV.serverTimestamp() }, angDatesOf(a)) ]);
           stat.created++;
         }
       } else {
         const patch = {};
         if (s.numeAngajat !== a.name) { patch.numeAngajat = a.name; if (!s.legatManual) patch.numeSofer = a.name; stat.renamed++; }
         if (s.stersDinAngajati) { patch.stersDinAngajati = false; patch.arhivat = false; patch.arhivatLa = null; stat.restored++; }
+        const dts = angDatesOf(a);
+        if ((s.angStart || '') !== dts.angStart) patch.angStart = dts.angStart;
+        if ((s.angEnd || '') !== dts.angEnd) patch.angEnd = dts.angEnd;
         if (Object.keys(patch).length) updates.push([s.id, patch]);
       }
     }
@@ -3369,13 +3387,35 @@ function renderAdvancedSearchActiveBar() {
 
 // Import automat: Admin vede tot; Raluca/Madalina (operator) vad ce tine de locatia lor
 // + ce nu are locatie cunoscuta (ca sa nu ramana nimic neverificat)
-function importAutoVisible(r) {
-  if (currentUser?.role === 'admin') return true;
-  if (currentUser?.role !== 'operator') return false;
+// Locatia se stie din: reclamatie, soferul turei, sau (invatat automat) din expeditorul emailului.
+// Raluca vede DOAR Ruhstorf, Madalina DOAR Eiselfing. Ce n-are locatie cunoscuta vede doar Admin.
+let _iaSenderLoc = {};
+function _iaLearn(items) {
+  const cnt = {};
+  items.forEach(r => {
+    const s = (r.emailSender || '').toLowerCase().trim(); if (!s) return;
+    let loc = r.locatie || '';
+    const t = r.turaSofer || r.tour || '';
+    if (!loc && t) { const x = allSoferi.find(y => String(y.tura) === String(t)); loc = x?.locatie || ''; }
+    if (!loc) return;
+    (cnt[s] = cnt[s] || {})[loc] = (cnt[s][loc] || 0) + 1;
+  });
+  const m = {};
+  Object.keys(cnt).forEach(s => { m[s] = Object.entries(cnt[s]).sort((a, b) => b[1] - a[1])[0][0]; });
+  _iaSenderLoc = Object.assign(_iaSenderLoc, m);
+}
+function importAutoLoc(r) {
   let loc = r.locatie || '';
   const t = r.turaSofer || r.tour || '';
   if (!loc && t) { const s = allSoferi.find(x => String(x.tura) === String(t)); loc = s?.locatie || ''; }
-  return !loc || loc === currentUser.location;
+  if (!loc && r.emailSender) loc = _iaSenderLoc[String(r.emailSender).toLowerCase().trim()] || '';
+  return loc;
+}
+function importAutoVisible(r) {
+  if (currentUser?.role === 'admin') return true;
+  if (currentUser?.role !== 'operator') return false;
+  const loc = importAutoLoc(r);
+  return !!loc && loc === currentUser.location;
 }
 const canUseImportAuto = () => currentUser?.role === 'admin' || currentUser?.role === 'operator';
 
@@ -3388,7 +3428,8 @@ async function checkImportAutoBadgeAtLogin() {
     .where('sursaAutomata', '==', true)
     .where('verificatDeOm', '==', false)
     .onSnapshot(snap => {
-      const items = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(importAutoVisible);
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() })); _iaLearn(all);
+      const items = all.filter(importAutoVisible);
       updateImportAutoBadge(items.length);
       const fresh = items.filter(r => !importAutoSeen.has(r.id));
       items.forEach(r => importAutoSeen.add(r.id));
@@ -3409,7 +3450,8 @@ async function renderImportAutoPage() {
     .where('sursaAutomata', '==', true)
     .where('verificatDeOm', '==', false)
     .onSnapshot(snap => {
-      const items = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(importAutoVisible)
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() })); _iaLearn(all);
+      const items = all.filter(importAutoVisible)
         .sort((a,b) => {
           const ta = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
           const tb = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
@@ -5565,61 +5607,108 @@ function readaugaInTop(tura) {
   if (statsCache) renderStatsTopSoferi(statsCache);
 }
 
+let topCountMode = 'relevante';   // 'relevante' = doar nerezolvate + cu factura | 'toate'
+function setTopCountMode(m) { topCountMode = m; if (statsCache) rerenderTopTabs(); }
+const _isRelevantRecl = (r) => r.sursa === 'rechnung' || r.status !== 'rezolvata';   // nerezolvata/neprelucrata SAU venita cu factura de plata
+let _topPkMonths = new Set(), _topReclMonths = new Set();
+function _isoToDate(s) { if (!s) return null; const d = new Date(s + 'T00:00:00'); return isNaN(d) ? null : d; }
+function fmtVechime(y) { if (y == null) return ''; if (y < 1) return Math.max(1, Math.round(y * 12)) + ' luni'; const a = Math.floor(y), l = Math.round((y - a) * 12); return a + (a === 1 ? ' an' : ' ani') + (l ? ' ' + l + ' l' : ''); }
+
 function _topData(d) {
   const pacheteRaw = d.pacheteRaw || [];
-
-  // Ani disponibili — din pachetele livrate incarcate (Excel Zeiterfassung)
-  const years = [...new Set(pacheteRaw.map(p => p.an).filter(Boolean))].sort((a,b) => b-a);
-  if (topSoferiYear === null && years.length) topSoferiYear = years[0];
-  if (topSoferiMonth === null) topSoferiMonth = new Date().getMonth() + 1;
-
-  // Helper: extrage data unei reclamatii (Date sau Firestore Timestamp)
   const getDate = (r) => r.dataReclamatie instanceof Date ? r.dataReclamatie
     : r.dataReclamatie?.toDate ? r.dataReclamatie.toDate()
     : (r.createdAt?.toDate ? r.createdAt.toDate() : null);
 
-  // Filtram reclamatiile si pachetele livrate dupa modul ales
-  let reclFiltrate = d.toateReclamatiile || [];
-  let pacheteFiltrate = pacheteRaw;
-  let periodLabel = 'Total general (toată perioada)';
+  const allRecl = d.toateReclamatiile || [];
+  const reclDates = allRecl.map(getDate).filter(Boolean);
+  // Ani disponibili: din pachetele livrate SI din reclamatii (tot istoricul)
+  const years = [...new Set([...pacheteRaw.map(p => p.an).filter(Boolean), ...reclDates.map(x => x.getFullYear())])].sort((a,b) => b-a);
+  if (topSoferiYear === null && years.length) topSoferiYear = years[0];
+  if (topSoferiMonth === null) topSoferiMonth = new Date().getMonth() + 1;
+  _topPkMonths = new Set(pacheteRaw.filter(p => p.pachete > 0).map(p => p.an + '-' + p.luna));
+  _topReclMonths = new Set(reclDates.map(x => x.getFullYear() + '-' + (x.getMonth() + 1)));
 
+  const today = new Date();
+  let reclFiltrate = allRecl, pacheteFiltrate = pacheteRaw;
+  let periodLabel = 'Total general (toată perioada)';
+  let pStart = null, pEnd = today;
   if (topSoferiMode === 'an' && topSoferiYear) {
-    reclFiltrate = reclFiltrate.filter(r => { const dt = getDate(r); return dt && dt.getFullYear() === topSoferiYear; });
+    reclFiltrate = allRecl.filter(r => { const dt = getDate(r); return dt && dt.getFullYear() === topSoferiYear; });
     pacheteFiltrate = pacheteRaw.filter(p => p.an === topSoferiYear);
     periodLabel = `Anul ${topSoferiYear}`;
+    pStart = new Date(topSoferiYear, 0, 1); pEnd = new Date(topSoferiYear, 11, 31);
   } else if (topSoferiMode === 'luna' && topSoferiYear && topSoferiMonth) {
-    reclFiltrate = reclFiltrate.filter(r => { const dt = getDate(r); return dt && dt.getFullYear() === topSoferiYear && (dt.getMonth()+1) === topSoferiMonth; });
+    reclFiltrate = allRecl.filter(r => { const dt = getDate(r); return dt && dt.getFullYear() === topSoferiYear && (dt.getMonth()+1) === topSoferiMonth; });
     pacheteFiltrate = pacheteRaw.filter(p => p.an === topSoferiYear && p.luna === topSoferiMonth);
     periodLabel = `${MONTHS_RO[topSoferiMonth-1]} ${topSoferiYear}`;
+    pStart = new Date(topSoferiYear, topSoferiMonth - 1, 1); pEnd = new Date(topSoferiYear, topSoferiMonth, 0);
+  } else {
+    const firstPk = pacheteRaw.map(p => new Date(p.an, (p.luna || 1) - 1, 1)).filter(x => !isNaN(x));
+    pStart = new Date(Math.min(...[...reclDates, ...firstPk, today].map(x => +x)));
   }
+  if (pEnd > today) pEnd = today;
+  const DAY = 86400000, MONTH = 30.44 * DAY;
+  const periodMonths = Math.max(1, (pEnd - pStart) / MONTH);
 
-  // Agregam pachete livrate per tura, pt perioada selectata
   const pachetePerTuraPeriod = {};
   pacheteFiltrate.forEach(p => { pachetePerTuraPeriod[p.turaSofer] = (pachetePerTuraPeriod[p.turaSofer]||0) + (p.pachete||0); });
 
-  // Agregam reclamatii per tura, pt perioada selectata
-  const reclPerTuraPeriod = {};
+  // Reclamatii per tura: implicit doar cele care conteaza (nerezolvate + cu factura)
+  const reclPerTuraPeriod = {}, reclAllPerTura = {};
   reclFiltrate.forEach(r => {
     const t = String(r.turaSofer || r.tour || '');
     if (!t) return;
-    reclPerTuraPeriod[t] = (reclPerTuraPeriod[t]||0) + 1;
+    reclAllPerTura[t] = (reclAllPerTura[t]||0) + 1;
+    if (topCountMode === 'toate' || _isRelevantRecl(r)) reclPerTuraPeriod[t] = (reclPerTuraPeriod[t]||0) + 1;
   });
 
   const soferiMap = {};
   (d.soferi||[]).forEach(s => { soferiMap[s.tura] = s; });
 
-  const rankList = Object.keys(pachetePerTuraPeriod)
+  const sumPk = Object.values(pachetePerTuraPeriod).reduce((a, b) => a + b, 0);
+  const noPackages = sumPk === 0;   // luna/anul fara pachete incarcate -> clasament dupa numar de reclamatii
+  const keys = noPackages ? Object.keys(reclPerTuraPeriod) : Object.keys(pachetePerTuraPeriod);
+
+  const rankList = keys
     .map(tura => {
       const pachete = pachetePerTuraPeriod[tura] || 0;
       const total = reclPerTuraPeriod[tura] || 0;
       const procent = pachete > 0 ? (total/pachete)*100 : null;
       const s = soferiMap[tura];
-      return { tura, numeSofer: s?.numeSofer || '', locatie: s?.locatie || '', arhivat: s?.arhivat||false, total, pachete, procent };
+      const st = _isoToDate(s?.angStart || s?.angajatDe), en = _isoToDate(s?.angEnd);
+      let luniActive = null, vechimeAni = null;
+      if (st) {
+        const a = st > pStart ? st : pStart, b = Math.min(en ? +en : +today, +pEnd, +today);
+        luniActive = Math.max(0, (b - a) / MONTH);
+        vechimeAni = Math.max(0, ((en || today) - st) / (365.25 * DAY));
+      }
+      const reclPeLuna = (luniActive != null && luniActive > 0) ? total / Math.max(luniActive, Math.min(3, periodMonths)) : null;
+      return { tura, numeSofer: s?.numeSofer || '', locatie: s?.locatie || '', arhivat: s?.arhivat||false, total, totalAll: reclAllPerTura[tura] || 0,
+               pachete, procent, luniActive, vechimeAni, reclPeLuna };
     })
-    // Doar soferii ACTIVI actual — excludem cei arhivati (nu mai sunt la noi)
-    .filter(x => x.pachete > 0 && !x.arhivat);
+    .filter(x => (noPackages ? x.total > 0 : x.pachete > 0) && !x.arhivat);
 
-  return { years, periodLabel, rankList };
+  // scor ajustat pe volum (acelasi pentru Top si pentru Springer/Fix/Paketshop)
+  const _totR = rankList.reduce((s,x)=>s+x.total,0), _totP = rankList.reduce((s,x)=>s+x.pachete,0);
+  const rataMedie = _totP > 0 ? _totR/_totP : 0;
+  const K_PRIOR = 5000;
+  rankList.forEach(x => { x.scor = (x.total + rataMedie*K_PRIOR) / (x.pachete + K_PRIOR); });
+  // medie pe vechime: reclamatii / luna activa, la nivel de flota; fiecare sofer e comparat cu ea
+  const vt = rankList.filter(x => x.reclPeLuna !== null);
+  const avgLuna = vt.length ? vt.reduce((s,x)=>s+x.total,0) / vt.reduce((s,x)=>s+Math.max(x.luniActive, Math.min(3, periodMonths)),0) : 0;
+  rankList.forEach(x => {
+    x.indVechime = (x.reclPeLuna !== null && avgLuna > 0) ? x.reclPeLuna / avgLuna : null;
+  });
+
+  return { years, periodLabel, rankList, noPackages, avgLuna, periodMonths };
+}
+
+function vechimeBadge(x) {
+  if (x.vechimeAni == null) return '';
+  const v = x.indVechime;
+  const [c, t] = v == null ? ['var(--text3)', ''] : v <= 0.6 ? ['var(--green)', 'sub media'] : v <= 1.3 ? ['#f59e0b', 'în medie'] : ['var(--red)', 'peste medie'];
+  return `<span title="Vechime din Angajați. Reclamații pe lună de activitate comparat cu media firmei" style="font-size:10px;color:var(--text3)">· ${fmtVechime(x.vechimeAni)}${x.reclPeLuna !== null ? ` · <b style="color:${c}">${x.reclPeLuna.toFixed(2)}/lună${t ? ' ' + t : ''}</b>` : ''}</span>`;
 }
 
 function _topModeButtons(years) {
@@ -5638,8 +5727,11 @@ function _topModeButtons(years) {
       ${years.map(y => `<button class="filter-btn ${topSoferiYear===y?'active':''}" onclick="setTopSoferiYear(${y})">${y}</button>`).join('') || '<span style="font-size:12px;color:var(--text3)">Niciun an disponibil — încarcă pachete livrate</span>'}
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
-      ${MONTHS_RO.map((m,i) => `<button class="filter-btn" style="${topSoferiMonth===i+1?'background:var(--accent);color:#000;border-color:var(--accent)':''}" onclick="setTopSoferiMonth(${i+1})">${m.slice(0,3)}</button>`).join('')}
-    </div>` : ''}`;
+      ${MONTHS_RO.map((m,i) => { const k = topSoferiYear + '-' + (i+1), hasPk = _topPkMonths.has(k), hasR = _topReclMonths.has(k);
+        const dim = !hasPk ? 'opacity:' + (hasR ? '0.6' : '0.35') + ';' : '';
+        return `<button class="filter-btn" title="${hasPk ? 'Pachete livrate încărcate' : hasR ? 'Fără pachete încărcate — doar reclamații' : 'Fără date'}" style="${dim}${topSoferiMonth===i+1?'background:var(--accent);color:#000;border-color:var(--accent);opacity:1':''}" onclick="setTopSoferiMonth(${i+1})">${m.slice(0,3)}${hasPk ? '' : ' ·'}</button>`; }).join('')}
+    </div>
+    <div style="font-size:10px;color:var(--text3);margin:-6px 0 12px">Lunile estompate (·) nu au pachete livrate încărcate din Zeiterfassung. Acolo clasamentul se face după numărul de reclamații.</div>` : ''}`;
 }
 
 function renderStatsTopSoferi(d) {
@@ -5647,22 +5739,19 @@ function renderStatsTopSoferi(d) {
   if (!el) return;
   if (!topExcluseLoaded) { topExcluseLoaded = true; loadTopExcluse(); }
 
-  const { years, periodLabel, rankList } = _topData(d);
+  const { years, periodLabel, rankList, noPackages } = _topData(d);
 
   const TOP_N = 40;
-  // Rata medie a tuturor soferilor activi = "punctul de pornire" pentru cei cu putine date
-  const _totR = rankList.reduce((s,x)=>s+x.total,0), _totP = rankList.reduce((s,x)=>s+x.pachete,0);
-  const rataMedie = _totP > 0 ? _totR/_totP : 0;
-  const K_PRIOR = 5000; // "greutatea" ratei medii, echivalent cu 5000 pachete
   // Scor ajustat: un sofer cu putine pachete e tras spre media generala; cu cat are mai multe
   // pachete (istoric mai lung), cu atat scorul lui real conteaza mai mult. Evita ca un nou
   // angajat cu 600 pachete si 0 reclamatii sa depaseasca soferi cu zeci de mii de pachete.
-  rankList.forEach(x => { x.scor = (x.total + rataMedie*K_PRIOR) / (x.pachete + K_PRIOR); });
-  const eligibili = rankList.filter(x => x.pachete >= topMinPachete);
+  const eligibili = noPackages ? rankList : topSortMode === 'vechime' ? rankList.filter(x => x.reclPeLuna !== null) : rankList.filter(x => x.pachete >= topMinPachete);
   const subPrag = rankList.length - eligibili.length;
-  const sortedAll = [...eligibili].sort((a,b) => topSortMode==='ajustat'
-    ? (a.scor - b.scor) || (b.pachete - a.pachete)
-    : (a.procent - b.procent) || (b.pachete - a.pachete));
+  const sortedAll = [...eligibili].sort(
+    noPackages ? (a,b) => (a.total - b.total)
+    : topSortMode==='vechime' ? (a,b) => (a.reclPeLuna - b.reclPeLuna) || (b.luniActive - a.luniActive)
+    : topSortMode==='ajustat' ? (a,b) => (a.scor - b.scor) || (b.pachete - a.pachete)
+    : (a,b) => (a.procent - b.procent) || (b.pachete - a.pachete));
   const topBuni = sortedAll.filter(x => !topSoferiExcluse.includes(String(x.tura))).slice(0, TOP_N);
   const scosi = sortedAll.filter(x => topSoferiExcluse.includes(String(x.tura)));
   const canRemove = canSeeAll(currentUser);
@@ -5675,15 +5764,23 @@ function renderStatsTopSoferi(d) {
         <span style="font-size:11px;color:var(--text3);font-weight:700">Clasament:</span>
         <button class="filter-btn ${topSortMode==='ajustat'?'active':''}" onclick="setTopSortMode('ajustat')" title="Ține cont și de câte pachete a livrat — recomandat">⚖️ Corect (ajustat)</button>
         <button class="filter-btn ${topSortMode==='brut'?'active':''}" onclick="setTopSortMode('brut')" title="Doar raportul reclamații/pachete">📉 Rată brută</button>
+        <button class="filter-btn ${topSortMode==='vechime'?'active':''}" onclick="setTopSortMode('vechime')" title="Reclamații pe lună de activitate, de la data angajării din Angajați">📅 Pe vechime</button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--text3);font-weight:700">Se numără:</span>
+        <button class="filter-btn ${topCountMode==='relevante'?'active':''}" onclick="setTopCountMode('relevante')" title="Doar reclamațiile nerezolvate și cele venite cu factură de plată">⚠️ Nerezolvate + cu factură</button>
+        <button class="filter-btn ${topCountMode==='toate'?'active':''}" onclick="setTopCountMode('toate')">Toate</button>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <span style="font-size:11px;color:var(--text3);font-weight:700">Minim pachete:</span>
         ${[0,1000,3000,5000,10000].map(n => `<button class="filter-btn ${topMinPachete===n?'active':''}" onclick="setTopMinPachete(${n})">${n===0?'fără':n.toLocaleString()}</button>`).join('')}
       </div>
     </div>
-    <div style="font-size:11px;color:var(--text3);margin-top:8px">${topSortMode==='ajustat'
-      ? 'Clasamentul ajustat ține cont de volum: un șofer nou, cu puține pachete, nu poate depăși șoferii cu istoric lung și rată bună.'
-      : 'Rata brută compară doar reclamațiile raportate la pachete, fără să țină cont de câte pachete a livrat șoferul.'}${subPrag>0?` · ${subPrag} șoferi sub ${topMinPachete.toLocaleString()} pachete nu apar în top.`:''}</div>`;
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">${noPackages ? 'Pentru perioada aleasă nu sunt pachete livrate încărcate: clasamentul e după numărul de reclamații. '
+      : topSortMode==='vechime' ? 'Clasament pe vechime: reclamații pe lună de activitate (de la data angajării din Angajați). 5 reclamații în 10 ani sunt altceva decât 10 într-un an. '
+      : topSortMode==='ajustat'
+      ? 'Clasamentul ajustat ține cont de volum: un șofer nou, cu puține pachete, nu poate depăși șoferii cu istoric lung și rată bună. '
+      : 'Rata brută compară doar reclamațiile raportate la pachete, fără să țină cont de câte pachete a livrat șoferul. '}${topCountMode==='relevante' ? 'Se numără doar reclamațiile nerezolvate și cele cu factură: un șofer cu 10 reclamații din care 9 rezolvate nu apare ca slab.' : 'Se numără toate reclamațiile, inclusiv cele rezolvate.'}${subPrag>0?` · ${subPrag} șoferi sub ${topMinPachete.toLocaleString()} pachete nu apar în top.`:''}</div>`;
 
   if (!topBuni.length) {
     el.innerHTML = `
@@ -5691,7 +5788,7 @@ function renderStatsTopSoferi(d) {
       <div class="empty">
         <div class="empty-icon">🏆</div>
         <div class="empty-title">Nu sunt date suficiente</div>
-        <div class="empty-sub">Nu există pachete livrate încărcate pentru ${periodLabel.toLowerCase()}</div>
+        <div class="empty-sub">Nu există date pentru ${periodLabel.toLowerCase()}${topSortMode==='vechime'?' (pentru „Pe vechime” e nevoie de data angajării din Angajați)':''}</div>
       </div>`;
     return;
   }
@@ -5701,7 +5798,7 @@ function renderStatsTopSoferi(d) {
       <button class="filter-btn ${topView==='buni'?'active':''}" onclick="setTopView('buni')">🏆 Top ${TOP_N} cei mai buni</button>
       <button class="filter-btn ${topView==='slabi'?'active':''}" onclick="setTopView('slabi')" style="${topView==='slabi'?'background:var(--red);border-color:var(--red);color:#fff':''}">⚠️ Top ${TOP_N} negativ (cei mai slabi)</button>
     </div>`;
-  const worst = [...sortedAll].reverse().slice(0, TOP_N);
+  const worst = [...sortedAll].reverse().filter(x => x.total > 0).slice(0, TOP_N);   // fara cei cu 0 reclamatii relevante
   const showList = topView === 'slabi' ? worst : topBuni;
   const isBad = topView === 'slabi';
   const accent = isBad ? 'var(--red)' : 'var(--green)';
@@ -5711,11 +5808,12 @@ function renderStatsTopSoferi(d) {
     <div class="card" style="margin-bottom:14px;padding:14px 16px;border-color:${isBad?'rgba(248,113,113,0.35)':'rgba(52,211,153,0.3)'};background:${isBad?'var(--red-bg)':'var(--green-bg)'}">
       ${viewToggle}
       <div style="font-size:13px;font-weight:800;color:${accent};margin-bottom:2px">${isBad?'⚠️ Top '+TOP_N+' negativ — cei mai slabi șoferi':'🏆 Top '+TOP_N+' cei mai buni șoferi'} — ${periodLabel}</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:12px">${isBad?'Cele mai multe reclamații raportat la pachetele livrate (același calcul, sortare inversată)':'Cele mai puține reclamații raportat la pachetele livrate'}${canRemove&&!isBad?' · ✕ = scoate din top':''}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px">${isBad?'Cele mai multe reclamații'+(topCountMode==='relevante'?' nerezolvate / cu factură':'')+(noPackages?'':' raportat la pachetele livrate')+' (același calcul, sortare inversată)':'Cele mai puține reclamații'+(topCountMode==='relevante'?' nerezolvate / cu factură':'')+(noPackages?'':' raportat la pachetele livrate')}${canRemove&&!isBad?' · ✕ = scoate din top':''}</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:8px">
         ${showList.map((s,i) => {
-          const ratioLabel = s.total === 0 ? '0 recl. 🎉' : `1 la ${Math.round(s.pachete/s.total).toLocaleString()}`;
-          const sub = currentUser?.role==='admin' ? `${s.total} recl. / ${s.pachete.toLocaleString()} pachete` : `${s.total} reclamații`;
+          const ratioLabel = noPackages ? `${s.total} recl.` : topSortMode === 'vechime' ? `${(s.reclPeLuna||0).toFixed(2)}/lună` : s.total === 0 ? '0 recl. 🎉' : `1 la ${Math.round(s.pachete/s.total).toLocaleString()}`;
+          const rez = (topCountMode === 'relevante' && s.totalAll > s.total) ? ` (+${s.totalAll - s.total} rezolvate)` : '';
+          const sub = (currentUser?.role==='admin' && !noPackages ? `${s.total} recl.${rez} / ${s.pachete.toLocaleString()} pachete` : `${s.total} reclamații${rez}`) + ' ' + vechimeBadge(s);
           const nm = (s.numeSofer||'').replace(/'/g,"\\'");
           const rankBg = isBad ? (i<3?'var(--red)':'var(--bg3)') : (i===0?'#fbbf24':i===1?'#d1d5db':i===2?'#d97706':'var(--bg3)');
           const rankFg = isBad ? (i<3?'#fff':'var(--text3)') : (i<3?'#000':'var(--text3)');
@@ -5751,6 +5849,7 @@ function _tipOf(tura) {
 function tipBadge(tura) {
   const t = _tipOf(tura);
   if (!t) return '';
+  if (t === 'paketshop') return '<span style="font-size:9px;font-weight:800;background:rgba(245,158,11,0.2);color:#f59e0b;padding:1px 6px;border-radius:5px;margin-left:4px">PAKETSHOP</span>';
   return t === 'springer'
     ? '<span style="font-size:9px;font-weight:800;background:rgba(167,139,250,0.2);color:#a78bfa;padding:1px 6px;border-radius:5px;margin-left:4px">SPRINGER</span>'
     : '<span style="font-size:9px;font-weight:800;background:rgba(96,165,250,0.2);color:#60a5fa;padding:1px 6px;border-radius:5px;margin-left:4px">TURĂ FIXĂ</span>';
@@ -5777,7 +5876,7 @@ function setTipSearch(v) {
 function renderStatsTipuri(d) {
   const el = document.getElementById('stats-tipuri');
   if (!el || !d) return;
-  const { years, periodLabel, rankList } = _topData(d);
+  const { years, periodLabel, rankList, noPackages, avgLuna } = _topData(d);
   const canEditTura = (t) => canEditSofer((allSoferi||[]).find(x => String(x.tura) === String(t)));
   const canEdit = canSeeAll(currentUser);
   const TOPN = 10;
@@ -5786,21 +5885,28 @@ function renderStatsTipuri(d) {
   const mkCat = (tip) => {
     const list = withTip.filter(x => x.tip === tip);
     const pachete = list.reduce((s,x)=>s+x.pachete,0), recl = list.reduce((s,x)=>s+x.total,0);
-    const ranked = list.filter(x => x.pachete >= Math.min(topMinPachete, 1000))
-      .sort((a,b) => (b.scor - a.scor) || (b.total - a.total));
+    const ranked = (noPackages ? list : list.filter(x => x.pachete >= Math.min(topMinPachete, 1000)))
+      .sort(noPackages ? (a,b) => b.total - a.total : (a,b) => (b.scor - a.scor) || (b.total - a.total))
+      .filter(x => x.total > 0);
+    const vt = list.filter(x => x.vechimeAni != null);
     return { tip, list, pachete, recl, per1000: pachete ? recl/pachete*1000 : 0,
-             medie: list.length ? recl/list.length : 0, top: ranked.slice(0, TOPN) };
+             medie: list.length ? recl/list.length : 0, top: ranked.slice(0, TOPN),
+             vechimeMedie: vt.length ? vt.reduce((s,x)=>s+x.vechimeAni,0)/vt.length : null };
   };
-  const fix = mkCat('fix'), spr = mkCat('springer');
+  const fix = mkCat('fix'), spr = mkCat('springer'), pks = mkCat('paketshop');
   const necl = withTip.filter(x => !x.tip);
 
-  let verdict = '<div style="color:var(--text3)">Clasifică șoferii mai jos (Fix / Springer) ca să apară comparația.</div>';
-  if (fix.list.length && spr.list.length && fix.pachete && spr.pachete) {
-    const worse = spr.per1000 > fix.per1000 ? spr : fix, better = worse === spr ? fix : spr;
-    const nm = (c) => c.tip === 'springer' ? 'Springerii' : 'Turele fixe';
-    const diff = better.per1000 > 0 ? ((worse.per1000 / better.per1000 - 1) * 100) : null;
-    verdict = `<div style="font-size:14px;font-weight:800"><span style="color:var(--red)">${nm(worse)}</span> produc mai multe reclamații raportat la pachete: <span style="font-family:var(--mono)">${worse.per1000.toFixed(2)}</span> la 1.000 pachete, față de <span style="font-family:var(--mono)">${better.per1000.toFixed(2)}</span> la ${nm(better).toLowerCase()}${diff!==null?` (cu ${diff.toFixed(0)}% mai mult)`:''}.</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:4px">${nm(fix.recl>=spr.recl?fix:spr)} au mai multe reclamații în total (${Math.max(fix.recl,spr.recl)} vs ${Math.min(fix.recl,spr.recl)}), dar comparația corectă ține cont de câte pachete livrează fiecare categorie.</div>`;
+  let verdict = '<div style="color:var(--text3)">Clasifică șoferii mai jos (Fix / Springer / Paketshop) ca să apară comparația.</div>';
+  const nmOf = { fix: 'Turele fixe', springer: 'Springerii', paketshop: 'Paketshop' };
+  const cats = [fix, spr, pks].filter(c => c.list.length && (noPackages ? true : c.pachete));
+  if (cats.length >= 2) {
+    const key = (c) => noPackages ? c.medie : c.per1000;
+    const ord = [...cats].sort((a, b) => key(b) - key(a));
+    const worse = ord[0], better = ord[ord.length - 1];
+    const diff = key(better) > 0 ? ((key(worse) / key(better) - 1) * 100) : null;
+    const fmt = (c) => noPackages ? c.medie.toFixed(1) + ' recl./șofer' : c.per1000.toFixed(2) + ' la 1.000 pachete';
+    verdict = `<div style="font-size:14px;font-weight:800"><span style="color:var(--red)">${nmOf[worse.tip]}</span> produc cele mai multe reclamații${noPackages?' pe șofer':' raportat la pachete'}: <span style="font-family:var(--mono)">${fmt(worse)}</span>, față de <span style="font-family:var(--mono)">${fmt(better)}</span> la ${nmOf[better.tip].toLowerCase()}${diff!==null?` (cu ${diff.toFixed(0)}% mai mult)`:''}.</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Ordine, de la cel mai slab la cel mai bun: ${ord.map(c => `${nmOf[c.tip]} (${fmt(c)})`).join(' → ')}.<br>${topCountMode==='relevante' ? 'Se numără doar reclamațiile nerezolvate și cele cu factură de plată.' : 'Se numără toate reclamațiile, inclusiv cele rezolvate.'}${noPackages ? ' Perioada aleasă nu are pachete încărcate, deci comparația e pe șofer, nu pe pachete.' : ''}</div>`;
   }
 
   const catCard = (c, title, color, bg) => `
@@ -5813,16 +5919,17 @@ function renderStatsTipuri(d) {
         <div><div style="font-size:10px;color:var(--text3)">La 1.000 pachete</div><div style="font-size:18px;font-weight:800;color:${color}">${c.per1000.toFixed(2)}</div></div>
         <div><div style="font-size:10px;color:var(--text3)">1 reclamație la</div><div style="font-size:14px;font-weight:700">${c.recl?Math.round(c.pachete/c.recl).toLocaleString()+' pachete':'—'}</div></div>
         <div><div style="font-size:10px;color:var(--text3)">Medie / șofer</div><div style="font-size:14px;font-weight:700">${c.medie.toFixed(1)} recl.</div></div>
+        <div><div style="font-size:10px;color:var(--text3)">Vechime medie</div><div style="font-size:14px;font-weight:700">${c.vechimeMedie != null ? fmtVechime(c.vechimeMedie) : '—'}</div></div>
       </div>
-      <div style="font-size:11px;font-weight:800;color:var(--text2);margin-bottom:6px">Top ${TOPN} cu cele mai multe reclamații (raportat la pachete)</div>
+      <div style="font-size:11px;font-weight:800;color:var(--text2);margin-bottom:6px">Top ${TOPN} cu cele mai multe reclamații${noPackages?'':' (raportat la pachete)'}</div>
       ${c.top.length ? c.top.map((s,i) => `
         <div class="top-row" onclick="lcShowSoferByTura('${s.tura}')" style="margin-bottom:4px">
           <span class="top-rank" style="background:${i<3?'var(--red)':'var(--bg3)'};color:${i<3?'#fff':'var(--text3)'}">${i+1}</span>
           <div class="top-main">
             <div class="top-name"><span style="font-family:var(--mono);color:var(--accent)">T.${s.tura}</span> ${s.numeSofer||''}</div>
-            <div class="top-sub">${s.total} recl. / ${s.pachete.toLocaleString()} pachete</div>
+            <div class="top-sub">${noPackages ? s.total + ' recl.' : s.total + ' recl. / ' + s.pachete.toLocaleString() + ' pachete'} ${vechimeBadge(s)}</div>
           </div>
-          <span class="top-ratio" style="color:var(--red)">${s.total?('1 la '+Math.round(s.pachete/s.total).toLocaleString()):'0 recl.'}</span>
+          <span class="top-ratio" style="color:var(--red)">${noPackages ? s.total + ' recl.' : s.total?('1 la '+Math.round(s.pachete/s.total).toLocaleString()):'0 recl.'}</span>
         </div>`).join('') : '<div style="font-size:12px;color:var(--text3);padding:8px 0">Niciun șofer clasificat în această categorie.</div>'}
     </div>`;
 
@@ -5835,12 +5942,14 @@ function renderStatsTipuri(d) {
 
   el.innerHTML = `
     <div class="card" style="margin-bottom:14px;padding:14px 16px">${_topModeButtons(years)}
-      <div style="font-size:11px;color:var(--text3)">Perioadă: <b>${periodLabel}</b> · folosește aceleași filtre de perioadă ca la Top șoferi</div>
+      <div style="font-size:11px;color:var(--text3)">Perioadă: <b>${periodLabel}</b> · aceleași filtre de perioadă ca la Top șoferi · ${topCountMode==='relevante'?'se numără doar nerezolvate + cu factură':'se numără toate reclamațiile'}
+        <span style="margin-left:8px"><button class="filter-btn ${topCountMode==='relevante'?'active':''}" onclick="setTopCountMode('relevante')">⚠️ Nerezolvate + cu factură</button> <button class="filter-btn ${topCountMode==='toate'?'active':''}" onclick="setTopCountMode('toate')">Toate</button></span></div>
     </div>
     <div class="card" style="margin-bottom:14px;padding:14px 16px">${verdict}</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin-bottom:14px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:14px">
       ${catCard(fix, '📍 Ture fixe', '#60a5fa', 'rgba(96,165,250,0.06)')}
       ${catCard(spr, '🔀 Springeri', '#a78bfa', 'rgba(167,139,250,0.06)')}
+      ${catCard(pks, '📦 Paketshop', '#f59e0b', 'rgba(245,158,11,0.06)')}
     </div>
     <div class="card" style="padding:14px 16px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
@@ -5849,12 +5958,12 @@ function renderStatsTipuri(d) {
         <button class="filter-btn ${tipFilter==='neclasificati'?'active':''}" onclick="setTipFilter('neclasificati')">Neclasificați (${necl.length})</button>
         <input id="tip-search-input" type="text" value="${_esc(tipSearch)}" placeholder="Caută șofer / tură..." oninput="setTipSearch(this.value)" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);min-width:180px"/>
       </div>
-      ${true ? '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Apasă pe Fix / Springer ca să clasifici; apasă din nou pe cel activ ca să scoți clasificarea. Se salvează automat.</div>' : ''}
+      ${true ? '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Apasă pe Fix / Springer / Paketshop ca să clasifici; apasă din nou pe cel activ ca să scoți clasificarea. Se salvează automat.</div>' : ''}
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:6px">
         ${manageList.map(x => `
           <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
             <div style="flex:1;min-width:0;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="font-family:var(--mono);color:var(--accent)">T.${x.tura}</span> ${_esc(x.numeSofer||'')}</div>
-            ${segBtn(x,'fix','Fix','#3b82f6')}${segBtn(x,'springer','Springer','#8b5cf6')}
+            ${segBtn(x,'fix','Fix','#3b82f6')}${segBtn(x,'springer','Springer','#8b5cf6')}${segBtn(x,'paketshop','Paketshop','#f59e0b')}
           </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:10px">Niciun șofer în listă</div>'}
       </div>
     </div>`;
@@ -10299,11 +10408,11 @@ async function renderSoferi() {
   if (arhBtn) { arhBtn.style.display = nrArh > 0 && isAdminOnly() ? 'flex' : 'none'; arhBtn.textContent = '📦 Arhivă (' + nrArh + ')'; }
   const nNou = active.filter(s => !s.locatie).length;
   document.getElementById('soferi-count').textContent =
-    `${active.length} șoferi · ${active.filter(s => s.tura).length} cu tură · ${active.filter(s => s.tipSofer === 'springer').length} springeri · ${active.filter(s => s.tipSofer === 'fix').length} ture fixe` + (nNou ? ` · ${nNou} neatribuiți` : '');
+    `${active.length} șoferi · ${active.filter(s => s.tura).length} cu tură · ${active.filter(s => s.tipSofer === 'springer').length} springeri · ${active.filter(s => s.tipSofer === 'fix').length} ture fixe · ${active.filter(s => s.tipSofer === 'paketshop').length} paketshop` + (nNou ? ` · ${nNou} neatribuiți` : '');
   const seedBtn = document.getElementById('btn-seed'); if (seedBtn) seedBtn.style.display = allSoferi.length === 0 && canAdm ? 'flex' : 'none';
   const searchBar = document.getElementById('soferi-search'); if (searchBar) searchBar.style.display = visible.length > 0 ? 'block' : 'none';
   const chips = document.getElementById('soferi-filter-chips');
-  if (chips) chips.innerHTML = [['toti', 'Toți'], ['fara_tura', 'Fără tură'], ['fara_tip', 'Fără tip (Fix/Springer)']].concat(canAdm ? [['nesinc', 'Nesincronizați']] : []).map(([k, l]) =>
+  if (chips) chips.innerHTML = [['toti', 'Toți'], ['fara_tura', 'Fără tură'], ['fara_tip', 'Fără tip (Fix/Springer/Paketshop)']].concat(canAdm ? [['nesinc', 'Nesincronizați']] : []).map(([k, l]) =>
     `<button class="filter-btn ${soferiFilter === k ? 'active' : ''}" onclick="setSoferiFilter('${k}')">${l}</button>`).join('');
   const newBtn = document.getElementById('btn-sofer-nou'); if (newBtn) newBtn.style.display = canAdm ? '' : 'none';
   const syncBtn = document.getElementById('btn-sync-ang'); if (syncBtn) syncBtn.style.display = canAdm ? '' : 'none';
@@ -10343,7 +10452,7 @@ async function renderSoferi() {
         ${canSeeAll(currentUser)
           ? `<select onchange="setSoferLocInline('${s.id}',this.value)" style="font-size:11px;padding:5px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text)"><option value="">— locație —</option><option value="Ruhstorf" ${s.locatie === 'Ruhstorf' ? 'selected' : ''}>Ruhstorf</option><option value="Eiselfing" ${s.locatie === 'Eiselfing' ? 'selected' : ''}>Eiselfing</option></select>`
           : `<span style="font-size:11px;color:var(--text3)">${_esc(s.locatie || '')}</span>`}
-        ${segBtn(s, 'fix', 'Tură fixă', '#3b82f6', can)}${segBtn(s, 'springer', 'Springer', '#8b5cf6', can)}
+        ${segBtn(s, 'fix', 'Tură fixă', '#3b82f6', can)}${segBtn(s, 'springer', 'Springer', '#8b5cf6', can)}${segBtn(s, 'paketshop', 'Paketshop', '#f59e0b', can)}
         ${canSeeAll(currentUser) && !linked && !isHiddenList && angajatiDocs ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px;border-color:#f59e0b;color:#f59e0b" onclick="openMatchAng('${s.id}')">🔗 Leagă de Angajați</button>` : ''}
         ${canSeeAll(currentUser) && linked && !s.tura && !s.locatie && s.sursa === 'angajati' && String(s.id).startsWith('ang_') && !isHiddenList ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" onclick="openMatchOld('${s.id}')" title="Există deja la șoferi sub alt nume?">🔗 Există deja?</button>` : ''}
         ${canSeeAll(currentUser) && s.legatManual && !isHiddenList ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" onclick="unlinkAng('${s.id}')">⛓ Dezleagă</button>` : ''}
@@ -10363,7 +10472,7 @@ async function renderSoferi() {
 
   const nou = filtered.filter(s => !s.locatie);
   el.innerHTML =
-    (canAdm ? groupHTML('🆕 Neatribuiți — din Angajați (alege locația, tura, Fix/Springer)', 'var(--accent)', nou) : '') +
+    (canAdm ? groupHTML('🆕 Neatribuiți — din Angajați (alege locația, tura, Fix/Springer/Paketshop)', 'var(--accent)', nou) : '') +
     groupHTML('Ruhstorf', '#34d399', filtered.filter(s => s.locatie === 'Ruhstorf')) +
     groupHTML('Eiselfing', '#a78bfa', filtered.filter(s => s.locatie === 'Eiselfing')) +
     (!filtered.length ? '<div class="empty"><div class="empty-title">Niciun rezultat</div></div>' : '') +
@@ -10392,7 +10501,7 @@ function toggleSoferForm(data) {
           </select>
         </div>
         <div class="form-group"><label>Tip</label>
-          <select id="sf-tip"><option value="">— nesetat —</option><option value="fix" ${data?.tipSofer==='fix'?'selected':''}>Tură fixă</option><option value="springer" ${data?.tipSofer==='springer'?'selected':''}>Springer</option></select>
+          <select id="sf-tip"><option value="">— nesetat —</option><option value="fix" ${data?.tipSofer==='fix'?'selected':''}>Tură fixă</option><option value="springer" ${data?.tipSofer==='springer'?'selected':''}>Springer</option><option value="paketshop" ${data?.tipSofer==='paketshop'?'selected':''}>Paketshop</option></select>
         </div>
       </div>
       <div style="display:flex;gap:8px;margin-top:16px">
@@ -11639,7 +11748,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.16.5</span>
+  <span id="version-badge-text">v5.17.0</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
