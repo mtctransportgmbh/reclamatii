@@ -814,6 +814,7 @@ textarea{resize:vertical;min-height:80px}
           <button class="stats-tab" data-tab="general" onclick="switchStatsTab('general',this)">📊 General</button>
           <button class="stats-tab" data-tab="soferi" onclick="switchStatsTab('soferi',this)">🚚 Per șofer</button>
           <button class="stats-tab" data-tab="topsoferi" onclick="switchStatsTab('topsoferi',this)">🏆 Top șoferi</button>
+          <button class="stats-tab" data-tab="tipuri" onclick="switchStatsTab('tipuri',this)">🔀 Springer vs Fix</button>
           <button class="stats-tab" data-tab="persoane" onclick="switchStatsTab('persoane',this)">👤 Per client</button>
           <button class="stats-tab" data-tab="zile" onclick="switchStatsTab('zile',this)">📅 Per zi / lună</button>
           <button class="stats-tab" data-tab="lunar" onclick="switchStatsTab('lunar',this)">📆 Lunar detaliat</button>
@@ -828,6 +829,7 @@ textarea{resize:vertical;min-height:80px}
         <div id="stats-general" class="stats-panel" style="display:none"></div>
         <div id="stats-soferi" class="stats-panel" style="display:none"></div>
         <div id="stats-topsoferi" class="stats-panel" style="display:none"></div>
+        <div id="stats-tipuri" class="stats-panel" style="display:none"></div>
         <div id="stats-persoane" class="stats-panel" style="display:none"></div>
         <div id="stats-zile" class="stats-panel" style="display:none"></div>
         <div id="stats-lunar" class="stats-panel" style="display:none"></div>
@@ -876,11 +878,13 @@ textarea{resize:vertical;min-height:80px}
           <div>
             <div class="page-title">Șoferi & Ture</div>
             <div class="page-sub" id="soferi-count"></div>
+            <div class="page-sub" id="ang-sync-status" style="margin-top:2px"></div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-ghost" onclick="togglePacheteForm()">📦 Pachete</button>
+            <button class="btn btn-ghost" id="btn-sync-ang" onclick="reconcileAngajati(true)" title="Verifică acum diferențele față de aplicația Angajați">🔄 Sincronizează</button>
+            <button class="btn btn-ghost" id="btn-sofer-pachete" onclick="togglePacheteForm()">📦 Pachete</button>
             <button class="btn btn-ghost" onclick="seedSoferi()" id="btn-seed" style="display:none">⬆ Import listă</button>
-            <button class="btn btn-primary" onclick="toggleSoferForm()">
+            <button class="btn btn-primary" id="btn-sofer-nou" onclick="toggleSoferForm()">
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
               Șofer nou
             </button>
@@ -894,6 +898,7 @@ textarea{resize:vertical;min-height:80px}
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
               <input type="text" placeholder="Caută șofer..." id="soferi-search-input" oninput="renderSoferi()" style="max-width:300px"/>
             </div>
+            <div id="soferi-filter-chips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
             <button class="btn btn-ghost" id="soferi-arhiva-btn" onclick="showPage('arhiva-soferi')" style="font-size:12px;padding:8px 14px;display:none">
               📦 Arhivă
             </button>
@@ -931,7 +936,7 @@ textarea{resize:vertical;min-height:80px}
             <div class="page-sub">Gestionează PIN-urile utilizatorilor</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-ghost" id="btn-backup" onclick="exportBackup()" style="padding:8px 14px;font-size:12px">
+            <button class="btn btn-ghost" id="btn-backup" onclick="openBackupNowModal()" style="padding:8px 14px;font-size:12px">
               💾 Backup JSON
             </button>
             <button class="btn btn-ghost" onclick="showImportModal()" style="padding:8px 14px;font-size:12px">
@@ -980,20 +985,22 @@ textarea{resize:vertical;min-height:80px}
       <div class="page" id="page-backup">
         <div class="page-header">
           <div>
-            <div class="page-title">💾 Backup & Istoric</div>
-            <div class="page-sub" id="backup-page-sub">Salvare automată dimineața și seara · restaurare · comparare versiuni</div>
+            <div class="page-title">💾 Manager Backup & Restaurare</div>
+            <div class="page-sub" id="backup-page-sub">Pe categorii de date (module) · automat zilnic · restaurare completă sau doar un modul</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-ghost" onclick="document.getElementById('backup-restore-file-input').click()" style="padding:8px 14px;font-size:12px">
               📁 Restaurează din fișier
             </button>
             <input type="file" id="backup-restore-file-input" accept=".json" style="display:none" onchange="restoreFromFile(this.files[0])"/>
-            <button class="btn btn-primary" id="btn-manual-backup" onclick="runFullBackup('manual', true)" style="padding:8px 16px;font-size:12px">
+            <button class="btn btn-ghost" onclick="openLegacyBackups()" style="padding:8px 14px;font-size:12px" title="Backup-urile din sistemul anterior">📜 Arhivă veche</button>
+            <button class="btn btn-primary" id="btn-manual-backup" onclick="openBackupNowModal()" style="padding:8px 16px;font-size:12px">
               💾 Backup acum
             </button>
           </div>
         </div>
 
+        <div id="backup-github-card" class="card" style="margin-bottom:12px"></div>
         <div id="backup-status-card" class="card" style="margin-bottom:16px"></div>
 
         <div id="backup-compare-bar" style="display:none;margin-bottom:14px;padding:12px 16px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:var(--radius-sm);align-items:center;gap:12px"></div>
@@ -1089,8 +1096,8 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.13.1';
-const APP_VERSION_DATE = '02.10.2026';
+const APP_VERSION = '5.16.1';
+const APP_VERSION_DATE = '21.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
 // "SPAȚIUL CORINEI" / "AUTENTIFICARE PIN" mai jos pentru detalii
@@ -1114,6 +1121,10 @@ async function showVersionInfo() {
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Versiunea curentă</div>
         <div style="font-family:var(--mono);font-size:28px;font-weight:900;color:var(--accent)">${APP_VERSION}</div>
         <div style="font-size:11px;color:var(--text3);margin-top:4px">${APP_VERSION_DATE}</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-ghost" style="flex:1;font-size:12px;padding:8px" onclick="this.closest('div[style*=fixed]').remove();checkForNewVersion(true)">🔍 Verifică versiunea</button>
+        <button class="btn btn-ghost" style="flex:1;font-size:12px;padding:8px" onclick="forceCleanReload()">🧹 Curăță și reîncarcă</button>
       </div>
       <div style="margin-top:14px;font-size:10px;color:var(--text3);text-align:center">
         Firebase · GitHub Pages · Render.com
@@ -1191,7 +1202,11 @@ async function checkVersionNotification() {
 }
 
 function showVersionBlocker(newVersion) {
+  // Sistemul vechi (Firestore) doar marcheaza; fereastra obligatorie vine din version.json (mai jos)
   const v = newVersion || APP_VERSION;
+  if (_verCmp(v, APP_VERSION) > 0) { showUpdateModal(v); return; }
+  try { localStorage.setItem('seenVersion', v); } catch(e) {}
+  return;
   const overlay = document.createElement('div');
   overlay.id = 'version-blocker';
   overlay.style.cssText = [
@@ -1219,6 +1234,72 @@ function showVersionBlocker(newVersion) {
     </div>`;
   document.body.appendChild(overlay);
 }
+
+
+// ════════════════════════════════════════════════════════
+// ACTUALIZARE OBLIGATORIE (ca la Flota): verifica version.json la deschidere, la fiecare minut,
+// la revenirea in aplicatie si la reconectarea la net. Daca exista o versiune mai noua, apare o
+// fereastra care NU se poate inchide; butonul sterge memoria (cache) si reincarca cu adresa unica.
+// ════════════════════════════════════════════════════════
+let _updateModalShown = false;
+function _verCmp(a, b) {
+  const pa = String(a||'0').split('.').map(n => parseInt(n)||0), pb = String(b||'0').split('.').map(n => parseInt(n)||0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) { const d = (pa[i]||0) - (pb[i]||0); if (d) return d > 0 ? 1 : -1; }
+  return 0;
+}
+async function fetchRemoteVersion() {
+  try {
+    const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j && j.version ? String(j.version) : null;
+  } catch(e) { return null; }
+}
+async function checkForNewVersion(manual) {
+  const v = await fetchRemoteVersion();
+  if (!v) { if (manual) toast('Nu am putut verifica versiunea (offline sau version.json lipsește)', 'error'); return false; }
+  if (_verCmp(v, APP_VERSION) > 0) { showUpdateModal(v); return true; }
+  if (manual) toast('✓ Ai ultima versiune (v' + APP_VERSION + ')');
+  return false;
+}
+function showUpdateModal(v) {
+  if (_updateModalShown) return;
+  _updateModalShown = true;
+  let tries = 0; try { tries = parseInt(sessionStorage.getItem('updTry_' + v)) || 0; } catch(e) {}
+  const msg = tries === 0 ? 'Trebuie să actualizezi aplicația ca să continui. Datele și contul tău rămân neschimbate.'
+    : tries < 3 ? 'Versiunea încă nu s-a încărcat (fișierele nu sunt poate încă publicate). Apasă din nou, sau așteaptă un minut.'
+    : 'Nu reușește actualizarea automată. Închide complet fila/aplicația și deschide-o din nou, sau apasă Ctrl+Shift+R (pe telefon: șterge datele site-ului).';
+  const o = document.createElement('div');
+  o.id = 'update-modal';
+  o.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.88);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px';
+  o.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--accent-border);border-radius:var(--radius);padding:30px;max-width:390px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+    <div style="font-size:40px;margin-bottom:10px">🔄</div>
+    <div style="font-size:18px;font-weight:900;margin-bottom:6px">Versiune nouă disponibilă</div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:6px">Ai <span style="font-family:var(--mono)">v${APP_VERSION}</span> → nouă: <span style="font-family:var(--mono);font-weight:800;color:var(--accent)">v${v}</span></div>
+    <div style="font-size:12px;color:var(--text3);margin:14px 0 20px;padding:10px 14px;background:var(--bg3);border-radius:8px">${msg}</div>
+    <button id="update-now-btn" style="width:100%;padding:13px;background:var(--accent);color:#000;border:none;border-radius:var(--radius-sm);font-size:15px;font-weight:800;cursor:pointer">🔄 Actualizează acum</button></div>`;
+  document.body.appendChild(o);
+  document.getElementById('update-now-btn').onclick = () => hardReloadApp(v);
+}
+async function hardReloadApp(targetV) {
+  const btn = document.getElementById('update-now-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Se actualizează...'; }
+  try { if (targetV) { const k = 'updTry_' + targetV; sessionStorage.setItem(k, String((parseInt(sessionStorage.getItem(k)) || 0) + 1)); } } catch(e) {}
+  try { if ('caches' in window) { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); } } catch(e) {}
+  try { if (navigator.serviceWorker) { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r => r.unregister())); } } catch(e) {}
+  const u = new URL(location.href); u.searchParams.set('_v', targetV || APP_VERSION); u.searchParams.set('_t', Date.now());
+  location.replace(u.toString());
+}
+async function forceCleanReload() {
+  if (!confirm('Ștergi memoria aplicației (cache) și reîncarci? Contul și datele rămân.')) return;
+  hardReloadApp(null);
+}
+// curata adresa dupa o actualizare (?_v=...&_t=...)
+try { const u = new URL(location.href); if (u.searchParams.has('_v') || u.searchParams.has('_t')) { u.searchParams.delete('_v'); u.searchParams.delete('_t'); history.replaceState(null, '', u.pathname + (u.search || '') + u.hash); } } catch(e) {}
+setTimeout(() => checkForNewVersion(false), 2500);
+setInterval(() => { if (!document.hidden) checkForNewVersion(false); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForNewVersion(false); });
+window.addEventListener('online', () => checkForNewVersion(false));
 
 
 // ════════════════════════════════════════════════════════
@@ -2048,7 +2129,7 @@ function enterApp() {
     if (canSeeAll(currentUser)) { setTimeout(scanPierduteInRechnunguri, 3000); setTimeout(notifyRechnLipsa, 6000); }
     renderRechnungNotifBanner();
     checkAndRunDailyBackup();
-    checkImportAutoBadgeAtLogin();
+    setTimeout(checkImportAutoBadgeAtLogin, 2500);   // dupa ce se incarca soferii (pentru locatie)
     setTimeout(checkVersionNotification, 800);
   }
 
@@ -2070,6 +2151,8 @@ function logout() {
   // Reset all state
   currentUser = null;
   allReclamatii = [];
+  stopAngajatiSync();
+  try { importAutoWatchUnsub && importAutoWatchUnsub(); } catch(e) {} importAutoWatchUnsub = null;
   allSoferi = [];
   statsCache = null;
   window._lastAblieferung = null;
@@ -2107,8 +2190,8 @@ const NAV_ITEMS = [
   { id:'reclamatii', label:'Reclamații', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/>', roles:['all'] }, // all roles
   { id:'statistici', label:'Statistici', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>', roles:['all'] },
   { id:'rechnunguri', label:'Rechnunguri', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>', roles:['admin','tania'] },
-  { id:'import-auto', label:'Import automat', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>', roles:['admin'] },
-  { id:'soferi', label:'Șoferi & Ture', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>', roles:['admin'] },
+  { id:'import-auto', label:'Import automat', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>', roles:['admin','operator'] },
+  { id:'soferi', label:'Șoferi & Ture', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>', roles:['admin','tania','operator'] },
   { id:'utilizatori', label:'Utilizatori', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>', roles:['admin'] },
   { id:'backup', label:'Backup', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/>', roles:['admin'] },
   { id:'pachete', label:'Pachete livrate', icon:'<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6.75 4.5l3-3m0 0l3 3m-3-3v6m-9-13.5h18c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125H3.375c-.621 0-1.125-.504-1.125-1.125v-1.5c0-.621.504-1.125 1.125-1.125z"/>', roles:['admin'] },
@@ -2250,11 +2333,167 @@ async function loadReclamatii() {
   });
 }
 
-function loadSoferi() {
-  db.collection('soferi').orderBy('tura').get().then(snap => {
-    allSoferi = snap.docs.map(d=>({id:d.id,...d.data()}));
-  });
+// ════════════════════════════════════════════════════════
+// SINCRONIZARE CU APLICATIA "ANGAJATI" (proiect Firebase separat: angajati-f1b01) — LIVE
+// Orice persoana adaugata / editata / stearsa in Angajati se reflecta aici in timp real:
+//  • adaugata  -> apare la "Neatribuiti" (tu setezi locatia, tura, Springer/Fix)
+//  • redenumita-> numele se actualizeaza (tura, locatia, tipul raman)
+//  • stearsa   -> sofer arhivat automat (istoricul de reclamatii si statisticile raman)
+// Persoanele deja existente se leaga automat dupa nume (fara duplicate).
+// Reconcilierea o face contul Admin/Tania cat e conectat; ceilalti vad rezultatul live.
+// ════════════════════════════════════════════════════════
+const ANG_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCzo4hb0gGhiCdTxFMXwe0Ln2hp4qEaUIE",
+  authDomain: "angajati-f1b01.firebaseapp.com",
+  projectId: "angajati-f1b01",
+  storageBucket: "angajati-f1b01.firebasestorage.app",
+  messagingSenderId: "753268962487",
+  appId: "1:753268962487:web:37fa40d89a5a986aac4932"
+};
+let angDb = null, angUnsub = null, angajatiDocs = null, angFromServer = false;
+let angStatus = { state: 'off', n: 0, err: '' };
+let soferiUnsub = null, soferiLoaded = false;
+let _reconTimer = null, _reconRunning = false, _angToastedErr = false;
+
+function angFullName(d) {
+  const g = (...ks) => { for (const k of ks) { const v = d[k]; if (typeof v === 'string' && v.trim()) return v.trim().replace(/\s+/g, ' '); } return ''; };
+  const full = g('numeComplet', 'nume_complet', 'numeSofer', 'name', 'displayName');
+  if (full) return full;
+  return [g('numeFamilie', 'nume', 'familie', 'lastName'), g('prenume', 'firstName')].filter(Boolean).join(' ');
 }
+const _nameKey = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ß/g, 'ss')
+  .replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+
+function startAngajatiSync() {
+  if (angUnsub || !currentUser || currentUser.role === 'corina') return;
+  try {
+    let app; try { app = firebase.app('angajati'); } catch (e) { app = firebase.initializeApp(ANG_FIREBASE_CONFIG, 'angajati'); }
+    angDb = app.firestore();
+    angStatus = { state: 'connecting', n: 0, err: '' };
+    angUnsub = angDb.collection('angajati').onSnapshot(snap => {
+      angFromServer = !snap.metadata.fromCache;
+      angajatiDocs = snap.docs.map(d => ({ id: d.id, name: angFullName(d.data()), raw: d.data() })).filter(a => a.name);
+      angStatus = { state: 'live', n: angajatiDocs.length, err: '' };
+      updateAngStatusUI();
+      scheduleReconcile();
+    }, err => {
+      angStatus = { state: 'error', n: 0, err: err.code || err.message };
+      updateAngStatusUI();
+      console.warn('Sync Angajati:', err);
+      if (!_angToastedErr && canSeeAll(currentUser)) { _angToastedErr = true; toast('Sincronizare Angajați: ' + (err.code === 'permission-denied' ? 'permisiuni lipsă (Rules pe angajati-f1b01)' : err.message), 'error'); }
+    });
+  } catch (e) { angStatus = { state: 'error', n: 0, err: e.message }; updateAngStatusUI(); }
+}
+function stopAngajatiSync() {
+  try { angUnsub && angUnsub(); } catch (e) {}
+  try { soferiUnsub && soferiUnsub(); } catch (e) {}
+  angUnsub = null; soferiUnsub = null; angajatiDocs = null; soferiLoaded = false; angStatus = { state: 'off', n: 0, err: '' };
+}
+function updateAngStatusUI() {
+  const el = document.getElementById('ang-sync-status'); if (!el) return;
+  const s = angStatus;
+  el.innerHTML = s.state === 'live' ? `<span style="color:var(--green)">● live</span> · ${s.n} persoane în Angajați`
+    : s.state === 'error' ? `<span style="color:var(--red)">● eroare sincronizare (${_esc(s.err)})</span>`
+    : s.state === 'connecting' ? '<span style="color:var(--text3)">● se conectează la Angajați...</span>' : '';
+}
+function scheduleReconcile() {
+  if (!canSeeAll(currentUser)) return;
+  clearTimeout(_reconTimer);
+  _reconTimer = setTimeout(() => reconcileAngajati(false), 1200);
+}
+
+async function reconcileAngajati(manual) {
+  if (!canSeeAll(currentUser) || !angajatiDocs || !soferiLoaded || !angFromServer) { if (manual) toast('Sincronizarea nu e încă pregătită — mai încearcă într-o clipă', 'info'); return; }
+  if (_reconRunning) return;
+  _reconRunning = true;
+  const stat = { created: 0, linked: 0, renamed: 0, archived: 0, restored: 0 };
+  try {
+    const FV = firebase.firestore.FieldValue;
+    const byAng = new Map(); allSoferi.forEach(s => { if (s.angajatId) byAng.set(s.angajatId, s); });
+    const unlinked = allSoferi.filter(s => !s.angajatId);
+    const updates = [], creates = [];
+    const angIds = new Set(angajatiDocs.map(a => a.id));
+
+    for (const a of angajatiDocs) {
+      let s = byAng.get(a.id);
+      if (!s) {
+        const key = _nameKey(a.name);
+        const cands = unlinked.filter(u => _nameKey(u.numeSofer) === key);
+        if (cands.length === 1) {
+          s = cands[0]; unlinked.splice(unlinked.indexOf(s), 1);
+          updates.push([s.id, { angajatId: a.id, numeAngajat: a.name, sursa: 'angajati' }]); stat.linked++;
+          if (s.stersDinAngajati) { updates[updates.length-1][1].stersDinAngajati = false; }
+        } else {
+          creates.push([ 'ang_' + a.id, { angajatId: a.id, numeSofer: a.name, numeAngajat: a.name, tura: '', locatie: '', tipSofer: '', sursa: 'angajati', createdAt: FV.serverTimestamp() } ]);
+          stat.created++;
+        }
+      } else {
+        const patch = {};
+        if (s.numeAngajat !== a.name) { patch.numeAngajat = a.name; patch.numeSofer = a.name; stat.renamed++; }
+        if (s.stersDinAngajati) { patch.stersDinAngajati = false; patch.arhivat = false; patch.arhivatLa = null; stat.restored++; }
+        if (Object.keys(patch).length) updates.push([s.id, patch]);
+      }
+    }
+    // persoane sterse din Angajati -> arhivare (cu plasa de siguranta impotriva unei liste goale / incomplete)
+    const missing = allSoferi.filter(s => s.angajatId && !angIds.has(s.angajatId) && !s.arhivat);
+    if (missing.length) {
+      if (missing.length > Math.max(3, angajatiDocs.length * 0.3)) {
+        console.warn('Sync Angajati: prea multe persoane lipsa (' + missing.length + ') — arhivare sarita ca masura de siguranta');
+        if (manual) toast(`⚠ ${missing.length} persoane lipsesc din Angajați — nu le arhivez automat (prea multe deodată). Verifică aplicația Angajați.`, 'error');
+      } else missing.forEach(s => { updates.push([s.id, { arhivat: true, stersDinAngajati: true, arhivatLa: FV.serverTimestamp() }]); stat.archived++; });
+    }
+
+    for (let i = 0; i < updates.length; i += 400) {
+      const b = db.batch(); updates.slice(i, i + 400).forEach(([id, p]) => b.update(db.collection('soferi').doc(id), p)); await b.commit();
+    }
+    for (const [id, data] of creates) {      // tranzactie: nu rescrie niciodata un sofer existent (rulare simultana Admin + Tania)
+      const ref = db.collection('soferi').doc(id);
+      await db.runTransaction(async tx => { const x = await tx.get(ref); if (!x.exists) tx.set(ref, data); });
+    }
+    const total = Object.values(stat).reduce((a, b) => a + b, 0);
+    if (total && (manual || stat.created || stat.archived)) {
+      const parts = [];
+      if (stat.created) parts.push(`${stat.created} persoane noi`);
+      if (stat.linked) parts.push(`${stat.linked} legate de șoferi existenți`);
+      if (stat.renamed) parts.push(`${stat.renamed} redenumite`);
+      if (stat.archived) parts.push(`${stat.archived} arhivate (șterse din Angajați)`);
+      if (stat.restored) parts.push(`${stat.restored} reactivate`);
+      toast('🔄 Angajați: ' + parts.join(' · '));
+    } else if (manual) toast('✓ Totul e la zi cu aplicația Angajați');
+  } catch (e) { console.warn('reconcileAngajati:', e); if (manual) toast('Eroare la sincronizare: ' + e.message, 'error'); }
+  finally { _reconRunning = false; }
+}
+
+// ── lista de soferi in timp real ──
+function loadSoferi() {
+  if (soferiUnsub) return;
+  soferiUnsub = db.collection('soferi').onSnapshot(snap => {
+    allSoferi = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => String(a.tura || '').localeCompare(String(b.tura || ''), undefined, { numeric: true }));
+    soferiLoaded = true;
+    onSoferiChanged();
+  }, err => console.warn('soferi listener:', err));
+  startAngajatiSync();
+}
+let _sofRenderT = null;
+function onSoferiChanged() {
+  scheduleReconcile();
+  clearTimeout(_sofRenderT);
+  _sofRenderT = setTimeout(() => {
+    try {
+      if (statsCache) statsCache.soferi = canSeeAll(currentUser) ? allSoferi.slice() : allSoferi.filter(s => s.locatie === currentUser?.location);
+      if (currentPage === 'soferi') renderSoferiWhenIdle();
+      if (currentPage === 'arhiva-soferi') renderArhivaSoferi();
+      if (currentPage === 'statistici' && statsCache) rerenderTopTabs();
+    } catch (e) { console.warn(e); }
+  }, 300);
+}
+function renderSoferiWhenIdle() {
+  const a = document.activeElement;
+  if (a && a.closest && a.closest('#soferi-list') && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) { setTimeout(renderSoferiWhenIdle, 1200); return; }
+  renderSoferi();
+}
+
 
 // ════════════════════════════════════════════════════════
 // RENDER — DASHBOARD
@@ -2914,15 +3153,34 @@ function renderAdvancedSearchActiveBar() {
 // (sursaAutomata=true, verificatDeOm=false), de verificat manual
 // ════════════════════════════════════════════════════════
 
+// Import automat: Admin vede tot; Raluca/Madalina (operator) vad ce tine de locatia lor
+// + ce nu are locatie cunoscuta (ca sa nu ramana nimic neverificat)
+function importAutoVisible(r) {
+  if (currentUser?.role === 'admin') return true;
+  if (currentUser?.role !== 'operator') return false;
+  let loc = r.locatie || '';
+  const t = r.turaSofer || r.tour || '';
+  if (!loc && t) { const s = allSoferi.find(x => String(x.tura) === String(t)); loc = s?.locatie || ''; }
+  return !loc || loc === currentUser.location;
+}
+const canUseImportAuto = () => currentUser?.role === 'admin' || currentUser?.role === 'operator';
+
+let importAutoWatchUnsub = null, importAutoWatchFirst = true, importAutoSeen = new Set();
 async function checkImportAutoBadgeAtLogin() {
-  if (currentUser?.role !== 'admin') return; // doar admin vede pagina Import automat
-  try {
-    const snap = await db.collection('reclamatii')
-      .where('sursaAutomata', '==', true)
-      .where('verificatDeOm', '==', false)
-      .get();
-    updateImportAutoBadge(snap.size);
-  } catch(e) { console.warn('Import auto badge check failed:', e.message); }
+  if (!canUseImportAuto() || importAutoWatchUnsub) return;
+  importAutoWatchFirst = true; importAutoSeen = new Set();
+  // listener usor, live: badge-ul se actualizeaza singur si apare o notificare cand sosește un import nou
+  importAutoWatchUnsub = db.collection('reclamatii')
+    .where('sursaAutomata', '==', true)
+    .where('verificatDeOm', '==', false)
+    .onSnapshot(snap => {
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(importAutoVisible);
+      updateImportAutoBadge(items.length);
+      const fresh = items.filter(r => !importAutoSeen.has(r.id));
+      items.forEach(r => importAutoSeen.add(r.id));
+      if (!importAutoWatchFirst && fresh.length && currentPage !== 'import-auto') toast(`📥 ${fresh.length} reclamați${fresh.length === 1 ? 'e nouă' : 'i noi'} din import automat de verificat`, 'info');
+      importAutoWatchFirst = false;
+    }, err => console.warn('Import auto watch:', err.message));
 }
 
 let importAutoUnsubscribe = null;
@@ -2937,7 +3195,7 @@ async function renderImportAutoPage() {
     .where('sursaAutomata', '==', true)
     .where('verificatDeOm', '==', false)
     .onSnapshot(snap => {
-      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(importAutoVisible)
         .sort((a,b) => {
           const ta = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
           const tb = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
@@ -3768,7 +4026,8 @@ async function loadStatsData() {
     db.collection('rechnunguri').get()
   ]);
 
-  let soferi = soferiSnap.docs.map(d=>({id:d.id,...d.data()}));
+  let soferi = soferiSnap.docs.map(d=>({id:d.id,...d.data()}))
+    .filter(s => !s.ascuns && (s.locatie || s.tura));   // persoane sincronizate din Angajati, inca neatribuite, nu intra in statistici
   const pachete = pacheteSnap.docs.map(d=>({id:d.id,...d.data()}));
   const rechnunguri = rechnSnap.docs.map(d=>({id:d.id,...d.data()}));
 
@@ -4036,7 +4295,7 @@ async function loadStatsData() {
 async function renderStatistici() {
   const el = document.getElementById('stats-general');
   el.innerHTML = `<div class="loading-page"><div class="spinner"></div></div>`;
-  ['stats-soferi','stats-topsoferi','stats-persoane','stats-zile','stats-nefacturate','stats-alerte'].forEach(id=>{
+  ['stats-soferi','stats-topsoferi','stats-tipuri','stats-persoane','stats-zile','stats-nefacturate','stats-alerte'].forEach(id=>{
     const e=document.getElementById(id); if(e) e.innerHTML='';
   });
 
@@ -4073,6 +4332,7 @@ async function renderStatistici() {
     renderStatsGeneral(statsCache);
     renderStatsSoferi(statsCache);
     renderStatsTopSoferi(statsCache);
+    renderStatsTipuri(statsCache);
     renderStatsPersoane(statsCache);
     renderStatsZile(statsCache);
     renderStatsLunaCurenta(statsCache);
@@ -5040,25 +5300,28 @@ let topSoferiMode = 'total'; // 'total' | 'an' | 'luna'
 let topSoferiYear = null;
 let topSoferiMonth = null; // 1-12
 
+let topView = 'buni';           // 'buni' | 'slabi'
+function setTopView(v) { topView = v; if (statsCache) renderStatsTopSoferi(statsCache); }
+function rerenderTopTabs() { renderStatsTopSoferi(statsCache); renderStatsTipuri(statsCache); }
 let topSortMode = 'ajustat';   // 'ajustat' (corect, tine cont de volum) | 'brut' (doar rata)
 let topMinPachete = 3000;      // sub acest nr. de pachete in perioada, soferul nu intra in top
-function setTopSortMode(m) { topSortMode = m; if (statsCache) renderStatsTopSoferi(statsCache); }
-function setTopMinPachete(n) { topMinPachete = n; if (statsCache) renderStatsTopSoferi(statsCache); }
+function setTopSortMode(m) { topSortMode = m; if (statsCache) rerenderTopTabs(); }
+function setTopMinPachete(n) { topMinPachete = n; if (statsCache) rerenderTopTabs(); }
 
 function setTopSoferiMode(mode) {
   topSoferiMode = mode;
   if (!statsCache) return;
-  renderStatsTopSoferi(statsCache);
+  rerenderTopTabs();
 }
 function setTopSoferiYear(y) {
   topSoferiYear = y;
   if (!statsCache) return;
-  renderStatsTopSoferi(statsCache);
+  rerenderTopTabs();
 }
 function setTopSoferiMonth(m) {
   topSoferiMonth = m;
   if (!statsCache) return;
-  renderStatsTopSoferi(statsCache);
+  rerenderTopTabs();
 }
 
 // Soferi scosi manual din Top (salvat in Firestore: setari/top_soferi_excluse, comun pentru toti)
@@ -5088,11 +5351,7 @@ function readaugaInTop(tura) {
   if (statsCache) renderStatsTopSoferi(statsCache);
 }
 
-function renderStatsTopSoferi(d) {
-  const el = document.getElementById('stats-topsoferi');
-  if (!el) return;
-  if (!topExcluseLoaded) { topExcluseLoaded = true; loadTopExcluse(); }
-
+function _topData(d) {
   const pacheteRaw = d.pacheteRaw || [];
 
   // Ani disponibili — din pachetele livrate incarcate (Excel Zeiterfassung)
@@ -5146,6 +5405,36 @@ function renderStatsTopSoferi(d) {
     // Doar soferii ACTIVI actual — excludem cei arhivati (nu mai sunt la noi)
     .filter(x => x.pachete > 0 && !x.arhivat);
 
+  return { years, periodLabel, rankList };
+}
+
+function _topModeButtons(years) {
+  return `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <button class="filter-btn ${topSoferiMode==='total'?'active':''}" onclick="setTopSoferiMode('total')">Total general</button>
+      <button class="filter-btn ${topSoferiMode==='an'?'active':''}" onclick="setTopSoferiMode('an')">Per an</button>
+      <button class="filter-btn ${topSoferiMode==='luna'?'active':''}" onclick="setTopSoferiMode('luna')">Per lună</button>
+    </div>
+    ${topSoferiMode === 'an' ? `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+      ${years.map(y => `<button class="filter-btn ${topSoferiYear===y?'active':''}" onclick="setTopSoferiYear(${y})">${y}</button>`).join('') || '<span style="font-size:12px;color:var(--text3)">Niciun an disponibil — încarcă pachete livrate</span>'}
+    </div>` : ''}
+    ${topSoferiMode === 'luna' ? `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+      ${years.map(y => `<button class="filter-btn ${topSoferiYear===y?'active':''}" onclick="setTopSoferiYear(${y})">${y}</button>`).join('') || '<span style="font-size:12px;color:var(--text3)">Niciun an disponibil — încarcă pachete livrate</span>'}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+      ${MONTHS_RO.map((m,i) => `<button class="filter-btn" style="${topSoferiMonth===i+1?'background:var(--accent);color:#000;border-color:var(--accent)':''}" onclick="setTopSoferiMonth(${i+1})">${m.slice(0,3)}</button>`).join('')}
+    </div>` : ''}`;
+}
+
+function renderStatsTopSoferi(d) {
+  const el = document.getElementById('stats-topsoferi');
+  if (!el) return;
+  if (!topExcluseLoaded) { topExcluseLoaded = true; loadTopExcluse(); }
+
+  const { years, periodLabel, rankList } = _topData(d);
+
   const TOP_N = 40;
   // Rata medie a tuturor soferilor activi = "punctul de pornire" pentru cei cu putine date
   const _totR = rankList.reduce((s,x)=>s+x.total,0), _totP = rankList.reduce((s,x)=>s+x.pachete,0);
@@ -5164,23 +5453,7 @@ function renderStatsTopSoferi(d) {
   const scosi = sortedAll.filter(x => topSoferiExcluse.includes(String(x.tura)));
   const canRemove = canSeeAll(currentUser);
 
-  const modeButtons = `
-    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-      <button class="filter-btn ${topSoferiMode==='total'?'active':''}" onclick="setTopSoferiMode('total')">Total general</button>
-      <button class="filter-btn ${topSoferiMode==='an'?'active':''}" onclick="setTopSoferiMode('an')">Per an</button>
-      <button class="filter-btn ${topSoferiMode==='luna'?'active':''}" onclick="setTopSoferiMode('luna')">Per lună</button>
-    </div>
-    ${topSoferiMode === 'an' ? `
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
-      ${years.map(y => `<button class="filter-btn ${topSoferiYear===y?'active':''}" onclick="setTopSoferiYear(${y})">${y}</button>`).join('') || '<span style="font-size:12px;color:var(--text3)">Niciun an disponibil — încarcă pachete livrate</span>'}
-    </div>` : ''}
-    ${topSoferiMode === 'luna' ? `
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-      ${years.map(y => `<button class="filter-btn ${topSoferiYear===y?'active':''}" onclick="setTopSoferiYear(${y})">${y}</button>`).join('') || '<span style="font-size:12px;color:var(--text3)">Niciun an disponibil — încarcă pachete livrate</span>'}
-    </div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
-      ${MONTHS_RO.map((m,i) => `<button class="filter-btn" style="${topSoferiMonth===i+1?'background:var(--accent);color:#000;border-color:var(--accent)':''}" onclick="setTopSoferiMonth(${i+1})">${m.slice(0,3)}</button>`).join('')}
-    </div>` : ''}`;
+  const modeButtons = _topModeButtons(years);
 
   const rankControls = `
     <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
@@ -5209,33 +5482,167 @@ function renderStatsTopSoferi(d) {
     return;
   }
 
+  const viewToggle = `
+    <div style="display:flex;gap:6px;margin-bottom:12px">
+      <button class="filter-btn ${topView==='buni'?'active':''}" onclick="setTopView('buni')">🏆 Top ${TOP_N} cei mai buni</button>
+      <button class="filter-btn ${topView==='slabi'?'active':''}" onclick="setTopView('slabi')" style="${topView==='slabi'?'background:var(--red);border-color:var(--red);color:#fff':''}">⚠️ Top ${TOP_N} negativ (cei mai slabi)</button>
+    </div>`;
+  const worst = [...sortedAll].reverse().slice(0, TOP_N);
+  const showList = topView === 'slabi' ? worst : topBuni;
+  const isBad = topView === 'slabi';
+  const accent = isBad ? 'var(--red)' : 'var(--green)';
+
   el.innerHTML = `
     <div class="card" style="margin-bottom:14px;padding:14px 16px">${modeButtons}${rankControls}</div>
-    <div class="card" style="margin-bottom:14px;padding:14px 16px;border-color:rgba(52,211,153,0.3);background:var(--green-bg)">
-      <div style="font-size:13px;font-weight:800;color:var(--green);margin-bottom:2px">🏆 Top ${TOP_N} cei mai buni șoferi — ${periodLabel}</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Cele mai puține reclamații raportat la pachetele livrate${canRemove?' · ✕ = scoate din top':''}</div>
+    <div class="card" style="margin-bottom:14px;padding:14px 16px;border-color:${isBad?'rgba(248,113,113,0.35)':'rgba(52,211,153,0.3)'};background:${isBad?'var(--red-bg)':'var(--green-bg)'}">
+      ${viewToggle}
+      <div style="font-size:13px;font-weight:800;color:${accent};margin-bottom:2px">${isBad?'⚠️ Top '+TOP_N+' negativ — cei mai slabi șoferi':'🏆 Top '+TOP_N+' cei mai buni șoferi'} — ${periodLabel}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px">${isBad?'Cele mai multe reclamații raportat la pachetele livrate (același calcul, sortare inversată)':'Cele mai puține reclamații raportat la pachetele livrate'}${canRemove&&!isBad?' · ✕ = scoate din top':''}</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:8px">
-        ${topBuni.map((s,i) => {
+        ${showList.map((s,i) => {
           const ratioLabel = s.total === 0 ? '0 recl. 🎉' : `1 la ${Math.round(s.pachete/s.total).toLocaleString()}`;
           const sub = currentUser?.role==='admin' ? `${s.total} recl. / ${s.pachete.toLocaleString()} pachete` : `${s.total} reclamații`;
           const nm = (s.numeSofer||'').replace(/'/g,"\\'");
+          const rankBg = isBad ? (i<3?'var(--red)':'var(--bg3)') : (i===0?'#fbbf24':i===1?'#d1d5db':i===2?'#d97706':'var(--bg3)');
+          const rankFg = isBad ? (i<3?'#fff':'var(--text3)') : (i<3?'#000':'var(--text3)');
           return `
           <div class="top-row" onclick="lcShowSoferByTura('${s.tura}')" title="${(s.numeSofer||'').replace(/"/g,'&quot;')}">
-            <span class="top-rank" style="background:${i===0?'#fbbf24':i===1?'#d1d5db':i===2?'#d97706':'var(--bg3)'};color:${i<3?'#000':'var(--text3)'}">${i+1}</span>
+            <span class="top-rank" style="background:${rankBg};color:${rankFg}">${i+1}</span>
             <div class="top-main">
-              <div class="top-name"><span style="font-family:var(--mono);color:var(--accent)">T.${s.tura}</span> ${s.numeSofer||''}</div>
+              <div class="top-name"><span style="font-family:var(--mono);color:var(--accent)">T.${s.tura}</span> ${s.numeSofer||''} ${tipBadge(s.tura)}</div>
               <div class="top-sub">${sub}</div>
             </div>
-            <span class="top-ratio">${ratioLabel}</span>
-            ${canRemove ? `<button class="top-x" title="Scoate din top" onclick="event.stopPropagation();scoateDinTop('${s.tura}','${nm}')">✕</button>` : ''}
+            <span class="top-ratio" ${isBad?'style="color:var(--red)"':''}>${ratioLabel}</span>
+            ${canRemove && !isBad ? `<button class="top-x" title="Scoate din top" onclick="event.stopPropagation();scoateDinTop('${s.tura}','${nm}')">✕</button>` : ''}
           </div>`;
         }).join('')}
       </div>
-      ${scosi.length ? `
+      ${!isBad && scosi.length ? `
       <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border);font-size:11px;color:var(--text3)">
         Scoși din top (${scosi.length}):
         ${scosi.map(s => `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:2px 8px;margin:2px 4px 2px 0;color:var(--text2)">T.${s.tura} ${s.numeSofer||''}${canRemove?` <a href="#" onclick="event.preventDefault();readaugaInTop('${s.tura}')" style="color:var(--green);font-weight:700;text-decoration:none" title="Readaugă în top">↺</a>`:''}</span>`).join('')}
       </div>` : ''}
+    </div>`;
+}
+
+// ════════════════════════════════════════════════════════
+// TAB "SPRINGER vs TURĂ FIXĂ" — clasificare manuala a soferilor (salvata pe documentul soferului)
+// ════════════════════════════════════════════════════════
+let tipFilter = 'toti';     // toti | neclasificati
+let tipSearch = '';
+function _tipOf(tura) {
+  const s = (allSoferi||[]).find(x => String(x.tura) === String(tura)) || ((statsCache&&statsCache.soferi)||[]).find(x => String(x.tura) === String(tura));
+  return s?.tipSofer || '';
+}
+function tipBadge(tura) {
+  const t = _tipOf(tura);
+  if (!t) return '';
+  return t === 'springer'
+    ? '<span style="font-size:9px;font-weight:800;background:rgba(167,139,250,0.2);color:#a78bfa;padding:1px 6px;border-radius:5px;margin-left:4px">SPRINGER</span>'
+    : '<span style="font-size:9px;font-weight:800;background:rgba(96,165,250,0.2);color:#60a5fa;padding:1px 6px;border-radius:5px;margin-left:4px">TURĂ FIXĂ</span>';
+}
+async function setSoferTip(tura, tip) {
+  const sx = (allSoferi||[]).find(x => String(x.tura) === String(tura));
+  if (!canEditSofer(sx)) { toast('Nu ai drept să clasifici acest șofer', 'error'); return; }
+  const targets = [];
+  [(allSoferi||[]), ((statsCache&&statsCache.soferi)||[])].forEach(arr => arr.forEach(x => { if (String(x.tura) === String(tura)) targets.push(x); }));
+  const s = targets.find(x => x.id);
+  if (!s) { toast('Șoferul nu a fost găsit', 'error'); return; }
+  const newTip = s.tipSofer === tip ? '' : tip;   // click pe cel activ = scoate clasificarea
+  targets.forEach(x => x.tipSofer = newTip);
+  rerenderTopTabs();
+  try { await db.collection('soferi').doc(s.id).update({ tipSofer: newTip }); }
+  catch(e) { toast('Eroare la salvare: ' + e.message, 'error'); }
+}
+function setTipFilter(f) { tipFilter = f; renderStatsTipuri(statsCache); }
+function setTipSearch(v) {
+  tipSearch = v; renderStatsTipuri(statsCache);
+  const i = document.getElementById('tip-search-input'); if (i) { i.focus(); i.setSelectionRange(v.length, v.length); }
+}
+
+function renderStatsTipuri(d) {
+  const el = document.getElementById('stats-tipuri');
+  if (!el || !d) return;
+  const { years, periodLabel, rankList } = _topData(d);
+  const canEditTura = (t) => canEditSofer((allSoferi||[]).find(x => String(x.tura) === String(t)));
+  const canEdit = canSeeAll(currentUser);
+  const TOPN = 10;
+
+  const withTip = rankList.map(x => ({ ...x, tip: _tipOf(x.tura) }));
+  const mkCat = (tip) => {
+    const list = withTip.filter(x => x.tip === tip);
+    const pachete = list.reduce((s,x)=>s+x.pachete,0), recl = list.reduce((s,x)=>s+x.total,0);
+    const ranked = list.filter(x => x.pachete >= Math.min(topMinPachete, 1000))
+      .sort((a,b) => (b.scor - a.scor) || (b.total - a.total));
+    return { tip, list, pachete, recl, per1000: pachete ? recl/pachete*1000 : 0,
+             medie: list.length ? recl/list.length : 0, top: ranked.slice(0, TOPN) };
+  };
+  const fix = mkCat('fix'), spr = mkCat('springer');
+  const necl = withTip.filter(x => !x.tip);
+
+  let verdict = '<div style="color:var(--text3)">Clasifică șoferii mai jos (Fix / Springer) ca să apară comparația.</div>';
+  if (fix.list.length && spr.list.length && fix.pachete && spr.pachete) {
+    const worse = spr.per1000 > fix.per1000 ? spr : fix, better = worse === spr ? fix : spr;
+    const nm = (c) => c.tip === 'springer' ? 'Springerii' : 'Turele fixe';
+    const diff = better.per1000 > 0 ? ((worse.per1000 / better.per1000 - 1) * 100) : null;
+    verdict = `<div style="font-size:14px;font-weight:800"><span style="color:var(--red)">${nm(worse)}</span> produc mai multe reclamații raportat la pachete: <span style="font-family:var(--mono)">${worse.per1000.toFixed(2)}</span> la 1.000 pachete, față de <span style="font-family:var(--mono)">${better.per1000.toFixed(2)}</span> la ${nm(better).toLowerCase()}${diff!==null?` (cu ${diff.toFixed(0)}% mai mult)`:''}.</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">${nm(fix.recl>=spr.recl?fix:spr)} au mai multe reclamații în total (${Math.max(fix.recl,spr.recl)} vs ${Math.min(fix.recl,spr.recl)}), dar comparația corectă ține cont de câte pachete livrează fiecare categorie.</div>`;
+  }
+
+  const catCard = (c, title, color, bg) => `
+    <div class="card" style="padding:14px 16px;border-color:${color};background:${bg}">
+      <div style="font-size:14px;font-weight:800;color:${color};margin-bottom:10px">${title}</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px">
+        <div><div style="font-size:10px;color:var(--text3)">Șoferi</div><div style="font-size:18px;font-weight:800">${c.list.length}</div></div>
+        <div><div style="font-size:10px;color:var(--text3)">Pachete livrate</div><div style="font-size:18px;font-weight:800">${c.pachete.toLocaleString()}</div></div>
+        <div><div style="font-size:10px;color:var(--text3)">Reclamații</div><div style="font-size:18px;font-weight:800">${c.recl}</div></div>
+        <div><div style="font-size:10px;color:var(--text3)">La 1.000 pachete</div><div style="font-size:18px;font-weight:800;color:${color}">${c.per1000.toFixed(2)}</div></div>
+        <div><div style="font-size:10px;color:var(--text3)">1 reclamație la</div><div style="font-size:14px;font-weight:700">${c.recl?Math.round(c.pachete/c.recl).toLocaleString()+' pachete':'—'}</div></div>
+        <div><div style="font-size:10px;color:var(--text3)">Medie / șofer</div><div style="font-size:14px;font-weight:700">${c.medie.toFixed(1)} recl.</div></div>
+      </div>
+      <div style="font-size:11px;font-weight:800;color:var(--text2);margin-bottom:6px">Top ${TOPN} cu cele mai multe reclamații (raportat la pachete)</div>
+      ${c.top.length ? c.top.map((s,i) => `
+        <div class="top-row" onclick="lcShowSoferByTura('${s.tura}')" style="margin-bottom:4px">
+          <span class="top-rank" style="background:${i<3?'var(--red)':'var(--bg3)'};color:${i<3?'#fff':'var(--text3)'}">${i+1}</span>
+          <div class="top-main">
+            <div class="top-name"><span style="font-family:var(--mono);color:var(--accent)">T.${s.tura}</span> ${s.numeSofer||''}</div>
+            <div class="top-sub">${s.total} recl. / ${s.pachete.toLocaleString()} pachete</div>
+          </div>
+          <span class="top-ratio" style="color:var(--red)">${s.total?('1 la '+Math.round(s.pachete/s.total).toLocaleString()):'0 recl.'}</span>
+        </div>`).join('') : '<div style="font-size:12px;color:var(--text3);padding:8px 0">Niciun șofer clasificat în această categorie.</div>'}
+    </div>`;
+
+  const q = _foldQ ? _foldQ(tipSearch) : tipSearch.toLowerCase();
+  const manageList = withTip
+    .filter(x => tipFilter === 'toti' || !x.tip)
+    .filter(x => !q || (_foldQ ? _foldQ(x.numeSofer + ' ' + x.tura) : (x.numeSofer + ' ' + x.tura).toLowerCase()).includes(q))
+    .sort((a,b) => parseInt(a.tura) - parseInt(b.tura));
+  const segBtn = (x, tip, label, col) => { const ce = canEditTura(x.tura); return `<button ${ce?`onclick="setSoferTip('${x.tura}','${tip}')"`:'disabled'} style="border:1px solid ${x.tip===tip?col:'var(--border)'};background:${x.tip===tip?col:'transparent'};color:${x.tip===tip?'#fff':'var(--text2)'};border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:${ce?'pointer':'default'}">${label}</button>`; };
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:14px;padding:14px 16px">${_topModeButtons(years)}
+      <div style="font-size:11px;color:var(--text3)">Perioadă: <b>${periodLabel}</b> · folosește aceleași filtre de perioadă ca la Top șoferi</div>
+    </div>
+    <div class="card" style="margin-bottom:14px;padding:14px 16px">${verdict}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin-bottom:14px">
+      ${catCard(fix, '📍 Ture fixe', '#60a5fa', 'rgba(96,165,250,0.06)')}
+      ${catCard(spr, '🔀 Springeri', '#a78bfa', 'rgba(167,139,250,0.06)')}
+    </div>
+    <div class="card" style="padding:14px 16px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:800;flex:1;min-width:200px">Clasificare șoferi ${necl.length?`<span style="color:var(--red);font-size:11px">· ${necl.length} neclasificați</span>`:'<span style="color:var(--green);font-size:11px">· toți clasificați</span>'}</div>
+        <button class="filter-btn ${tipFilter==='toti'?'active':''}" onclick="setTipFilter('toti')">Toți (${withTip.length})</button>
+        <button class="filter-btn ${tipFilter==='neclasificati'?'active':''}" onclick="setTipFilter('neclasificati')">Neclasificați (${necl.length})</button>
+        <input id="tip-search-input" type="text" value="${_esc(tipSearch)}" placeholder="Caută șofer / tură..." oninput="setTipSearch(this.value)" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);min-width:180px"/>
+      </div>
+      ${true ? '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Apasă pe Fix / Springer ca să clasifici; apasă din nou pe cel activ ca să scoți clasificarea. Se salvează automat.</div>' : ''}
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:6px">
+        ${manageList.map(x => `
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
+            <div style="flex:1;min-width:0;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="font-family:var(--mono);color:var(--accent)">T.${x.tura}</span> ${_esc(x.numeSofer||'')}</div>
+            ${segBtn(x,'fix','Fix','#3b82f6')}${segBtn(x,'springer','Springer','#8b5cf6')}
+          </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:10px">Niciun șofer în listă</div>'}
+      </div>
     </div>`;
 }
 
@@ -8040,95 +8447,645 @@ function parseHermesPDF(pdfData) {
 // BACKUP — exportă TOATE datele din Firestore într-un JSON
 // ════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════
-// SISTEM BACKUP AUTOMAT — salvare zilnica in Firestore,
-// istoric ultimele 10, preview, comparare, restaurare
-// (acelasi tipar folosit si la Stoc Haine / Flota)
+// MANAGER BACKUP & RESTAURARE — modular (v2)
+// Fiecare categorie de date = un modul. Backup-ul se salveaza in Firestore in bucati mici
+// (backupuri_v2/{id}/parts/*) — nu mai depaseste limita de 1 MB/document — sau se descarca
+// ca fisier JSON. Restaurarea se poate face per modul, din cloud sau din fisier.
 // ════════════════════════════════════════════════════════
-
-const MAX_BACKUPS_PASTRATE = 14; // 2x/zi = ~1 saptamana de istoric
-let backupSelectedForCompare = [];
-let _cachedBackupsList = [];
-
-// Verifica o data pe zi (la login) daca trebuie facut backup automat
-// Backup automat de 2 ori pe zi: o data in intervalul dimineata (00:00-13:59)
-// si o data in intervalul seara (14:00-23:59). Se declanseaza la login-ul admin —
-// daca adminul se logheaza o singura data intr-un interval, se face un singur backup
-// pentru acel interval (nu se repeta la fiecare refresh).
-async function checkAndRunDailyBackup() {
-  if (currentUser?.role !== 'admin') return; // doar adminul declanseaza backup automat
-  try {
-    const now = new Date();
-    const today = now.toISOString().slice(0,10);
-    const slot = now.getHours() < 14 ? 'AM' : 'PM';
-    const slotKey = `${today}-${slot}`;
-    const slotLabel = slot === 'AM' ? 'dimineață' : 'seară';
-
-    const cfgRef = db.collection('config').doc('ultimulBackup');
-    const cfgSnap = await cfgRef.get();
-    const lastSlotKey = cfgSnap.exists ? cfgSnap.data().slotKey : null;
-    if (lastSlotKey === slotKey) return; // deja facut in acest interval
-
-    await runFullBackup('automat-' + slotLabel, false);
-    await cfgRef.set({ slotKey, data: today, slot, la: firebase.firestore.FieldValue.serverTimestamp() });
-  } catch(e) { console.warn('Daily backup check failed:', e.message); }
+const BACKUP_FORMAT = 'mtc-backup-v2';
+const MAX_BACKUPS_PASTRATE = 14;      // backup-uri nefixate pastrate (cele mai noi)
+const BK_PART_LIMIT = 350000;         // caractere / bucata (sub 1 MiB cu tot cu diacritice)
+const BACKUP_MODULES = [
+  { key:'reclamatii',       icon:'📋', label:'Reclamații',                    desc:'Toate reclamațiile (manuale + importate), cu statusuri și note', cols:['reclamatii'], auto:true },
+  { key:'rechnunguri',      icon:'🧾', label:'Rechnunguri',                   desc:'Facturile Hermes cu toate pozițiile și numerele de urmărire',    cols:['rechnunguri'], auto:true },
+  { key:'rechn_lipsa',      icon:'🚨', label:'Poziții facturate neintroduse', desc:'Status (rezolvat/așteptare), note și șoferul pentru pozițiile lipsă', cols:['rechnung_lipsa'], auto:true },
+  { key:'soferi',           icon:'🚚', label:'Șoferi & Ture',                 desc:'Șoferi activi și arhivați, ture, locații, Springer / Tură fixă',  cols:['soferi'], auto:true },
+  { key:'pachete_livrate',  icon:'📦', label:'Pachete livrate',               desc:'Pachetele livrate importate din Zeiterfassung',                   cols:['pachete_livrate'], auto:true },
+  { key:'pachete_pierdute', icon:'📦❓', label:'Pachete pierdute',             desc:'Pachetele pierdute înregistrate manual, cu facturile găsite',     cols:['pachete_pierdute'], auto:true },
+  { key:'utilizatori',      icon:'👥', label:'Utilizatori',                   desc:'Conturile aplicației (PIN-urile NU se salvează; la restaurare rămân neschimbate)', cols:['users'], auto:true, noPin:true, mergeOnly:true },
+  { key:'setari',           icon:'⚙️', label:'Setări & configurare',          desc:'Top șoferi scoși, alerte ignorate, rezumate, configurări',        cols:['setari','config'], auto:true, skipDocs:['config/versiune','config/ultimulBackup','config/ultimulBackupV2'] },
+  { key:'notificari',       icon:'🔔', label:'Notificări',                    desc:'Notificările interne',                                            cols:['notificari'], auto:false },
+  { key:'geocode',          icon:'🗺️', label:'Cache hartă (geocodare)',       desc:'Adrese geocodate pentru hartă — se regenerează singur',           cols:['geocode_cache'], auto:false },
+  { key:'corina',           icon:'🔒', label:'Spațiul Corinei',               desc:'Șoferii și reclamațiile din spațiul privat al Corinei',           cols:['soferi_corina','reclamatii_corina'], auto:false, sensitive:true },
+];
+const bkMod = (k) => BACKUP_MODULES.find(m => m.key === k);
+const bkSleep = (ms) => new Promise(r => setTimeout(r, ms || 0));
+function bkFmtBytes(n) { n = n||0; return n < 1024 ? n+' B' : n < 1048576 ? (n/1024).toFixed(0)+' KB' : (n/1048576).toFixed(1)+' MB'; }
+function bkFmtDate(ts) {
+  const d = ts?.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
+  return d && !isNaN(d) ? d.toLocaleDateString('ro-RO') + ' ' + d.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : '—';
 }
 
-// Captureaza un snapshot complet si il salveaza ca backup nou
-async function runFullBackup(motiv, isManual) {
-  const btn = document.getElementById('btn-manual-backup');
-  if (isManual && btn) { btn.disabled = true; btn.innerHTML = '⏳ Se salvează...'; }
+// ── (de)codificare valori Firestore <-> JSON (Timestamp, GeoPoint, referinte) ──
+function bkEnc(v) {
+  if (v === undefined) return undefined;
+  if (v === null || typeof v !== 'object') return (typeof v === 'number' && !isFinite(v)) ? null : v;
+  const F = firebase.firestore;
+  if (v instanceof F.Timestamp) return { __ts: [v.seconds, v.nanoseconds] };
+  if (v instanceof Date) { const t = F.Timestamp.fromDate(v); return { __ts: [t.seconds, t.nanoseconds] }; }
+  if (F.GeoPoint && v instanceof F.GeoPoint) return { __gp: [v.latitude, v.longitude] };
+  if (F.DocumentReference && v instanceof F.DocumentReference) return { __ref: v.path };
+  if (Array.isArray(v)) return v.map(x => { const e = bkEnc(x); return e === undefined ? null : e; });
+  const o = {};
+  for (const k in v) { const e = bkEnc(v[k]); if (e !== undefined) o[k] = e; }
+  return o;
+}
+function bkDec(v) {
+  if (v === null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return v.map(bkDec);
+  const F = firebase.firestore;
+  if (v.__ts) return new F.Timestamp(v.__ts[0], v.__ts[1]);
+  if (v.__gp) return new F.GeoPoint(v.__gp[0], v.__gp[1]);
+  if (v.__ref) return db.doc(v.__ref);
+  const o = {};
+  for (const k in v) o[k] = bkDec(v[k]);
+  return o;
+}
+function bkStripPin(d) {
+  const o = {};
+  for (const k in d) { if (/^pin|^failed|^locked|^lockout/i.test(k)) continue; o[k] = d[k]; }
+  return o;
+}
 
-  try {
-    const [reclSnap, rechnSnap, soferiSnap] = await Promise.all([
-      db.collection('reclamatii').get(),
-      db.collection('rechnunguri').get(),
-      db.collection('soferi').get(),
-    ]);
-
-    const cleanData = (docs) => docs.map(d => {
-      const data = d.data();
-      // Convertim Timestamps la ISO string ca sa fie JSON-serializabile in Firestore fara probleme
-      const cleaned = {};
-      for (const [k,v] of Object.entries(data)) {
-        if (v && typeof v === 'object' && v.toDate) cleaned[k] = v.toDate().toISOString();
-        else cleaned[k] = v;
-      }
-      return { _id: d.id, ...cleaned };
+// ── citire modul din Firestore -> inregistrari {c:colectie, id, d:date} ──
+async function bkCollectModule(mod) {
+  const recs = [];
+  for (const col of mod.cols) {
+    const snap = await db.collection(col).get();
+    snap.docs.forEach(d => {
+      if (mod.skipDocs && mod.skipDocs.includes(col + '/' + d.id)) return;
+      let data = bkEnc(d.data());
+      if (mod.noPin) data = bkStripPin(data);
+      recs.push({ c: col, id: d.id, d: data });
     });
-
-    const reclamatii = cleanData(reclSnap.docs);
-    const rechnunguri = cleanData(rechnSnap.docs);
-    const soferi = cleanData(soferiSnap.docs);
-    const sumaTotala = rechnunguri.reduce((s,r) => s + (parseFloat(r.suma)||0), 0);
-
-    const backupDoc = {
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      createdBy: currentUser?.name || 'sistem',
-      motiv: motiv || 'manual',
-      counts: { reclamatii: reclamatii.length, rechnunguri: rechnunguri.length, soferi: soferi.length },
-      sumaTotala,
-      data: { reclamatii, rechnunguri, soferi }
-    };
-
-    await db.collection('backups_auto').add(backupDoc);
-
-    // Pastram doar ultimele N backup-uri — stergem restul
-    const allSnap = await db.collection('backups_auto').orderBy('createdAt','desc').get();
-    if (allSnap.docs.length > MAX_BACKUPS_PASTRATE) {
-      const toDelete = allSnap.docs.slice(MAX_BACKUPS_PASTRATE);
-      const batch = db.batch();
-      toDelete.forEach(d => batch.delete(d.ref));
-      await batch.commit();
-    }
-
-    if (isManual) toast(`✓ Backup salvat! ${reclamatii.length} reclamații, ${rechnunguri.length} rechnunguri, ${soferi.length} șoferi`);
-    if (currentPage === 'backup') renderBackupPage();
-  } catch(e) {
-    console.error('Backup failed:', e);
-    if (isManual) toast('Eroare la backup: ' + e.message, 'error');
-  } finally {
-    if (isManual && btn) { btn.disabled = false; btn.innerHTML = '💾 Backup acum'; }
+    await bkSleep(0);
   }
+  return recs;
+}
+function bkChunk(recs) {
+  const parts = []; let cur = [], len = 2;
+  for (const r of recs) {
+    const s = JSON.stringify(r);
+    if (cur.length && len + s.length + 1 > BK_PART_LIMIT) { parts.push('[' + cur.join(',') + ']'); cur = []; len = 2; }
+    cur.push(s); len += s.length + 1;
+  }
+  parts.push('[' + cur.join(',') + ']');
+  return parts;
+}
+
+// ── progres ──
+function bkProgress(text, pct) {
+  let m = document.getElementById('bk-progress');
+  if (!m) {
+    m = document.createElement('div'); m.id = 'bk-progress';
+    m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99998;display:flex;align-items:center;justify-content:center;padding:16px';
+    m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:100%;max-width:360px;text-align:center">
+      <div class="spinner" style="margin:0 auto 12px"></div>
+      <div id="bk-progress-text" style="font-size:13px;color:var(--text2);margin-bottom:10px"></div>
+      <div style="height:6px;background:var(--bg3);border-radius:4px;overflow:hidden"><div id="bk-progress-bar" style="height:100%;width:0;background:var(--accent);transition:width .2s"></div></div></div>`;
+    document.body.appendChild(m);
+  }
+  document.getElementById('bk-progress-text').textContent = text || '';
+  if (pct != null) document.getElementById('bk-progress-bar').style.width = Math.max(0, Math.min(100, pct)) + '%';
+}
+function bkProgressHide() { document.getElementById('bk-progress')?.remove(); }
+
+// ── backup in cloud ──
+async function createCloudBackup(motiv, keys, onStep) {
+  const mods = BACKUP_MODULES.filter(m => keys.includes(m.key));
+  if (!mods.length) throw new Error('Niciun modul selectat');
+  const ref = db.collection('backupuri_v2').doc();
+  await ref.set({ createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: currentUser?.name || 'sistem',
+    motiv: motiv || 'manual', appVersion: APP_VERSION, pinned: false, status: 'in curs', modules: {}, totalBytes: 0 });
+  const modules = {}; let total = 0;
+  try {
+    for (let i = 0; i < mods.length; i++) {
+      const m = mods[i];
+      if (onStep) onStep(`Se citește: ${m.label}...`, (i / mods.length) * 100);
+      const recs = await bkCollectModule(m);
+      const parts = bkChunk(recs);
+      const bytes = parts.reduce((s, p) => s + p.length, 0);
+      for (let p = 0; p < parts.length; p++) {
+        if (onStep) onStep(`Se salvează: ${m.label} (${p+1}/${parts.length})...`, ((i + (p+1)/parts.length) / mods.length) * 100);
+        await ref.collection('parts').doc(m.key + '_' + String(p).padStart(3, '0')).set({ module: m.key, n: p, data: parts[p] });
+      }
+      modules[m.key] = { count: recs.length, bytes, parts: parts.length };
+      total += bytes;
+    }
+    await ref.update({ modules, totalBytes: total, status: 'ok' });
+  } catch (e) {
+    await bkDeleteCloud(ref.id).catch(() => {});
+    throw e;
+  }
+  bkPrune().catch(() => {});
+  return ref.id;
+}
+async function bkDeleteCloud(bid) {
+  const ref = db.collection('backupuri_v2').doc(bid);
+  const parts = await ref.collection('parts').get();
+  for (let i = 0; i < parts.docs.length; i += 400) {
+    const b = db.batch(); parts.docs.slice(i, i + 400).forEach(d => b.delete(d.ref)); await b.commit();
+  }
+  await ref.delete();
+}
+async function bkPrune() {
+  const snap = await db.collection('backupuri_v2').orderBy('createdAt', 'desc').get();
+  const unpinned = snap.docs.filter(d => !d.data().pinned);
+  for (const d of unpinned.slice(MAX_BACKUPS_PASTRATE)) await bkDeleteCloud(d.id);
+}
+async function bkLoadCloudModule(bid, key) {
+  const snap = await db.collection('backupuri_v2').doc(bid).collection('parts').where('module', '==', key).get();
+  const parts = snap.docs.map(d => d.data()).sort((a, b) => a.n - b.n);
+  const recs = [];
+  parts.forEach(p => JSON.parse(p.data).forEach(r => recs.push(r)));
+  return recs;
+}
+
+// ── backup automat: o data pe zi, la prima logare a adminului (in fundal) ──
+async function checkAndRunDailyBackup() {
+  if (currentUser?.role !== 'admin') return;
+  try {
+    await bkSleep(12000);   // nu incetinim deschiderea aplicatiei
+    const today = new Date().toISOString().slice(0, 10);
+    const cfgRef = db.collection('config').doc('ultimulBackupV2');
+    const cfg = await cfgRef.get();
+    if (cfg.exists && cfg.data().zi === today) return;
+    const keys = BACKUP_MODULES.filter(m => m.auto).map(m => m.key);
+    await createCloudBackup('automat', keys);
+    await cfgRef.set({ zi: today, la: firebase.firestore.FieldValue.serverTimestamp() });
+    if (currentPage === 'backup') renderBackupPage();
+  } catch (e) {
+    console.warn('Backup automat esuat:', e);
+    toast('Backup-ul automat a eșuat: ' + e.message, 'error');
+  }
+}
+
+// ── fisiere JSON ──
+function bkDownloadText(filename, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+function bkBuildFile(modulesData, motiv) {
+  const out = { format: BACKUP_FORMAT, createdAt: new Date().toISOString(), createdBy: currentUser?.name || '', appVersion: APP_VERSION, motiv: motiv || 'manual', modules: {} };
+  for (const k in modulesData) out.modules[k] = { label: bkMod(k)?.label || k, count: modulesData[k].length, records: modulesData[k] };
+  return JSON.stringify(out);
+}
+function bkFileName(keys) {
+  const d = new Date().toISOString().slice(0, 10);
+  const part = keys.length === BACKUP_MODULES.length ? 'complet' : keys.length <= 2 ? keys.join('+') : keys.length + '_module';
+  return `backup_reclamatii_${d}_${part}.json`;
+}
+async function bkDownloadCloud(bid, keys) {
+  try {
+    const b = _bkList.find(x => x.id === bid); if (!b) return;
+    keys = keys || Object.keys(b.modules || {});
+    const data = {};
+    for (let i = 0; i < keys.length; i++) { bkProgress('Se pregătește fișierul: ' + (bkMod(keys[i])?.label || keys[i]) + '...', (i / keys.length) * 100); data[keys[i]] = await bkLoadCloudModule(bid, keys[i]); }
+    bkDownloadText(bkFileName(keys), bkBuildFile(data, b.motiv));
+    toast('✓ Fișier descărcat');
+  } catch (e) { toast('Eroare la descărcare: ' + e.message, 'error'); }
+  finally { bkProgressHide(); }
+}
+
+// ── fereastra "Backup nou" ──
+function bkModal(html, wide) {
+  const m = document.createElement('div');
+  m.className = 'bk-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = e => { if (e.target === m) m.remove(); };
+  m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:${wide||560}px;max-height:88vh;display:flex;flex-direction:column">${html}</div>`;
+  document.body.appendChild(m);
+  return m;
+}
+function bkModuleChecklist(idPrefix, opts) {
+  opts = opts || {};
+  return BACKUP_MODULES.filter(m => !opts.only || opts.only.includes(m.key)).map(m => {
+    const info = opts.info?.[m.key];
+    return `<label style="display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer;background:var(--bg3)">
+      <input type="checkbox" class="${idPrefix}" value="${m.key}" ${(opts.checked ? opts.checked(m) : m.auto) ? 'checked' : ''} style="margin-top:3px"/>
+      <span style="font-size:18px;line-height:1.2">${m.icon}</span>
+      <span style="flex:1;min-width:0"><span style="font-weight:700;font-size:13px">${m.label}</span>${info ? `<span style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-left:8px">${info.count.toLocaleString()} înreg.</span>` : ''}
+      <span style="display:block;font-size:11px;color:var(--text3)">${m.desc}</span></span></label>`;
+  }).join('');
+}
+function bkChecked(cls) { return [...document.querySelectorAll('.' + cls + ':checked')].map(x => x.value); }
+function bkSelectAll(cls, on) { document.querySelectorAll('.' + cls).forEach(x => x.checked = on); }
+
+function openBackupNowModal() {
+  const m = bkModal(`
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-size:15px;font-weight:800">💾 Backup nou</div><div style="font-size:11px;color:var(--text3)">Alege ce categorii de date vrei să salvezi</div></div>
+      <button onclick="this.closest('.bk-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <div style="padding:14px 20px;overflow-y:auto">
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="bkSelectAll('bk-now',true)">Selectează tot</button>
+        <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="bkSelectAll('bk-now',false)">Deselectează tot</button>
+      </div>
+      ${bkModuleChecklist('bk-now')}
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Fișierele PDF ale rechnungurilor (din Storage) nu sunt incluse — doar datele din ele. Spațiul Corinei e debifat implicit (e privat).</div>
+    </div>
+    <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="doBackupNow('file')">⬇ Descarcă fișier</button>
+      <button class="btn btn-primary" onclick="doBackupNow('cloud')">☁️ Salvează în cloud</button>
+    </div>`);
+}
+async function doBackupNow(mode) {
+  const keys = bkChecked('bk-now');
+  if (!keys.length) { toast('Alege cel puțin o categorie', 'error'); return; }
+  document.querySelector('.bk-modal')?.remove();
+  try {
+    bkProgress('Se pregătește backup-ul...', 0);
+    if (mode === 'cloud') {
+      await createCloudBackup('manual', keys, bkProgress);
+      toast('✓ Backup salvat în cloud');
+    } else {
+      const data = {};
+      for (let i = 0; i < keys.length; i++) { bkProgress('Se citește: ' + bkMod(keys[i]).label + '...', (i / keys.length) * 100); data[keys[i]] = await bkCollectModule(bkMod(keys[i])); }
+      bkDownloadText(bkFileName(keys), bkBuildFile(data, 'manual'));
+      toast('✓ Fișier descărcat');
+    }
+  } catch (e) { toast('Eroare la backup: ' + e.message, 'error'); }
+  finally { bkProgressHide(); if (currentPage === 'backup') renderBackupPage(); }
+}
+// compatibilitate cu butoanele vechi
+function runFullBackup() { openBackupNowModal(); }
+function exportBackup() { openBackupNowModal(); }
+
+// ── pagina Backup ──
+let _bkList = [];
+let _bkCompare = [];
+async function renderBackupPage() {
+  const statusEl = document.getElementById('backup-status-card');
+  const listEl = document.getElementById('backup-list');
+  if (!statusEl || !listEl) return;
+  renderGithubBackupCard();
+  statusEl.innerHTML = `<div class="loading-page" style="padding:20px"><div class="spinner"></div></div>`;
+  listEl.innerHTML = '';
+  try {
+    const snap = await db.collection('backupuri_v2').orderBy('createdAt', 'desc').limit(60).get();
+    _bkList = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => b.status === 'ok');
+    _bkCompare = []; updateCompareBar();
+    if (!_bkList.length) {
+      statusEl.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3)"><div style="font-size:28px;margin-bottom:8px">📦</div>
+        <div style="font-weight:700;margin-bottom:4px">Niciun backup încă</div>
+        <div style="font-size:12px">Apasă „Backup acum”. Backup-ul automat rulează o dată pe zi, la prima logare a adminului.</div></div>`;
+      return;
+    }
+    const last = _bkList[0];
+    const ageH = last.createdAt?.toDate ? (Date.now() - last.createdAt.toDate().getTime()) / 36e5 : 0;
+    statusEl.innerHTML = `<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="width:44px;height:44px;background:${ageH>36?'var(--red-bg)':'var(--green-bg)'};border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${ageH>36?'⚠️':'✅'}</div>
+      <div style="flex:1;min-width:200px"><div style="font-weight:800;font-size:14px">Ultimul backup: ${bkFmtDate(last.createdAt)}</div>
+        <div style="font-size:12px;color:var(--text3)">${bkMotiv(last.motiv)} · ${Object.keys(last.modules||{}).length} categorii · ${bkFmtBytes(last.totalBytes)} · v${last.appVersion||'?'}</div></div>
+      <div style="font-size:11px;color:var(--text3);text-align:right">Backup automat zilnic (în fundal)<br>Se păstrează ultimele ${MAX_BACKUPS_PASTRATE} · 📌 = fixat, nu se șterge</div></div>`;
+    listEl.innerHTML = _bkList.map((b, i) => {
+      const chips = BACKUP_MODULES.filter(m => b.modules?.[m.key]).map(m => `
+        <span style="display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:7px;background:var(--bg3);font-size:11px;overflow:hidden">
+          <span onclick="bkPreview('${b.id}','${m.key}')" title="Vezi conținutul" style="padding:3px 8px;cursor:pointer">${m.icon} ${m.label} <b style="font-family:var(--mono);color:var(--accent)">${b.modules[m.key].count.toLocaleString()}</b></span>
+          <span onclick="bkDownloadCloud('${b.id}',['${m.key}'])" title="Descarcă doar acest modul" style="padding:3px 7px;cursor:pointer;border-left:1px solid var(--border);color:var(--text3)">⬇</span></span>`).join('');
+      return `<div class="card" id="backup-card-${b.id}" style="margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;cursor:pointer" title="Selectează pentru comparare (max 2)"><input type="checkbox" onchange="toggleCompareSelect('${b.id}',this.checked)"/></label>
+          <div style="flex:1;min-width:200px"><div style="font-weight:800;font-size:13px">${i===0?'🟢 ':''}${b.pinned?'📌 ':''}${bkFmtDate(b.createdAt)}</div>
+            <div style="font-size:11px;color:var(--text3)">${bkMotiv(b.motiv)} · de ${b.createdBy||'—'} · ${bkFmtBytes(b.totalBytes)} · v${b.appVersion||'?'}</div></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-ghost" style="font-size:11px;padding:6px 10px" onclick="bkDownloadCloud('${b.id}')">⬇ Tot</button>
+            <button class="btn btn-ghost" style="font-size:11px;padding:6px 10px" onclick="openRestoreCloud('${b.id}')">♻️ Restaurează</button>
+            <button class="btn btn-ghost" style="font-size:11px;padding:6px 10px" onclick="bkTogglePin('${b.id}')" title="Fixează / anulează fixarea">${b.pinned?'📌':'📍'}</button>
+            <button class="btn btn-ghost" style="font-size:11px;padding:6px 10px;color:var(--red)" onclick="bkDeleteAsk('${b.id}')">🗑</button>
+          </div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${chips}</div></div>`;
+    }).join('');
+  } catch (e) {
+    statusEl.innerHTML = `<div style="color:var(--red);padding:16px">Eroare la încărcare: ${e.message}</div>`;
+  }
+}
+function bkMotiv(m) {
+  return ({ automat: '📅 Automat zilnic', manual: '👤 Manual', restaurare: '🛡 Siguranță înainte de restaurare' })[m] || m || 'Backup';
+}
+async function bkTogglePin(id) {
+  const b = _bkList.find(x => x.id === id); if (!b) return;
+  try { await db.collection('backupuri_v2').doc(id).update({ pinned: !b.pinned }); renderBackupPage(); }
+  catch (e) { toast('Eroare: ' + e.message, 'error'); }
+}
+async function bkDeleteAsk(id) {
+  if (!confirm('Ștergi definitiv acest backup?')) return;
+  try { bkProgress('Se șterge...', 50); await bkDeleteCloud(id); toast('Backup șters'); }
+  catch (e) { toast('Eroare: ' + e.message, 'error'); }
+  finally { bkProgressHide(); renderBackupPage(); }
+}
+function toggleCompareSelect(id, checked) {
+  if (checked) {
+    if (_bkCompare.length >= 2) { toast('Poți compara maxim 2 backup-uri', 'info'); const cb = document.querySelector(`#backup-card-${id} input[type=checkbox]`); if (cb) cb.checked = false; return; }
+    _bkCompare.push(id);
+  } else _bkCompare = _bkCompare.filter(x => x !== id);
+  updateCompareBar();
+}
+function updateCompareBar() {
+  const bar = document.getElementById('backup-compare-bar'); if (!bar) return;
+  if (_bkCompare.length === 2) {
+    bar.style.display = 'flex';
+    bar.innerHTML = `<span style="font-size:13px;font-weight:700;color:var(--accent)">🔍 2 backup-uri selectate</span>
+      <button class="btn btn-primary" style="font-size:12px;padding:7px 16px;margin-left:auto" onclick="compareSelectedBackups()">Compară</button>`;
+  } else if (_bkCompare.length === 1) {
+    bar.style.display = 'flex'; bar.innerHTML = `<span style="font-size:12px;color:var(--text3)">Selectează încă un backup pentru comparare</span>`;
+  } else { bar.style.display = 'none'; bar.innerHTML = ''; }
+}
+function compareSelectedBackups() {
+  const [a, b] = _bkCompare.map(id => _bkList.find(x => x.id === id)).sort((x, y) => (x.createdAt?.seconds||0) - (y.createdAt?.seconds||0));
+  const rows = BACKUP_MODULES.filter(m => a.modules?.[m.key] || b.modules?.[m.key]).map(m => {
+    const ca = a.modules?.[m.key]?.count ?? null, cb = b.modules?.[m.key]?.count ?? null;
+    const diff = (ca != null && cb != null) ? cb - ca : null;
+    return `<tr><td>${m.icon} ${m.label}</td><td style="text-align:right;font-family:var(--mono)">${ca ?? '—'}</td><td style="text-align:right;font-family:var(--mono)">${cb ?? '—'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:${diff>0?'var(--green)':diff<0?'var(--red)':'var(--text3)'}">${diff==null?'—':(diff>0?'+':'')+diff}</td></tr>`;
+  }).join('');
+  bkModal(`<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><div style="font-size:15px;font-weight:800">🔍 Comparare backup-uri</div><button onclick="this.closest('.bk-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button></div>
+    <div style="padding:16px 20px;overflow:auto"><table class="data-table" style="font-size:12px"><thead><tr><th>Categorie</th><th style="text-align:right">${bkFmtDate(a.createdAt)}</th><th style="text-align:right">${bkFmtDate(b.createdAt)}</th><th style="text-align:right">Diferență</th></tr></thead><tbody>${rows}</tbody></table>
+    <div style="font-size:11px;color:var(--text3);margin-top:10px">Numărul de înregistrări din fiecare categorie. Pentru conținut, folosește „Vezi conținutul” pe categoria dorită.</div></div>`);
+}
+
+// ── previzualizare modul (cautare in tot continutul) ──
+function bkSummarize(key, r) {
+  const d = r.d || {};
+  const pick = (...ks) => ks.map(k => d[k]).filter(v => v != null && v !== '' && typeof v !== 'object').join(' · ');
+  const f = ({
+    reclamatii: () => pick('numeClient', 'numarPachet', 'status', 'turaSofer'),
+    rechnunguri: () => pick('belegNr', 'dataEmitere', 'suma') + ` · ${(d.pozitii||[]).length} poziții`,
+    rechn_lipsa: () => pick('belegNr', 'name', 'tracking', 'forderung', 'status', 'soferNume'),
+    soferi: () => pick('tura', 'numeSofer', 'locatie', 'tipSofer'),
+    pachete_livrate: () => pick('turaSofer', 'numeSofer', 'an', 'luna', 'pachete'),
+    pachete_pierdute: () => pick('numeClient', 'numarPachet', 'locatie', 'status'),
+    utilizatori: () => pick('name', 'role', 'location'),
+  })[key];
+  let s = f ? f() : '';
+  if (!s.replace(/[ ·]/g, '')) s = Object.keys(d).slice(0, 4).map(k => typeof d[k] !== 'object' ? `${k}: ${d[k]}` : '').filter(Boolean).join(' · ');
+  return s;
+}
+async function bkPreview(bid, key) {
+  const mod = bkMod(key);
+  try {
+    bkProgress('Se încarcă ' + mod.label + '...', 40);
+    const recs = await bkLoadCloudModule(bid, key);
+    bkProgressHide();
+    bkShowRecords(mod, recs, bkFmtDate(_bkList.find(x => x.id === bid)?.createdAt));
+  } catch (e) { bkProgressHide(); toast('Eroare: ' + e.message, 'error'); }
+}
+function bkShowRecords(mod, recs, label) {
+  const m = bkModal(`<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-size:15px;font-weight:800">${mod.icon} ${mod.label}</div><div style="font-size:11px;color:var(--text3)">${recs.length.toLocaleString()} înregistrări · backup ${label||''}</div></div>
+      <button onclick="this.closest('.bk-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button></div>
+    <div style="padding:12px 20px 0"><input type="text" id="bk-prev-search" placeholder="Caută în tot conținutul (nume, nr. pachet, adresă...)" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px"/></div>
+    <div id="bk-prev-list" style="padding:12px 20px 16px;overflow-y:auto;font-size:12px"></div>`, 760);
+  const flat = recs.map(r => ({ r, t: JSON.stringify(r.d).toLowerCase() }));
+  const draw = () => {
+    const q = (document.getElementById('bk-prev-search').value || '').toLowerCase().trim();
+    const hit = q ? flat.filter(x => x.t.includes(q) || x.r.id.toLowerCase().includes(q)) : flat;
+    document.getElementById('bk-prev-list').innerHTML =
+      `<div style="color:var(--text3);margin-bottom:6px">${q ? hit.length + ' rezultate' : 'Primele 60'}${hit.length > 60 ? ' (se arată 60)' : ''}</div>` +
+      hit.slice(0, 60).map(x => `<div style="padding:6px 8px;border-bottom:1px solid var(--border)"><span style="font-family:var(--mono);color:var(--text3);font-size:10px">${_esc(x.r.c)}/${_esc(x.r.id)}</span><br>${_esc(bkSummarize(mod.key, x.r)) || '—'}</div>`).join('');
+  };
+  document.getElementById('bk-prev-search').addEventListener('input', draw);
+  draw();
+}
+
+// ── restaurare ──
+function openRestoreCloud(bid) {
+  const b = _bkList.find(x => x.id === bid); if (!b) return;
+  openRestoreModal({ label: 'backup din ' + bkFmtDate(b.createdAt), modules: b.modules || {}, getRecs: (k) => bkLoadCloudModule(bid, k) });
+}
+function openRestoreModal(src) {
+  const only = BACKUP_MODULES.filter(m => src.modules[m.key]).map(m => m.key);
+  if (!only.length) { toast('Backup-ul nu conține date recunoscute', 'error'); return; }
+  bkModal(`<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-size:15px;font-weight:800">♻️ Restaurare</div><div style="font-size:11px;color:var(--text3)">Sursă: ${_esc(src.label)}</div></div>
+      <button onclick="this.closest('.bk-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button></div>
+    <div style="padding:14px 20px;overflow-y:auto">
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px">1. Ce categorii restaurezi?</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="bkSelectAll('bk-rst',true)">Toate</button>
+        <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="bkSelectAll('bk-rst',false)">Niciuna</button></div>
+      ${bkModuleChecklist('bk-rst', { only, info: src.modules, checked: () => false })}
+      <div style="font-size:12px;font-weight:700;margin:12px 0 6px">2. Cum?</div>
+      <label style="display:flex;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer;background:var(--bg3)"><input type="radio" name="bk-mode" value="merge" checked style="margin-top:3px"/>
+        <span><b style="font-size:13px">Îmbină (recomandat)</b><span style="display:block;font-size:11px;color:var(--text3)">Rescrie înregistrările din backup (după ID) și lasă neatinse cele create după backup. Nu șterge nimic.</span></span></label>
+      <label style="display:flex;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;background:var(--bg3)"><input type="radio" name="bk-mode" value="replace" style="margin-top:3px"/>
+        <span><b style="font-size:13px;color:var(--red)">Înlocuire completă</b><span style="display:block;font-size:11px;color:var(--text3)">Șterge și înregistrările care NU sunt în backup, ca datele să fie exact ca atunci. (Utilizatorii se îmbină mereu.)</span></span></label>
+      <div style="font-size:11px;color:var(--text3);margin-top:10px">🛡 Înainte de restaurare se face automat un backup de siguranță al categoriilor alese, ca să poți reveni.</div>
+    </div>
+    <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="this.closest('.bk-modal').remove()">Anulează</button>
+      <button class="btn btn-primary" id="bk-rst-go">♻️ Restaurează</button></div>`, 600);
+  document.getElementById('bk-rst-go').onclick = () => {
+    const keys = bkChecked('bk-rst');
+    const mode = document.querySelector('input[name=bk-mode]:checked')?.value || 'merge';
+    if (!keys.length) { toast('Alege cel puțin o categorie', 'error'); return; }
+    const names = keys.map(k => bkMod(k).label).join(', ');
+    if (mode === 'replace') {
+      if ((prompt(`Înlocuire completă pentru: ${names}\nDatele care nu sunt în backup se vor ȘTERGE.\n\nScrie RESTAUREAZA ca să continui:`) || '').trim().toUpperCase() !== 'RESTAUREAZA') { toast('Anulat'); return; }
+    } else if (!confirm(`Restaurezi (îmbinare): ${names}?\nÎnregistrările din backup vor rescrie pe cele cu același ID.`)) return;
+    document.querySelector('.bk-modal')?.remove();
+    performRestoreModules(src, keys, mode);
+  };
+}
+async function performRestoreModules(src, keys, mode) {
+  try {
+    bkProgress('Backup de siguranță înainte de restaurare...', 2);
+    await createCloudBackup('restaurare', keys, (t, p) => bkProgress('Siguranță: ' + t, (p || 0) * 0.25));
+    for (let ki = 0; ki < keys.length; ki++) {
+      const mod = bkMod(keys[ki]);
+      const base = 25 + (ki / keys.length) * 75, span = 75 / keys.length;
+      bkProgress('Se încarcă: ' + mod.label + '...', base);
+      const recs = (await src.getRecs(keys[ki])).filter(r => mod.cols.includes(r.c));
+      const merge = !!mod.mergeOnly;
+      if (mode === 'replace' && !mod.mergeOnly) {
+        for (const col of mod.cols) {
+          const keep = new Set(recs.filter(r => r.c === col).map(r => r.id));
+          const snap = await db.collection(col).get();
+          const del = snap.docs.filter(d => !keep.has(d.id) && !(mod.skipDocs || []).includes(col + '/' + d.id));
+          for (let i = 0; i < del.length; i += 400) { const b = db.batch(); del.slice(i, i + 400).forEach(d => b.delete(d.ref)); await b.commit(); }
+        }
+      }
+      for (let i = 0; i < recs.length; i += 300) {
+        const b = db.batch();
+        recs.slice(i, i + 300).forEach(r => b.set(db.collection(r.c).doc(r.id), bkDec(r.d), merge ? { merge: true } : {}));
+        await b.commit();
+        bkProgress(`Se restaurează: ${mod.label} ${Math.min(i + 300, recs.length)}/${recs.length}`, base + span * (Math.min(i + 300, recs.length) / Math.max(recs.length, 1)));
+      }
+    }
+    bkProgressHide();
+    bkModal(`<div style="padding:28px;text-align:center"><div style="font-size:36px;margin-bottom:8px">✅</div>
+      <div style="font-size:16px;font-weight:800;margin-bottom:6px">Restaurare completă</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:18px">Reîncarcă aplicația ca să vezi datele restaurate peste tot.</div>
+      <button class="btn btn-primary" onclick="location.reload()">🔄 Reîncarcă acum</button></div>`, 380);
+  } catch (e) {
+    bkProgressHide();
+    console.error(e);
+    toast('Eroare la restaurare: ' + e.message + ' — datele curente pot fi parțial modificate; un backup de siguranță a fost făcut înainte.', 'error');
+  }
+}
+
+// ── restaurare din fisier (format nou sau vechi) ──
+function bkParseBackupFile(parsed) {
+  if (parsed && parsed.format === BACKUP_FORMAT) {
+    const out = {}; for (const k in parsed.modules) if (bkMod(k)) out[k] = parsed.modules[k].records || [];
+    return out;
+  }
+  // formate vechi: {reclamatii:[...], rechnunguri:[...], soferi:[...], users:[...]} cu _id
+  const data = parsed.reclamatii || parsed.rechnunguri || parsed.soferi ? parsed : (parsed.data || null);
+  if (!data) return null;
+  const map = { reclamatii: 'reclamatii', rechnunguri: 'rechnunguri', soferi: 'soferi', users: 'utilizatori' };
+  const colOf = { reclamatii: 'reclamatii', rechnunguri: 'rechnunguri', soferi: 'soferi', users: 'users' };
+  const out = {};
+  for (const k in map) if (Array.isArray(data[k])) out[map[k]] = data[k].map(({ _id, ...rest }) => ({ c: colOf[k], id: _id || db.collection(colOf[k]).doc().id, d: map[k] === 'utilizatori' ? bkStripPin(rest) : rest }));
+  return Object.keys(out).length ? out : null;
+}
+function restoreFromFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = bkParseBackupFile(JSON.parse(e.target.result));
+      if (!data) { toast('Fișierul nu pare a fi un backup valid', 'error'); return; }
+      const modules = {}; for (const k in data) modules[k] = { count: data[k].length };
+      openRestoreModal({ label: 'fișier ' + file.name, modules, getRecs: async (k) => data[k] || [] });
+    } catch (err) { toast('Fișier invalid: ' + err.message, 'error'); }
+  };
+  reader.readAsText(file);
+  const inp = document.getElementById('backup-restore-file-input'); if (inp) inp.value = '';
+}
+
+
+// ════════════════════════════════════════════════════════
+// BACKUP IN GITHUB (repository privat) — rulat de serverul Render, un commit / backup.
+// Istoricul commit-urilor = istoricul backup-urilor; orice commit se poate restaura din aplicatie.
+// ════════════════════════════════════════════════════════
+async function bkGhCall(path, payload, opts) {
+  const fu = firebase.auth().currentUser;
+  if (!fu) throw new Error('Sesiune Firebase inexistentă — autentifică-te din nou ca Admin');
+  const idToken = await fu.getIdToken(true);
+  return authPost(path, payload || {}, Object.assign({ headers: { 'Authorization': 'Bearer ' + idToken } }, opts || {}));
+}
+let _ghPoll = null;
+async function renderGithubBackupCard() {
+  const el = document.getElementById('backup-github-card'); if (!el) return;
+  let st = null;
+  try { const d = await db.collection('setari').doc('github_backup_status').get(); st = d.exists ? d.data() : null; } catch (e) {}
+  const running = st?.state === 'running';
+  const when = (iso) => iso ? bkFmtDate(iso) : '—';
+  let line;
+  if (!st) line = '<span style="color:var(--text3)">Încă niciun backup în GitHub. Apasă „Backup în GitHub acum”.</span>';
+  else if (st.state === 'running') line = '<span style="color:var(--accent)">⏳ Backup în curs...</span>';
+  else if (st.state === 'error') line = `<span style="color:var(--red)">❌ Ultima încercare a eșuat: ${_esc(st.error || '')}</span>`;
+  else line = `<span style="color:var(--green)">✅ Ultimul backup: ${when(st.lastBackupAt)}</span>${st.changed === false ? ` <span style="color:var(--text3)">· verificat ${when(st.lastCheckAt)} — fără modificări</span>` : ''}${st.url ? ` · <a href="${_esc(st.url)}" target="_blank" rel="noopener" style="color:var(--accent)">vezi pe GitHub ↗</a>` : ''}`;
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="width:42px;height:42px;background:var(--bg3);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🐙</div>
+      <div style="flex:1;min-width:220px">
+        <div style="font-weight:800;font-size:14px">Backup în GitHub <span style="font-size:10px;font-weight:600;color:var(--text3)">(repository privat · tot istoricul păstrat · zilnic automat)</span></div>
+        <div style="font-size:12px;margin-top:2px">${line}</div>
+        ${st?.counts ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">${Object.entries(st.counts).filter(([k,v])=>v).map(([k,v])=>`${bkMod(k)?.icon||''} ${bkMod(k)?.label||k}: <b>${v.toLocaleString()}</b>`).join(' · ')}</div>` : ''}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-primary" style="font-size:12px;padding:7px 14px" ${running?'disabled':''} onclick="runGithubBackup()">⬆ Backup în GitHub acum</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:7px 14px" onclick="openGithubHistory()">📜 Istoric & restaurare</button>
+      </div>
+    </div>`;
+  if (running && !_ghPoll) _ghPoll = setInterval(() => { if (currentPage !== 'backup') { clearInterval(_ghPoll); _ghPoll = null; return; } renderGithubBackupCard().then(() => {}); }, 3500);
+  if (!running && _ghPoll) { clearInterval(_ghPoll); _ghPoll = null; }
+}
+function bkGhSetupHelp(missing) {
+  bkModal(`<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><div style="font-size:15px;font-weight:800">🐙 Configurare backup GitHub</div><button onclick="this.closest('.bk-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button></div>
+    <div style="padding:16px 20px;overflow:auto;font-size:13px;line-height:1.6">
+      <div style="color:var(--red);margin-bottom:8px">Pe server lipsesc: <b>${_esc((missing||[]).join(', '))}</b></div>
+      <ol style="padding-left:18px">
+        <li>GitHub → <b>New repository</b> → nume ex. <code>reclamatii-backup</code> → <b>Private</b> → bifează „Add a README”.</li>
+        <li>GitHub → Settings → Developer settings → <b>Fine-grained tokens</b> → doar repo-ul de backup → permisiunea <b>Contents: Read and write</b>.</li>
+        <li>Render → serviciul <code>hermes-parser-server</code> → Environment: <code>GITHUB_BACKUP_TOKEN</code> (tokenul), <code>GITHUB_BACKUP_REPO</code> (<code>utilizator/reclamatii-backup</code>), <code>BACKUP_CRON_SECRET</code> (o parolă lungă aleasă de tine).</li>
+        <li>Repo-ul aplicației → Settings → Secrets → Actions → secret <code>BACKUP_CRON_SECRET</code> (aceeași valoare), apoi pune fișierul <code>backup.yml</code> în <code>.github/workflows/</code> pentru backup zilnic automat.</li>
+      </ol></div>`, 620);
+}
+async function runGithubBackup() {
+  try {
+    bkProgress('Se pornește backup-ul în GitHub...', 30);
+    const { resp, body } = await bkGhCall('/backup/github/run', {}, { attempts: 3, timeoutMs: 60000 });
+    bkProgressHide();
+    if (resp.status === 503) { bkGhSetupHelp(body.missing); return; }
+    if (!resp.ok) { toast('Eroare: ' + (body.reason || body.error || resp.status), 'error'); return; }
+    toast(body.state === 'already_running' ? 'Un backup rulează deja' : '✓ Backup pornit — durează câteva zeci de secunde');
+    setTimeout(renderGithubBackupCard, 1500);
+  } catch (e) { bkProgressHide(); toast('Serverul nu răspunde: ' + e.message, 'error'); }
+}
+async function openGithubHistory() {
+  try {
+    bkProgress('Se încarcă istoricul din GitHub...', 40);
+    const { resp, body } = await bkGhCall('/backup/github/list', {}, { attempts: 3, timeoutMs: 60000 });
+    bkProgressHide();
+    if (resp.status === 503) { bkGhSetupHelp(body.missing); return; }
+    if (!resp.ok) { toast('Eroare: ' + (body.detail || body.reason || body.error || resp.status), 'error'); return; }
+    window._ghCommits = body.commits || [];
+    bkModal(`<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:15px;font-weight:800">📜 Istoric GitHub</div><div style="font-size:11px;color:var(--text3)">${_esc(body.repo || '')} · ${window._ghCommits.length} backup-uri</div></div><button onclick="this.closest('.bk-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button></div>
+      <div style="padding:8px 20px 16px;overflow:auto">${window._ghCommits.length ? window._ghCommits.map(c => `
+        <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><div style="flex:1;min-width:200px"><b style="font-size:13px">${bkFmtDate(c.date)}</b> <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${c.sha.slice(0, 7)}</span></div>
+            <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="ghDownloadCommit('${c.sha}')">⬇ Tot</button>
+            <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="ghRestoreCommit('${c.sha}')">♻️ Restaurează</button></div>
+          <div style="font-size:11px;color:var(--text3);margin-top:3px">${_esc(c.message)}</div></div>`).join('') : '<div style="padding:20px;text-align:center;color:var(--text3)">Niciun backup în GitHub încă</div>'}</div>`, 680);
+  } catch (e) { bkProgressHide(); toast('Serverul nu răspunde: ' + e.message, 'error'); }
+}
+async function ghGetModule(sha, key) {
+  const { resp, body } = await bkGhCall('/backup/github/get', { sha, module: key }, { attempts: 2, timeoutMs: 120000 });
+  if (!resp.ok) throw new Error(body.detail || body.error || ('HTTP ' + resp.status));
+  return body;
+}
+async function ghRestoreCommit(sha) {
+  try {
+    bkProgress('Se citește backup-ul din GitHub...', 40);
+    const man = await ghGetModule(sha, 'manifest');
+    bkProgressHide();
+    const modules = {}; for (const k in (man.counts || {})) if (bkMod(k)) modules[k] = { count: man.counts[k] };
+    document.querySelector('.bk-modal')?.remove();
+    openRestoreModal({ label: 'GitHub ' + bkFmtDate(man.createdAt) + ' (' + sha.slice(0, 7) + ')', modules, getRecs: (k) => ghGetModule(sha, k) });
+  } catch (e) { bkProgressHide(); toast('Eroare: ' + e.message, 'error'); }
+}
+async function ghDownloadCommit(sha) {
+  try {
+    const man = await ghGetModule(sha, 'manifest');
+    const keys = Object.keys(man.counts || {}).filter(k => bkMod(k) && man.counts[k] > 0);
+    const data = {};
+    for (let i = 0; i < keys.length; i++) { bkProgress('Se descarcă: ' + bkMod(keys[i]).label + '...', (i / keys.length) * 100); data[keys[i]] = await ghGetModule(sha, keys[i]); }
+    bkDownloadText(bkFileName(keys), bkBuildFile(data, 'github ' + sha.slice(0, 7)));
+    toast('✓ Fișier descărcat');
+  } catch (e) { toast('Eroare: ' + e.message, 'error'); }
+  finally { bkProgressHide(); }
+}
+
+// ── arhiva veche (sistemul anterior: backups_auto, un singur document) ──
+async function openLegacyBackups() {
+  try {
+    bkProgress('Se caută backup-urile vechi...', 40);
+    const snap = await db.collection('backups_auto').orderBy('createdAt', 'desc').limit(14).get();
+    bkProgressHide();
+    if (snap.empty) { toast('Nu există backup-uri din sistemul vechi', 'info'); return; }
+    window._bkLegacy = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    bkModal(`<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><div style="font-size:15px;font-weight:800">📜 Arhivă veche</div><button onclick="this.closest('.bk-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button></div>
+      <div style="padding:14px 20px;overflow:auto">${window._bkLegacy.map(b => `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1;font-size:12px"><b>${bkFmtDate(b.createdAt)}</b><br><span style="color:var(--text3)">${b.counts?.reclamatii||0} recl. · ${b.counts?.rechnunguri||0} rechn. · ${b.counts?.soferi||0} șoferi</span></div>
+        <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="bkLegacyDownload('${b.id}')">⬇</button>
+        <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="bkLegacyRestore('${b.id}')">♻️</button></div>`).join('')}</div>`);
+  } catch (e) { bkProgressHide(); toast('Eroare: ' + e.message, 'error'); }
+}
+function bkLegacyData(id) { const b = (window._bkLegacy || []).find(x => x.id === id); return b ? bkParseBackupFile({ data: b.data }) : null; }
+function bkLegacyDownload(id) {
+  const d = bkLegacyData(id); if (!d) return;
+  bkDownloadText('backup_vechi_' + id.slice(0, 6) + '.json', bkBuildFile(d, 'arhiva veche'));
+}
+function bkLegacyRestore(id) {
+  const d = bkLegacyData(id); if (!d) return;
+  const modules = {}; for (const k in d) modules[k] = { count: d[k].length };
+  document.querySelector('.bk-modal')?.remove();
+  openRestoreModal({ label: 'arhivă veche', modules, getRecs: async (k) => d[k] || [] });
 }
 
 // ════════════════════════════════════════════════════════
@@ -8332,427 +9289,6 @@ async function renderPacheteStatsView() {
   }
 }
 
-
-async function renderBackupPage() {
-  const statusEl = document.getElementById('backup-status-card');
-  const listEl = document.getElementById('backup-list');
-  if (!statusEl || !listEl) return;
-
-  statusEl.innerHTML = `<div class="loading-page" style="padding:20px"><div class="spinner"></div></div>`;
-  listEl.innerHTML = '';
-
-  try {
-    const snap = await db.collection('backups_auto').orderBy('createdAt','desc').limit(MAX_BACKUPS_PASTRATE).get();
-    const backups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    _cachedBackupsList = backups;
-    backupSelectedForCompare = [];
-    updateCompareBar();
-
-    if (backups.length === 0) {
-      statusEl.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3)">
-        <div style="font-size:28px;margin-bottom:8px">📦</div>
-        <div style="font-weight:700;margin-bottom:4px">Niciun backup încă</div>
-        <div style="font-size:12px">Primul backup automat se va face la următorul login, sau apasă "Backup acum"</div>
-      </div>`;
-      listEl.innerHTML = '';
-      return;
-    }
-
-    const last = backups[0];
-    const lastDate = last.createdAt?.toDate ? last.createdAt.toDate() : new Date();
-    statusEl.innerHTML = `
-      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-        <div style="width:44px;height:44px;background:var(--green-bg);border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">✅</div>
-        <div style="flex:1;min-width:200px">
-          <div style="font-weight:800;font-size:14px">Ultimul backup: ${lastDate.toLocaleDateString('ro-RO')} ${lastDate.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}</div>
-          <div style="font-size:12px;color:var(--text3)">${motivLabel(last.motiv)} · de ${last.createdBy||'—'} · ${last.counts?.reclamatii||0} reclamații, ${last.counts?.rechnunguri||0} rechnunguri, ${last.counts?.soferi||0} șoferi</div>
-        </div>
-        <div style="font-size:11px;color:var(--text3);text-align:right">
-          Se păstrează ultimele ${MAX_BACKUPS_PASTRATE} backup-uri<br>
-          Backup automat 2x/zi (dimineață + seară) la login
-        </div>
-      </div>`;
-
-    listEl.innerHTML = backups.map((b, i) => {
-      const d = b.createdAt?.toDate ? b.createdAt.toDate() : new Date();
-      const isSelected = backupSelectedForCompare.includes(b.id);
-      return `
-      <div class="card" style="margin-bottom:8px;display:flex;align-items:center;gap:12px;${isSelected?'border-color:var(--accent-border);background:var(--accent-bg)':''}" id="backup-card-${b.id}">
-        <label style="display:flex;align-items:center;cursor:pointer;flex-shrink:0" title="Selectează pentru comparare (max 2)">
-          <input type="checkbox" ${isSelected?'checked':''} onchange="toggleCompareSelect('${b.id}',this.checked)"/>
-        </label>
-        <div style="width:38px;height:38px;background:var(--bg3);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${i===0?'🟢':'📦'}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:13px">${d.toLocaleDateString('ro-RO')} · ${d.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}</div>
-          <div style="font-size:11px;color:var(--text3)">${motivLabel(b.motiv)} · de ${b.createdBy||'—'} · ${b.counts?.reclamatii||0} recl. · ${b.counts?.rechnunguri||0} rechn. ${b.sumaTotala?' · €'+b.sumaTotala.toFixed(2):''}</div>
-        </div>
-        <div style="display:flex;gap:6px;flex-shrink:0">
-          <button class="btn btn-ghost" style="font-size:11px;padding:6px 12px" onclick="previewBackup('${b.id}')">👁 Preview</button>
-          <button class="icon-btn" onclick="downloadBackupJSON('${b.id}')" title="Descarcă JSON">
-            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-          </button>
-          <button class="icon-btn red" onclick="restoreBackupById('${b.id}')" title="Restaurează acest backup">
-            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
-          </button>
-        </div>
-      </div>`;
-    }).join('');
-  } catch(e) {
-    statusEl.innerHTML = `<div style="color:var(--red);padding:16px">Eroare la încărcare: ${e.message}</div>`;
-  }
-}
-
-function motivLabel(motiv) {
-  const map = {
-    'zilnic-automat':'📅 Automat zilnic',
-    'automat-dimineață':'🌅 Automat dimineață',
-    'automat-seară':'🌆 Automat seară',
-    'manual':'👤 Manual',
-    'restaurare':'🔄 Înainte de restaurare'
-  };
-  return map[motiv] || motiv || 'Backup';
-}
-
-function toggleCompareSelect(id, checked) {
-  if (checked) {
-    if (backupSelectedForCompare.length >= 2) {
-      toast('Poți compara maxim 2 backup-uri — deselectează unul mai întâi', 'info');
-      // Revert checkbox
-      const cb = document.querySelector(`#backup-card-${id} input[type=checkbox]`);
-      if (cb) cb.checked = false;
-      return;
-    }
-    backupSelectedForCompare.push(id);
-  } else {
-    backupSelectedForCompare = backupSelectedForCompare.filter(x => x !== id);
-  }
-  document.querySelectorAll('.card[id^="backup-card-"]').forEach(c => {
-    const bid = c.id.replace('backup-card-','');
-    c.style.borderColor = backupSelectedForCompare.includes(bid) ? 'var(--accent-border)' : '';
-    c.style.background = backupSelectedForCompare.includes(bid) ? 'var(--accent-bg)' : '';
-  });
-  updateCompareBar();
-}
-
-function updateCompareBar() {
-  const bar = document.getElementById('backup-compare-bar');
-  if (!bar) return;
-  if (backupSelectedForCompare.length === 2) {
-    bar.style.display = 'flex';
-    bar.innerHTML = `
-      <span style="font-size:13px;font-weight:700;color:var(--accent)">🔍 2 backup-uri selectate</span>
-      <button class="btn btn-primary" style="font-size:12px;padding:7px 16px;margin-left:auto" onclick="compareSelectedBackups()">Compară</button>
-      <button class="btn btn-ghost" style="font-size:12px;padding:7px 14px" onclick="backupSelectedForCompare=[];renderBackupPage()">Anulează</button>`;
-  } else if (backupSelectedForCompare.length === 1) {
-    bar.style.display = 'flex';
-    bar.innerHTML = `<span style="font-size:12px;color:var(--text3)">Selectează încă un backup pentru a compara</span>`;
-  } else {
-    bar.style.display = 'none';
-    bar.innerHTML = '';
-  }
-}
-
-function previewBackup(id) {
-  const b = _cachedBackupsList.find(x => x.id === id);
-  if (!b) return;
-  const d = b.createdAt?.toDate ? b.createdAt.toDate() : new Date();
-
-  const topReclamatii = (b.data?.reclamatii || []).slice(0, 8);
-  const rezolvate = (b.data?.reclamatii||[]).filter(r=>r.status==='rezolvata').length;
-  const nerezolvate = (b.data?.reclamatii||[]).filter(r=>r.status==='nerezolvata').length;
-  const neprelucrat = (b.data?.reclamatii||[]).filter(r=>r.status==='neprelucrat').length;
-
-  const m = document.createElement('div');
-  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
-  m.onclick = e => { if(e.target===m) m.remove(); };
-  m.innerHTML = `
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:560px;max-height:80vh;display:flex;flex-direction:column">
-      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-        <div>
-          <div style="font-size:15px;font-weight:800">👁 Preview backup</div>
-          <div style="font-size:12px;color:var(--text3)">${d.toLocaleDateString('ro-RO')} ${d.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})} · ${motivLabel(b.motiv)}</div>
-        </div>
-        <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
-      </div>
-      <div style="padding:16px 20px;overflow-y:auto">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
-          <div style="background:var(--bg3);border-radius:8px;padding:10px;text-align:center">
-            <div style="font-size:18px;font-weight:800;color:var(--accent)">${b.counts?.reclamatii||0}</div>
-            <div style="font-size:10px;color:var(--text3)">Reclamații</div>
-          </div>
-          <div style="background:var(--bg3);border-radius:8px;padding:10px;text-align:center">
-            <div style="font-size:18px;font-weight:800;color:var(--accent)">${b.counts?.rechnunguri||0}</div>
-            <div style="font-size:10px;color:var(--text3)">Rechnunguri</div>
-          </div>
-          <div style="background:var(--bg3);border-radius:8px;padding:10px;text-align:center">
-            <div style="font-size:18px;font-weight:800;color:var(--accent)">${b.counts?.soferi||0}</div>
-            <div style="font-size:10px;color:var(--text3)">Șoferi</div>
-          </div>
-        </div>
-        <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
-          ✓ ${rezolvate} rezolvate · ✗ ${nerezolvate} nerezolvate · ⏳ ${neprelucrat} neprelucrate
-          ${b.sumaTotala?' · €'+b.sumaTotala.toFixed(2)+' facturat':''}
-        </div>
-        <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Primele reclamații din backup:</div>
-        <div style="display:flex;flex-direction:column;gap:4px">
-          ${topReclamatii.map(r => `<div style="font-size:12px;padding:6px 10px;background:var(--bg3);border-radius:6px">${r.numeClient||r.name||'—'} · T.${r.turaSofer||r.tour||'—'}</div>`).join('')}
-        </div>
-      </div>
-    </div>`;
-  document.body.appendChild(m);
-}
-
-function downloadBackupJSON(id) {
-  const b = _cachedBackupsList.find(x => x.id === id);
-  if (!b) return;
-  const d = b.createdAt?.toDate ? b.createdAt.toDate() : new Date();
-  const json = JSON.stringify(b.data, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `backup_reclamatii_${d.toISOString().slice(0,10)}_${id.slice(0,6)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// ── COMPARARE ──
-function compareSelectedBackups() {
-  if (backupSelectedForCompare.length !== 2) return;
-  const [idA, idB] = backupSelectedForCompare;
-  const bA = _cachedBackupsList.find(x=>x.id===idA);
-  const bB = _cachedBackupsList.find(x=>x.id===idB);
-  if (!bA || !bB) return;
-
-  // Sortam cronologic: vechi -> nou
-  const dA = bA.createdAt?.toDate ? bA.createdAt.toDate() : new Date(0);
-  const dB = bB.createdAt?.toDate ? bB.createdAt.toDate() : new Date(0);
-  const [older, newer] = dA <= dB ? [bA, bB] : [bB, bA];
-
-  const diff = computeBackupDiff(older, newer);
-  showBackupDiffModal(older, newer, diff);
-}
-
-function computeBackupDiff(older, newer) {
-  const oldIds = new Set((older.data?.reclamatii||[]).map(r=>r._id));
-  const newIds = new Set((newer.data?.reclamatii||[]).map(r=>r._id));
-  const oldMap = {}; (older.data?.reclamatii||[]).forEach(r => oldMap[r._id]=r);
-  const newMap = {}; (newer.data?.reclamatii||[]).forEach(r => newMap[r._id]=r);
-
-  const addedRecl = [...newIds].filter(id => !oldIds.has(id)).map(id => newMap[id]);
-  const removedRecl = [...oldIds].filter(id => !newIds.has(id)).map(id => oldMap[id]);
-  const statusChanged = [...newIds].filter(id => oldIds.has(id) && oldMap[id].status !== newMap[id].status)
-    .map(id => ({ recl: newMap[id], from: oldMap[id].status, to: newMap[id].status }));
-
-  const oldRechnIds = new Set((older.data?.rechnunguri||[]).map(r=>r._id));
-  const newRechnIds = new Set((newer.data?.rechnunguri||[]).map(r=>r._id));
-  const addedRechn = [...newRechnIds].filter(id => !oldRechnIds.has(id));
-  const removedRechn = [...oldRechnIds].filter(id => !newRechnIds.has(id));
-
-  return {
-    addedRecl, removedRecl, statusChanged,
-    addedRechnCount: addedRechn.length, removedRechnCount: removedRechn.length,
-    sumaDelta: (newer.sumaTotala||0) - (older.sumaTotala||0)
-  };
-}
-
-function showBackupDiffModal(older, newer, diff) {
-  const dOld = older.createdAt?.toDate ? older.createdAt.toDate() : new Date();
-  const dNew = newer.createdAt?.toDate ? newer.createdAt.toDate() : new Date();
-
-  const m = document.createElement('div');
-  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
-  m.onclick = e => { if(e.target===m) m.remove(); };
-  m.innerHTML = `
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:640px;max-height:85vh;display:flex;flex-direction:column">
-      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-        <div>
-          <div style="font-size:15px;font-weight:800">🔍 Comparare backup-uri</div>
-          <div style="font-size:12px;color:var(--text3)">
-            ${dOld.toLocaleDateString('ro-RO')} ${dOld.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}
-            → ${dNew.toLocaleDateString('ro-RO')} ${dNew.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}
-          </div>
-        </div>
-        <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
-      </div>
-      <div style="padding:16px 20px;overflow-y:auto">
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px">
-          <div style="background:var(--green-bg);border-radius:8px;padding:12px;text-align:center">
-            <div style="font-size:20px;font-weight:800;color:var(--green)">+${diff.addedRecl.length}</div>
-            <div style="font-size:11px;color:var(--text3)">Reclamații noi</div>
-          </div>
-          <div style="background:var(--red-bg);border-radius:8px;padding:12px;text-align:center">
-            <div style="font-size:20px;font-weight:800;color:var(--red)">-${diff.removedRecl.length}</div>
-            <div style="font-size:11px;color:var(--text3)">Reclamații șterse</div>
-          </div>
-        </div>
-        <div style="font-size:12px;color:var(--text3);margin-bottom:14px">
-          📄 ${diff.addedRechnCount} rechnung-uri noi ${diff.removedRechnCount>0?', '+diff.removedRechnCount+' șterse':''}
-          ${diff.sumaDelta !== 0 ? ' · Sumă: '+(diff.sumaDelta>0?'+':'')+'€'+diff.sumaDelta.toFixed(2) : ''}
-        </div>
-
-        ${diff.statusChanged.length > 0 ? `
-        <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Status schimbat (${diff.statusChanged.length}):</div>
-        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">
-          ${diff.statusChanged.slice(0,10).map(c => `<div style="font-size:12px;padding:6px 10px;background:var(--bg3);border-radius:6px;display:flex;justify-content:space-between">
-            <span>${c.recl.numeClient||c.recl.name||'—'}</span>
-            <span style="color:var(--text3)">${c.from} → <strong style="color:var(--accent)">${c.to}</strong></span>
-          </div>`).join('')}
-        </div>` : ''}
-
-        ${diff.addedRecl.length > 0 ? `
-        <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;margin-bottom:6px">Adăugate:</div>
-        <div style="display:flex;flex-direction:column;gap:4px">
-          ${diff.addedRecl.slice(0,10).map(r => `<div style="font-size:12px;padding:6px 10px;background:var(--green-bg);border-radius:6px">+ ${r.numeClient||r.name||'—'} · T.${r.turaSofer||r.tour||'—'}</div>`).join('')}
-          ${diff.addedRecl.length > 10 ? `<div style="font-size:11px;color:var(--text3);text-align:center;padding:4px">...și încă ${diff.addedRecl.length-10}</div>` : ''}
-        </div>` : ''}
-      </div>
-    </div>`;
-  document.body.appendChild(m);
-}
-
-// ── RESTAURARE ──
-async function restoreBackupById(id) {
-  const b = _cachedBackupsList.find(x => x.id === id);
-  if (!b) return;
-  const d = b.createdAt?.toDate ? b.createdAt.toDate() : new Date();
-  await performRestore(b.data, `backup din ${d.toLocaleDateString('ro-RO')} ${d.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}`);
-}
-
-async function restoreFromFile(file) {
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    try {
-      const parsed = JSON.parse(e.target.result);
-      // Acceptam atat formatul intern (backup.data) cat si cel exportat manual (exportBackup)
-      const data = parsed.reclamatii ? parsed : (parsed.data || parsed);
-      if (!data.reclamatii && !data.rechnunguri) {
-        toast('Fișierul nu pare a fi un backup valid', 'error');
-        return;
-      }
-      await performRestore(data, 'fișier extern (' + file.name + ')');
-    } catch(err) {
-      toast('Fișier invalid: ' + err.message, 'error');
-    }
-  };
-  reader.readAsText(file);
-}
-
-async function performRestore(data, sourceLabel) {
-  const nrRecl = (data.reclamatii||[]).length;
-  const nrRechn = (data.rechnunguri||[]).length;
-  const nrSof = (data.soferi||[]).length;
-
-  const ok1 = confirm(
-    `⚠️ RESTAURARE — ${sourceLabel}\n\n` +
-    `Se vor ÎNLOCUI datele curente cu:\n` +
-    `• ${nrRecl} reclamații\n• ${nrRechn} rechnunguri\n• ${nrSof} șoferi\n\n` +
-    `Datele curente vor fi ȘTERSE și înlocuite. Ești sigur?`
-  );
-  if (!ok1) return;
-
-  const ok2 = confirm('Confirmare finală: chiar vrei să restaurezi? Această acțiune nu poate fi anulată direct (dar se face un backup automat înainte, ca plasă de siguranță).');
-  if (!ok2) return;
-
-  const modal = document.createElement('div');
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center';
-  modal.innerHTML = `<div style="background:var(--bg2);border-radius:var(--radius);padding:28px;text-align:center;min-width:280px">
-    <div class="spinner" style="margin:0 auto 12px"></div>
-    <div id="restore-progress-text" style="font-size:13px;color:var(--text2)">Se pregătește restaurarea...</div>
-  </div>`;
-  document.body.appendChild(modal);
-  const progressText = document.getElementById('restore-progress-text');
-
-  try {
-    // Backup de siguranta INAINTE de restaurare
-    progressText.textContent = 'Se face backup de siguranță...';
-    await runFullBackup('restaurare', false);
-
-    // Stergem colectiile curente
-    progressText.textContent = 'Se șterg datele curente...';
-    for (const col of ['reclamatii','rechnunguri','soferi']) {
-      let snap = await db.collection(col).get();
-      while (!snap.empty) {
-        const batch = db.batch();
-        snap.docs.slice(0,400).forEach(d => batch.delete(d.ref));
-        await batch.commit();
-        snap = await db.collection(col).get();
-        if (snap.docs.length === 0) break;
-      }
-    }
-
-    // Rescriem datele din backup
-    progressText.textContent = 'Se restaurează datele...';
-    for (const [col, items] of [['reclamatii',data.reclamatii||[]], ['rechnunguri',data.rechnunguri||[]], ['soferi',data.soferi||[]]]) {
-      for (let i = 0; i < items.length; i += 400) {
-        const chunk = items.slice(i, i+400);
-        const batch = db.batch();
-        chunk.forEach(item => {
-          const { _id, ...rest } = item;
-          const ref = _id ? db.collection(col).doc(_id) : db.collection(col).doc();
-          batch.set(ref, rest);
-        });
-        await batch.commit();
-        progressText.textContent = `Se restaurează ${col}... ${Math.min(i+400,items.length)}/${items.length}`;
-      }
-    }
-
-    modal.remove();
-    toast('✓ Restaurare completă!');
-    renderBackupPage();
-    loadReclamatii();
-  } catch(e) {
-    modal.remove();
-    toast('Eroare la restaurare: ' + e.message, 'error');
-  }
-}
-
-
-async function exportBackup() {
-  const btn = document.getElementById('btn-backup');
-  if (btn) { btn.disabled = true; btn.textContent = 'Se exportă...'; }
-  try {
-    const [reclSnap, rechnSnap, soferiSnap, usersSnap] = await Promise.all([
-      db.collection('reclamatii').get(),
-      db.collection('rechnunguri').get(),
-      db.collection('soferi').get(),
-      db.collection('users').get(),
-    ]);
-
-    const backup = {
-      exportedAt: new Date().toISOString(),
-      exportedBy: currentUser?.name || 'unknown',
-      version: '1.0',
-      reclamatii: reclSnap.docs.map(d => ({ _id: d.id, ...d.data() })),
-      rechnunguri: rechnSnap.docs.map(d => ({ _id: d.id, ...d.data() })),
-      soferi: soferiSnap.docs.map(d => ({ _id: d.id, ...d.data() })),
-      users: usersSnap.docs.map(d => ({ _id: d.id, ...omit(d.data(), ['pinHash','pinHashV2']) })),
-    };
-
-    // Convertim Firestore Timestamps la ISO string
-    const stringify = (obj) => JSON.stringify(obj, (key, val) => {
-      if (val && typeof val === 'object' && val.toDate) return val.toDate().toISOString();
-      if (val && typeof val === 'object' && val.seconds !== undefined) return new Date(val.seconds*1000).toISOString();
-      return val;
-    }, 2);
-
-    const json = stringify(backup);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `backup_reclamatii_${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    toast(`✓ Backup exportat: ${backup.reclamatii.length} reclamații, ${backup.rechnunguri.length} rechnunguri, ${backup.soferi.length} șoferi`);
-  } catch(e) {
-    toast('Eroare la backup: ' + e.message, 'error');
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '💾 Backup JSON'; }
-  }
-}
 
 function omit(obj, keys) {
   const r = {...obj};
@@ -9447,100 +9983,178 @@ async function seedSoferi() {
   } catch(e) { toast('Eroare: ' + e.message, 'error'); btn.textContent = '⬆ Import lista'; btn.disabled = false; }
 }
 
+// ── permisiuni: Admin/Tania = tot; Raluca/Madalina (operator) = doar tura + Springer/Fix pentru soferii locatiei lor ──
+function canEditSofer(s) {
+  if (!s || !currentUser) return false;
+  if (canSeeAll(currentUser)) return true;
+  return currentUser.role === 'operator' && !!currentUser.location && s.locatie === currentUser.location;
+}
+const isAdminOnly = () => currentUser?.role === 'admin';
+
+let soferiFilter = 'toti';      // toti | fara_tura | fara_tip
+let soferiPtot = {}, soferiPtotLoaded = false, soferiShowHidden = false;
+function setSoferiFilter(f) { soferiFilter = f; renderSoferi(); }
+async function loadSoferiPtot() {
+  if (!canSeeAll(currentUser)) return;
+  try {
+    const pachSnap = await db.collection('pachete_livrate').get();
+    const ptot = {};
+    pachSnap.docs.forEach(d => { const p = d.data(); ptot[p.turaSofer] = (ptot[p.turaSofer] || 0) + (p.pachete || 0); });
+    soferiPtot = ptot; soferiPtotLoaded = true;
+  } catch (e) { console.warn('ptot:', e.message); soferiPtotLoaded = true; }
+}
+
+async function updSofer(id, patch) {
+  const s = allSoferi.find(x => x.id === id);
+  if (!s || !canEditSofer(s)) { toast('Nu ai drept să modifici acest șofer', 'error'); return false; }
+  // operatorii nu pot muta un sofer in alta locatie
+  if (!canSeeAll(currentUser)) delete patch.locatie;
+  Object.assign(s, patch);
+  try {
+    await db.collection('soferi').doc(id).update({ ...patch, updatedBy: currentUser?.name || '', updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    return true;
+  } catch (e) { toast('Eroare la salvare: ' + e.message, 'error'); return false; }
+}
+async function setSoferTuraInline(id, el) {
+  const s = allSoferi.find(x => x.id === id); if (!s) return;
+  const v = el.value.trim();
+  if (v === String(s.tura || '')) return;
+  if (v && !/^[0-9A-Za-z\-\/]{1,10}$/.test(v)) { toast('Tură invalidă (doar cifre/litere)', 'error'); el.value = s.tura || ''; return; }
+  const dup = v && allSoferi.find(x => x.id !== id && !x.arhivat && String(x.tura) === v);
+  if (dup && !confirm(`Tura ${v} e deja la ${dup.numeSofer}${dup.locatie ? ' (' + dup.locatie + ')' : ''}.\nO atribui și lui ${s.numeSofer}? (reclamațiile după nr. de tură vor fi comune)`)) { el.value = s.tura || ''; return; }
+  if (await updSofer(id, { tura: v })) { toast(v ? `✓ ${s.numeSofer} → tura ${v}` : `✓ Tura ștearsă pentru ${s.numeSofer}`); renderSoferi(); }
+}
+async function setSoferTipById(id, tip) {
+  const s = allSoferi.find(x => x.id === id); if (!s) return;
+  const nt = s.tipSofer === tip ? '' : tip;
+  if (await updSofer(id, { tipSofer: nt })) renderSoferi();
+}
+async function setSoferLocInline(id, loc) {
+  if (await updSofer(id, { locatie: loc })) { toast('✓ Locație: ' + (loc || '—')); renderSoferi(); }
+}
+async function ascundeSofer(id, hide) {
+  const s = allSoferi.find(x => x.id === id); if (!s || !canSeeAll(currentUser)) return;
+  if (hide && !confirm(`Ascunzi pe ${s.numeSofer}? (nu e șofer — rămâne în Angajați, doar nu mai apare aici; îl poți readuce oricând)`)) return;
+  if (await updSofer(id, { ascuns: !!hide })) renderSoferi();
+}
+
 async function renderSoferi() {
-  const snap = await db.collection('soferi').orderBy('numeSofer').get();
-  allSoferi = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const el = document.getElementById('soferi-list'); if (!el) return;
+  if (!soferiLoaded) { el.innerHTML = '<div class="loading-page"><div class="spinner"></div></div>'; setTimeout(() => { if (currentPage === 'soferi') renderSoferi(); }, 500); return; }
+  if (canSeeAll(currentUser) && !soferiPtotLoaded) { soferiPtotLoaded = true; loadSoferiPtot().then(() => { if (currentPage === 'soferi') renderSoferi(); }); }
+  updateAngStatusUI();
 
-  const pachSnap = await db.collection('pachete_livrate').get();
-  const ptot = {};
-  pachSnap.docs.forEach(d => { const p = d.data(); ptot[p.turaSofer] = (ptot[p.turaSofer]||0) + (p.pachete||0); });
-
+  const canAdm = canSeeAll(currentUser);
   const search = (document.getElementById('soferi-search-input')?.value || '').toLowerCase();
-  const filtered = allSoferi
-    .filter(s => !s.arhivat)
-    .filter(s => !search || s.numeSofer.toLowerCase().includes(search) || (s.tura||'').includes(search));
+  // vizibilitate: operatorii vad doar locatia lor
+  const visible = allSoferi.filter(s => canAdm || (s.locatie && s.locatie === currentUser?.location));
+  const active = visible.filter(s => !s.arhivat && !s.ascuns);
+  const hidden = visible.filter(s => !s.arhivat && s.ascuns);
+  let filtered = active.filter(s => !search || (s.numeSofer || '').toLowerCase().includes(search) || String(s.tura || '').includes(search));
+  if (soferiFilter === 'fara_tura') filtered = filtered.filter(s => !s.tura);
+  if (soferiFilter === 'fara_tip') filtered = filtered.filter(s => !s.tipSofer);
 
-  // Aratam butonul de Arhiva doar daca exista soferi arhivati
   const arhBtn = document.getElementById('soferi-arhiva-btn');
-  if (arhBtn) {
-    const nrArhivati = allSoferi.filter(s=>s.arhivat).length;
-    arhBtn.style.display = nrArhivati > 0 ? 'flex' : 'none';
-    arhBtn.textContent = '📦 Arhivă (' + nrArhivati + ')';
-  }
-
+  const nrArh = visible.filter(s => s.arhivat).length;
+  if (arhBtn) { arhBtn.style.display = nrArh > 0 && isAdminOnly() ? 'flex' : 'none'; arhBtn.textContent = '📦 Arhivă (' + nrArh + ')'; }
+  const nNou = active.filter(s => !s.locatie).length;
   document.getElementById('soferi-count').textContent =
-    allSoferi.length + ' soferi · ' + allSoferi.filter(s=>s.tura).length + ' cu tura atribuita';
+    `${active.length} șoferi · ${active.filter(s => s.tura).length} cu tură · ${active.filter(s => s.tipSofer === 'springer').length} springeri · ${active.filter(s => s.tipSofer === 'fix').length} ture fixe` + (nNou ? ` · ${nNou} neatribuiți` : '');
+  const seedBtn = document.getElementById('btn-seed'); if (seedBtn) seedBtn.style.display = allSoferi.length === 0 && canAdm ? 'flex' : 'none';
+  const searchBar = document.getElementById('soferi-search'); if (searchBar) searchBar.style.display = visible.length > 0 ? 'block' : 'none';
+  const chips = document.getElementById('soferi-filter-chips');
+  if (chips) chips.innerHTML = [['toti', 'Toți'], ['fara_tura', 'Fără tură'], ['fara_tip', 'Fără tip (Fix/Springer)']].map(([k, l]) =>
+    `<button class="filter-btn ${soferiFilter === k ? 'active' : ''}" onclick="setSoferiFilter('${k}')">${l}</button>`).join('');
+  const newBtn = document.getElementById('btn-sofer-nou'); if (newBtn) newBtn.style.display = canAdm ? '' : 'none';
+  const syncBtn = document.getElementById('btn-sync-ang'); if (syncBtn) syncBtn.style.display = canAdm ? '' : 'none';
+  const pachBtn = document.getElementById('btn-sofer-pachete'); if (pachBtn) pachBtn.style.display = canAdm ? '' : 'none';
 
-  const seedBtn = document.getElementById('btn-seed');
-  if (seedBtn) seedBtn.style.display = allSoferi.length === 0 ? 'flex' : 'none';
-  const searchBar = document.getElementById('soferi-search');
-  if (searchBar) searchBar.style.display = allSoferi.length > 0 ? 'block' : 'none';
-
-  const el = document.getElementById('soferi-list');
-  if (allSoferi.length === 0) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0z"/></svg></div><div class="empty-title">Niciun sofer</div><div class="empty-sub">Apasa Import lista pentru a adauga toti soferii</div></div>';
+  if (visible.length === 0) {
+    el.innerHTML = '<div class="empty"><div class="empty-title">Niciun șofer</div><div class="empty-sub">' + (canAdm ? 'Persoanele din aplicația Angajați apar aici automat, imediat ce sunt adăugate.' : 'Nu ai încă șoferi atribuiți locației tale.') + '</div></div>';
     return;
   }
 
-  const soferCard = s => `
-    <div class="card card-sm" style="display:flex;align-items:center;gap:10px;padding:10px 12px;${s.arhivat?'opacity:0.55':''}">
-      <div style="width:38px;height:38px;background:${s.tura?'var(--accent-bg)':'var(--bg3)'};border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;color:${s.tura?'var(--accent)':'var(--text3)'};flex-shrink:0;border:1px solid ${s.tura?'var(--accent-border)':'var(--border)'}">${s.tura||'—'}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px">
-          ${s.numeSofer}
-          ${s.arhivat ? '<span class="badge badge-gray" style="font-size:9px">📦 arhivat</span>' : ''}
+  const segBtn = (s, tip, label, col, can) => `<button ${can ? `onclick="setSoferTipById('${s.id}','${tip}')"` : 'disabled'} style="border:1px solid ${s.tipSofer === tip ? col : 'var(--border)'};background:${s.tipSofer === tip ? col : 'transparent'};color:${s.tipSofer === tip ? '#fff' : 'var(--text2)'};border-radius:6px;padding:4px 9px;font-size:11px;font-weight:700;cursor:${can ? 'pointer' : 'default'}">${label}</button>`;
+  const iconBtn = (cls, onclick, title, path) => `<button class="icon-btn ${cls}" onclick="${onclick}" title="${title}"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">${path}</svg></button>`;
+  const P_EDIT = '<path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>';
+  const P_ARH = '<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6.75 4.5l3-3m0 0l3 3m-3-3v6m-9-13.5h18c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125H3.375c-.621 0-1.125-.504-1.125-1.125v-1.5c0-.621.504-1.125 1.125-1.125z"/>';
+  const P_DEL = '<path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>';
+
+  const soferCard = (s, isHiddenList) => {
+    const can = canEditSofer(s);
+    const linked = !!s.angajatId;
+    const nm = _esc(s.numeSofer || '');
+    return `
+    <div class="card card-sm" style="padding:10px 12px;${!s.locatie && !isHiddenList ? 'border-color:var(--accent-border);background:var(--accent-bg)' : ''}${isHiddenList ? ';opacity:0.7' : ''}">
+      <div style="display:flex;align-items:center;gap:10px">
+        <input value="${_esc(s.tura || '')}" ${can ? `onchange="setSoferTuraInline('${s.id}',this)" onkeydown="if(event.key==='Enter')this.blur()"` : 'disabled'} placeholder="tură" title="Număr tură" style="width:62px;flex-shrink:0;text-align:center;font-family:var(--mono);font-weight:800;font-size:14px;padding:8px 4px;border-radius:9px;border:1px solid ${s.tura ? 'var(--accent-border)' : 'var(--border)'};background:${s.tura ? 'var(--accent-bg)' : 'var(--bg3)'};color:${s.tura ? 'var(--accent)' : 'var(--text3)'}"/>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${nm}">${nm}${linked ? ' <span title="Sincronizat din aplicația Angajați" style="font-size:10px;color:var(--text3)">🔗</span>' : ''}${s.stersDinAngajati ? ' <span class="badge badge-gray" style="font-size:9px">șters din Angajați</span>' : ''}</div>
+          <div style="font-size:11px;color:var(--text3)">${s.tura ? 'Tura ' + _esc(s.tura) : '<span style="color:var(--accent)">fără tură</span>'}${soferiPtot[s.tura] ? ' · ' + soferiPtot[s.tura].toLocaleString() + ' pachete' : ''}</div>
         </div>
-        <div style="font-size:11px;color:var(--text3)">${s.tura ? 'Tura '+s.tura : '<span style="color:var(--accent);font-size:10px">Seteaza tura</span>'}${ptot[s.tura]?' · '+ptot[s.tura].toLocaleString()+' pachete':''}</div>
+        <div class="sofer-actions">
+          ${can && canSeeAll(currentUser) ? iconBtn('', `editSofer('${s.id}')`, 'Editează', P_EDIT) : ''}
+          ${isHiddenList ? `<button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="ascundeSofer('${s.id}',false)">↺ Readu</button>` : ''}
+          ${isAdminOnly() && !isHiddenList ? iconBtn('', `toggleArhivareSofer('${s.id}',true)`, 'Arhivează', P_ARH) : ''}
+          ${isAdminOnly() && !linked ? iconBtn('red', `deleteSofer('${s.id}','${nm.replace(/'/g, "\\'")}')`, 'Șterge definitiv', P_DEL) : ''}
+        </div>
       </div>
-      <div class="sofer-actions">
-        <button class="icon-btn" onclick="toggleArhivareSofer('${s.id}',${!s.arhivat})" title="${s.arhivat?'Dezarhivează':'Arhivează'}">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">${s.arhivat
-            ? '<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>'
-            : '<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6.75 4.5l3-3m0 0l3 3m-3-3v6m-9-13.5h18c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125H3.375c-.621 0-1.125-.504-1.125-1.125v-1.5c0-.621.504-1.125 1.125-1.125z"/>'}</svg>
-        </button>
-        <button class="icon-btn" onclick="editSofer('${s.id}')" title="Editeaza"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg></button>
-        <button class="icon-btn red" onclick="deleteSofer('${s.id}','${s.numeSofer}')" title="Sterge definitiv"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg></button>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px">
+        ${canSeeAll(currentUser)
+          ? `<select onchange="setSoferLocInline('${s.id}',this.value)" style="font-size:11px;padding:5px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text)"><option value="">— locație —</option><option value="Ruhstorf" ${s.locatie === 'Ruhstorf' ? 'selected' : ''}>Ruhstorf</option><option value="Eiselfing" ${s.locatie === 'Eiselfing' ? 'selected' : ''}>Eiselfing</option></select>`
+          : `<span style="font-size:11px;color:var(--text3)">${_esc(s.locatie || '')}</span>`}
+        ${segBtn(s, 'fix', 'Tură fixă', '#3b82f6', can)}${segBtn(s, 'springer', 'Springer', '#8b5cf6', can)}
+        ${canSeeAll(currentUser) && !s.locatie && !isHiddenList ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px;margin-left:auto" onclick="ascundeSofer('${s.id}',true)" title="Nu e șofer (ex: birou, sortator)">🙈 Nu e șofer</button>` : ''}
       </div>
     </div>`;
+  };
 
-  const groupHTML = (title, color, list) => !list.length ? '' : `
-    <div style="margin-bottom:20px">
+  const groupHTML = (title, color, list, extra) => !list.length ? '' : `
+    <div style="margin-bottom:18px">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:${color};margin-bottom:8px;display:flex;align-items:center;gap:6px">
-        <span style="width:6px;height:6px;background:${color};border-radius:50%;display:inline-block"></span>
-        ${title} · ${list.length} soferi
-        ${list.filter(s=>!s.tura).length > 0 ? '<span style="color:var(--accent);font-weight:400;font-size:10px">('+list.filter(s=>!s.tura).length+' fara tura)</span>' : ''}
+        <span style="width:6px;height:6px;background:${color};border-radius:50%;display:inline-block"></span>${title} · ${list.length}
+        ${list.filter(s => !s.tura).length ? `<span style="color:var(--accent);font-weight:400;font-size:10px">(${list.filter(s => !s.tura).length} fără tură)</span>` : ''}
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:8px">
-        ${list.map(soferCard).join('')}
-      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:8px">${list.map(s => soferCard(s, false)).join('')}</div>
     </div>`;
 
+  const nou = filtered.filter(s => !s.locatie);
   el.innerHTML =
-    groupHTML('Ruhstorf', '#34d399', filtered.filter(s=>s.locatie==='Ruhstorf')) +
-    groupHTML('Eiselfing', '#a78bfa', filtered.filter(s=>s.locatie==='Eiselfing'));
+    (canAdm ? groupHTML('🆕 Neatribuiți — din Angajați (alege locația, tura, Fix/Springer)', 'var(--accent)', nou) : '') +
+    groupHTML('Ruhstorf', '#34d399', filtered.filter(s => s.locatie === 'Ruhstorf')) +
+    groupHTML('Eiselfing', '#a78bfa', filtered.filter(s => s.locatie === 'Eiselfing')) +
+    (!filtered.length ? '<div class="empty"><div class="empty-title">Niciun rezultat</div></div>' : '') +
+    (canAdm && hidden.length ? `
+      <div style="margin-top:8px"><button class="btn btn-ghost" style="font-size:12px" onclick="soferiShowHidden=!soferiShowHidden;renderSoferi()">🙈 Ascunși — nu sunt șoferi (${hidden.length}) ${soferiShowHidden ? '▲' : '▼'}</button>
+      ${soferiShowHidden ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:8px;margin-top:10px">${hidden.map(s => soferCard(s, true)).join('')}</div>` : ''}</div>` : '');
 }
 
 function toggleSoferForm(data) {
   const el = document.getElementById('sofer-form');
   if (el.style.display==='block' && !data) { el.style.display='none'; editSoferId=null; return; }
   editSoferId = data?.id || null;
+  const linked = !!data?.angajatId;
   el.style.display = 'block';
   el.innerHTML = `
     <div class="form-panel" style="margin-bottom:16px">
-      <div class="form-panel-title">${editSoferId ? 'Editeaza sofer' : 'Sofer nou'}</div>
+      <div class="form-panel-title">${editSoferId ? 'Editează șofer' : 'Șofer nou'}</div>
       <div class="form-grid">
-        <div class="form-group"><label>Numar tura</label><input id="sf-tura" value="${data?.tura||''}" placeholder="ex: 532 (completezi dupa)"/></div>
-        <div class="form-group"><label>Nume si prenume<span class="req">*</span></label><input id="sf-name" value="${data?.numeSofer||''}" placeholder="Nume Prenume"/></div>
-        <div class="form-group"><label>Locatie<span class="req">*</span></label>
+        <div class="form-group"><label>Număr tură</label><input id="sf-tura" value="${_esc(data?.tura||'')}" placeholder="ex: 532 (completezi după)"/></div>
+        <div class="form-group"><label>Nume și prenume<span class="req">*</span></label><input id="sf-name" value="${_esc(data?.numeSofer||'')}" placeholder="Nume Prenume" ${linked?'readonly style="opacity:0.7"':''}/>${linked?'<div style="font-size:10px;color:var(--text3);margin-top:3px">🔗 Numele se schimbă din aplicația Angajați</div>':''}</div>
+        <div class="form-group"><label>Locație<span class="req">*</span></label>
           <select id="sf-loc">
-            <option value="Ruhstorf" ${(data?.locatie||'Ruhstorf')==='Ruhstorf'?'selected':''}>Ruhstorf</option>
+            <option value="" ${!data?.locatie && editSoferId?'selected':''}>— neatribuit —</option>
+            <option value="Ruhstorf" ${(data?.locatie||(editSoferId?'':'Ruhstorf'))==='Ruhstorf'?'selected':''}>Ruhstorf</option>
             <option value="Eiselfing" ${data?.locatie==='Eiselfing'?'selected':''}>Eiselfing</option>
           </select>
         </div>
+        <div class="form-group"><label>Tip</label>
+          <select id="sf-tip"><option value="">— nesetat —</option><option value="fix" ${data?.tipSofer==='fix'?'selected':''}>Tură fixă</option><option value="springer" ${data?.tipSofer==='springer'?'selected':''}>Springer</option></select>
+        </div>
       </div>
       <div style="display:flex;gap:8px;margin-top:16px">
-        <button class="btn btn-primary" onclick="saveSofer()">${editSoferId?'Salveaza':'Adauga'}</button>
-        <button class="btn btn-ghost" onclick="toggleSoferForm()">Anuleaza</button>
+        <button class="btn btn-primary" onclick="saveSofer()">${editSoferId?'Salvează':'Adaugă'}</button>
+        <button class="btn btn-ghost" onclick="toggleSoferForm()">Anulează</button>
       </div>
     </div>`;
   el.scrollIntoView({ behavior:'smooth', block:'nearest' });
@@ -9819,11 +10433,13 @@ async function handleAbliefererFile(file) {
 async function saveSofer() {
   const name = document.getElementById('sf-name').value.trim();
   if (!name) { toast('Completeaza numele', 'error'); return; }
-  const payload = { tura: document.getElementById('sf-tura').value.trim(), numeSofer: name, locatie: document.getElementById('sf-loc').value, angajatDe: document.getElementById('sf-angajat')?.value||'' };
+  const cur = editSoferId ? allSoferi.find(x => x.id === editSoferId) : null;
+  const payload = { tura: document.getElementById('sf-tura').value.trim(), numeSofer: cur?.angajatId ? cur.numeSofer : name, locatie: document.getElementById('sf-loc').value, tipSofer: document.getElementById('sf-tip')?.value || '' };
+  if (!payload.locatie && !editSoferId) { toast('Alege locația', 'error'); return; }
   try {
-    if (editSoferId) { await db.collection('soferi').doc(editSoferId).update(payload); toast('Sofer actualizat'); }
-    else { payload.createdAt = firebase.firestore.FieldValue.serverTimestamp(); await db.collection('soferi').add(payload); toast('Sofer adaugat'); }
-    toggleSoferForm(); editSoferId = null; renderSoferi();
+    if (editSoferId) { await db.collection('soferi').doc(editSoferId).update(payload); toast('Șofer actualizat'); }
+    else { payload.createdAt = firebase.firestore.FieldValue.serverTimestamp(); await db.collection('soferi').add(payload); toast('Șofer adăugat'); }
+    toggleSoferForm(); editSoferId = null;
   } catch(e) { toast('Eroare: '+e.message,'error'); }
 }
 
@@ -10780,7 +11396,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.13.1</span>
+  <span id="version-badge-text">v5.16.1</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
