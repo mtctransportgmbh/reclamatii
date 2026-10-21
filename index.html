@@ -814,7 +814,7 @@ textarea{resize:vertical;min-height:80px}
           <button class="stats-tab" data-tab="general" onclick="switchStatsTab('general',this)">📊 General</button>
           <button class="stats-tab" data-tab="soferi" onclick="switchStatsTab('soferi',this)">🚚 Per șofer</button>
           <button class="stats-tab" data-tab="topsoferi" onclick="switchStatsTab('topsoferi',this)">🏆 Top șoferi</button>
-          <button class="stats-tab" data-tab="tipuri" onclick="switchStatsTab('tipuri',this)">🔀 Fix · Springer · Paketshop</button>
+          <button class="stats-tab" data-tab="tipuri" onclick="switchStatsTab('tipuri',this)">🔀 Springer vs Fix</button>
           <button class="stats-tab" data-tab="persoane" onclick="switchStatsTab('persoane',this)">👤 Per client</button>
           <button class="stats-tab" data-tab="zile" onclick="switchStatsTab('zile',this)">📅 Per zi / lună</button>
           <button class="stats-tab" data-tab="lunar" onclick="switchStatsTab('lunar',this)">📆 Lunar detaliat</button>
@@ -1099,7 +1099,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.17.1';
+const APP_VERSION = '5.17.2';
 const APP_VERSION_DATE = '21.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -5893,12 +5893,12 @@ function renderStatsTipuri(d) {
              medie: list.length ? recl/list.length : 0, top: ranked.slice(0, TOPN),
              vechimeMedie: vt.length ? vt.reduce((s,x)=>s+x.vechimeAni,0)/vt.length : null };
   };
-  const fix = mkCat('fix'), spr = mkCat('springer'), pks = mkCat('paketshop');
+  const fix = mkCat('fix'), spr = mkCat('springer');
   const necl = withTip.filter(x => !x.tip);
 
-  let verdict = '<div style="color:var(--text3)">Clasifică șoferii mai jos (Fix / Springer / Paketshop) ca să apară comparația.</div>';
-  const nmOf = { fix: 'Turele fixe', springer: 'Springerii', paketshop: 'Paketshop' };
-  const cats = [fix, spr, pks].filter(c => c.list.length && (noPackages ? true : c.pachete));
+  let verdict = '<div style="color:var(--text3)">Clasifică șoferii mai jos (Fix / Springer) ca să apară comparația. Paketshop e doar o etichetă, nu intră în comparație.</div>';
+  const nmOf = { fix: 'Turele fixe', springer: 'Springerii' };
+  const cats = [fix, spr].filter(c => c.list.length && (noPackages ? true : c.pachete));
   if (cats.length >= 2) {
     const key = (c) => noPackages ? c.medie : c.per1000;
     const ord = [...cats].sort((a, b) => key(b) - key(a));
@@ -5949,7 +5949,6 @@ function renderStatsTipuri(d) {
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:14px">
       ${catCard(fix, '📍 Ture fixe', '#60a5fa', 'rgba(96,165,250,0.06)')}
       ${catCard(spr, '🔀 Springeri', '#a78bfa', 'rgba(167,139,250,0.06)')}
-      ${catCard(pks, '📦 Paketshop', '#f59e0b', 'rgba(245,158,11,0.06)')}
     </div>
     <div class="card" style="padding:14px 16px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
@@ -9302,7 +9301,7 @@ async function renderGithubList() {
     const cs = body.commits || [];
     window._ghCommits = cs;
     const warn = (body.private === false ? `<div class="card" style="margin-bottom:10px;border-color:var(--red);background:var(--red-bg)"><div style="font-weight:800;color:var(--red);font-size:13px">🚨 Repo-ul de backup este PUBLIC — oricine poate vedea datele</div><div style="font-size:12px;color:var(--text2);margin-top:4px">GitHub → repo-ul de backup → Settings → Danger Zone → Change repository visibility → Make private. Serverul refuză să mai facă backup cât timp e public.</div></div>` : '')
-      + (body.encrypted === false ? `<div class="card" style="margin-bottom:10px;border-color:#f59e0b"><div style="font-weight:800;font-size:13px">🔑 Lipsește cheia de criptare pe server (BACKUP_ENCRYPTION_KEY) — backup-ul nu se face până nu o pui pe Render</div></div>` : '');
+      + (body.encrypted === false ? `<div class="card" style="margin-bottom:10px;border-color:#f59e0b"><div style="font-weight:800;font-size:13px">🔑 Serverul nu poate folosi cheia de criptare: ${body.keyState === 'missing' ? 'variabila BACKUP_ENCRYPTION_KEY nu există pe server (verifică numele exact și că serverul a repornit)' : /^short/.test(body.keyState || '') ? 'cheia are doar ' + String(body.keyState).split(':')[1] + ' caractere (minim 24)' : 'verifică BACKUP_ENCRYPTION_KEY pe Render'}</div></div>` : '');
     if (!cs.length) { el.innerHTML = warn; return; }
     el.innerHTML = warn + `<div style="font-size:12px;font-weight:800;margin:2px 2px 8px">🐙 Backup-uri în GitHub (${cs.length}) <span style="font-weight:500;color:var(--text3)">· ${_esc(body.repo || '')}</span></div>` +
       cs.map((c, i) => `<div class="card" style="margin-bottom:8px">
@@ -11750,7 +11749,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.17.1</span>
+  <span id="version-badge-text">v5.17.2</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
