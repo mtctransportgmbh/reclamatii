@@ -890,6 +890,8 @@ textarea{resize:vertical;min-height:80px}
             </button>
           </div>
         </div>
+        <div id="ang-sync-help"></div>
+        <div id="ang-sync-summary"></div>
         <div id="sofer-form" style="display:none"></div>
         <div id="pachete-form" style="display:none"></div>
         <div id="soferi-search" style="margin-bottom:12px;display:none">
@@ -1001,6 +1003,7 @@ textarea{resize:vertical;min-height:80px}
         </div>
 
         <div id="backup-github-card" class="card" style="margin-bottom:12px"></div>
+        <div id="backup-github-list" style="margin-bottom:16px"></div>
         <div id="backup-status-card" class="card" style="margin-bottom:16px"></div>
 
         <div id="backup-compare-bar" style="display:none;margin-bottom:14px;padding:12px 16px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:var(--radius-sm);align-items:center;gap:12px"></div>
@@ -1096,7 +1099,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '5.16.1';
+const APP_VERSION = '5.16.5';
 const APP_VERSION_DATE = '21.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -2352,6 +2355,7 @@ const ANG_FIREBASE_CONFIG = {
 };
 let angDb = null, angUnsub = null, angajatiDocs = null, angFromServer = false;
 let angStatus = { state: 'off', n: 0, err: '' };
+let angLastCheck = null;
 let soferiUnsub = null, soferiLoaded = false;
 let _reconTimer = null, _reconRunning = false, _angToastedErr = false;
 
@@ -2364,35 +2368,132 @@ function angFullName(d) {
 const _nameKey = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ß/g, 'ss')
   .replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
 
+// Metoda principala (ca la Concedii): aplicatia Angajati copiaza lista minima in documentul angajati_sync/list
+// din Firestore-ul acestei aplicatii; Reclamatii doar il asculta live. Fara reguli de modificat in proiectul Angajati.
+let _angDocUnsub = null, _angDocActive = false, _angFallbackStarted = false, _angDocMeta = null;
+function angItemName(it) {
+  if (!it || typeof it !== 'object') return '';
+  const g = (...ks) => { for (const k of ks) { const v = it[k]; if (typeof v === 'string' && v.trim()) return v.trim().replace(/\s+/g, ' '); } return ''; };
+  const full = g('nume', 'name', 'nume_complet', 'numeComplet', 'fullName', 'displayName');
+  if (full) return full;
+  return [g('numeFamilie', 'lastName', 'familie', 'nume'), g('prenume', 'firstName')].filter(Boolean).join(' ');
+}
 function startAngajatiSync() {
-  if (angUnsub || !currentUser || currentUser.role === 'corina') return;
+  if (_angDocUnsub || angUnsub || _angPoll || !currentUser || currentUser.role === 'corina') return;
+  angStatus = { state: 'connecting', n: 0, err: '' };
+  try {
+    _angDocUnsub = db.collection('angajati_sync').doc('list').onSnapshot(snap => {
+      const d = snap.exists ? snap.data() : null;
+      const arr = d && (d.items || d.list || d.angajati || d.people || d.persoane);
+      if (Array.isArray(arr) && arr.length) {
+        if (!_angDocActive) {                     // sursa principala a preluat controlul: oprim variantele de rezerva
+          _angDocActive = true;
+          try { angUnsub && angUnsub(); } catch (e) {} angUnsub = null;
+          try { clearInterval(_angPoll); } catch (e) {} _angPoll = null; _angViaServer = false;
+        }
+        _angDocMeta = d.updatedAt && d.updatedAt.toDate ? d.updatedAt.toDate() : null;
+        const list = arr.map(it => ({ id: String(it.id || it.angajatId || it.uid || ''), name: angItemName(it), raw: it })).filter(a => a.id && a.name);
+        applyAngajatiDocs(list, !snap.metadata.fromCache);
+      } else if (!_angDocActive && !_angFallbackStarted) {
+        _angFallbackStarted = true;               // documentul nu exista inca -> rezerva: citire directa / prin server
+        startAngajatiDirect();
+      }
+    }, err => {
+      console.warn('angajati_sync/list:', err);
+      if (!_angFallbackStarted) { _angFallbackStarted = true; startAngajatiDirect(); }
+    });
+  } catch (e) { startAngajatiDirect(); }
+}
+function startAngajatiDirect() {
+  if (angUnsub || _angPoll || !currentUser || currentUser.role === 'corina') return;
   try {
     let app; try { app = firebase.app('angajati'); } catch (e) { app = firebase.initializeApp(ANG_FIREBASE_CONFIG, 'angajati'); }
     angDb = app.firestore();
     angStatus = { state: 'connecting', n: 0, err: '' };
     angUnsub = angDb.collection('angajati').onSnapshot(snap => {
-      angFromServer = !snap.metadata.fromCache;
-      angajatiDocs = snap.docs.map(d => ({ id: d.id, name: angFullName(d.data()), raw: d.data() })).filter(a => a.name);
-      angStatus = { state: 'live', n: angajatiDocs.length, err: '' };
-      updateAngStatusUI();
-      scheduleReconcile();
+      applyAngajatiDocs(snap.docs.map(d => ({ id: d.id, name: angFullName(d.data()), raw: d.data() })).filter(a => a.name), !snap.metadata.fromCache);
     }, err => {
+      console.warn('Sync Angajati (direct):', err);
+      try { angUnsub && angUnsub(); } catch (e) {} angUnsub = null;
+      if (err.code === 'permission-denied') { startAngajatiViaServer(); return; }   // regulile din Angajati nu permit -> citim prin server
       angStatus = { state: 'error', n: 0, err: err.code || err.message };
       updateAngStatusUI();
-      console.warn('Sync Angajati:', err);
-      if (!_angToastedErr && canSeeAll(currentUser)) { _angToastedErr = true; toast('Sincronizare Angajați: ' + (err.code === 'permission-denied' ? 'permisiuni lipsă (Rules pe angajati-f1b01)' : err.message), 'error'); }
+      if (!_angToastedErr && canSeeAll(currentUser)) { _angToastedErr = true; toast('Sincronizare Angajați: ' + err.message, 'error'); }
     });
   } catch (e) { angStatus = { state: 'error', n: 0, err: e.message }; updateAngStatusUI(); }
 }
+let _angPoll = null, _angViaServer = false;
+function applyAngajatiDocs(list, fromServer) {
+  const ch = JSON.stringify(list.map(a => [a.id, a.name]));
+  const changed = ch !== applyAngajatiDocs._last; applyAngajatiDocs._last = ch;
+  angFromServer = fromServer;
+  angajatiDocs = list;
+  angStatus = { state: 'live', n: list.length, err: '' };
+  if (fromServer) angLastCheck = new Date();
+  updateAngStatusUI();
+  if (changed) scheduleReconcile();
+  onSoferiChanged();
+}
+async function pullAngajatiFromServer(manual) {
+  if (!currentUser || !firebase.auth().currentUser) return;
+  try {
+    const fu = firebase.auth().currentUser;
+    const idToken = await fu.getIdToken(false);
+    const { resp, body } = await authPost('/angajati/list', {}, { headers: { 'Authorization': 'Bearer ' + idToken }, attempts: 3, timeoutMs: 30000 });
+    if (!resp.ok) {
+      const why = body.error === 'not_configured' ? 'server_not_configured' : (body.detail || body.reason || body.error || ('HTTP ' + resp.status));
+      angStatus = { state: 'error', n: 0, err: why };
+      updateAngStatusUI();
+      if (!_angToastedErr && canSeeAll(currentUser)) { _angToastedErr = true; toast('Sincronizare Angajați: ' + (body.error === 'not_configured' ? 'serverul nu are încă cheia proiectului Angajați' : why), 'error'); }
+      return;
+    }
+    const list = (body.docs || []).map(d => ({ id: d.id, name: angFullName(d.data || {}), raw: d.data || {} })).filter(a => a.name);
+    applyAngajatiDocs(list, true);
+  } catch (e) {
+    console.warn('pullAngajatiFromServer:', e);
+    if (manual) toast('Nu pot citi Angajați acum: ' + e.message, 'error');
+  }
+}
+function startAngajatiViaServer() {
+  if (_angPoll || !currentUser || currentUser.role === 'corina') return;
+  _angViaServer = true;
+  angStatus = { state: 'connecting', n: 0, err: '' }; updateAngStatusUI();
+  pullAngajatiFromServer();
+  _angPoll = setInterval(() => { if (!document.hidden) pullAngajatiFromServer(); }, 20000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && _angPoll) pullAngajatiFromServer(); });
+}
 function stopAngajatiSync() {
+  try { _angDocUnsub && _angDocUnsub(); } catch (e) {} _angDocUnsub = null; _angDocActive = false; _angFallbackStarted = false;
+  try { clearInterval(_angPoll); } catch (e) {} _angPoll = null; _angViaServer = false;
   try { angUnsub && angUnsub(); } catch (e) {}
   try { soferiUnsub && soferiUnsub(); } catch (e) {}
   angUnsub = null; soferiUnsub = null; angajatiDocs = null; soferiLoaded = false; angStatus = { state: 'off', n: 0, err: '' };
 }
+function updateAngHelp() {
+  const el = document.getElementById('ang-sync-help'); if (!el) return;
+  if (!(canSeeAll(currentUser) && angStatus.state === 'error' && /server_not_configured/.test(angStatus.err))) {
+    if (canSeeAll(currentUser) && angStatus.state === 'error' && _angViaServer) { el.innerHTML = `<div class="card" style="margin-bottom:14px;border-color:var(--red)"><div style="font-weight:800;font-size:13px;color:var(--red)">Serverul nu poate citi Angajați</div><div style="font-size:12px;color:var(--text2);margin-top:4px">${_esc(angStatus.err)}</div></div>`; }
+    else el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = `<div class="card" style="margin-bottom:14px;border-color:#f59e0b">
+    <div style="font-weight:800;font-size:13px;margin-bottom:6px">🔑 Mai e un singur pas: dă serverului acces de citire la Angajați (fără să atingi regulile)</div>
+    <ol style="font-size:12px;line-height:1.75;padding-left:18px;color:var(--text2)">
+      <li>Deschide <b>console.firebase.google.com</b> → proiectul <b>angajati-f1b01</b>.</li>
+      <li>Roata dințată ⚙ de lângă „Project Overview” → <b>Project settings</b> → tab-ul <b>Service accounts</b>.</li>
+      <li>Apasă <b>Generate new private key</b> → <b>Generate key</b>. Se descarcă un fișier <code>.json</code>.</li>
+      <li>Deschide fișierul cu Notepad, selectează <b>tot</b> textul (Ctrl+A) și copiază-l (Ctrl+C).</li>
+      <li>Mergi pe <b>render.com</b> → serviciul serverului → <b>Environment</b> → <b>Add Environment Variable</b>:<br>
+        Key: <code>ANGAJATI_SERVICE_ACCOUNT_JSON</code> &nbsp; Value: lipește textul copiat → <b>Save Changes</b>. Serverul repornește singur.</li>
+      <li>Revino aici și apasă „🔄 Sincronizează”. Nu schimbi nicio regulă în Angajați.</li>
+    </ol>
+    <div style="font-size:11px;color:var(--text3)">Cheia dă doar acces pentru server; nu o trimite nimănui și nu o pune în GitHub.</div></div>`;
+}
 function updateAngStatusUI() {
+  updateAngHelp();
   const el = document.getElementById('ang-sync-status'); if (!el) return;
   const s = angStatus;
-  el.innerHTML = s.state === 'live' ? `<span style="color:var(--green)">● live</span> · ${s.n} persoane în Angajați`
+  el.innerHTML = s.state === 'live' ? `<span style="color:var(--green)">● live${_angDocActive ? ' (din Angajați)' : _angViaServer ? ' (prin server)' : ''}</span> · ${s.n} persoane în Angajați${_angDocActive && _angDocMeta ? ' · trimis ' + _angDocMeta.toLocaleString('ro-RO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}`
     : s.state === 'error' ? `<span style="color:var(--red)">● eroare sincronizare (${_esc(s.err)})</span>`
     : s.state === 'connecting' ? '<span style="color:var(--text3)">● se conectează la Angajați...</span>' : '';
 }
@@ -2403,6 +2504,7 @@ function scheduleReconcile() {
 }
 
 async function reconcileAngajati(manual) {
+  if (manual && _angViaServer) await pullAngajatiFromServer(true);
   if (!canSeeAll(currentUser) || !angajatiDocs || !soferiLoaded || !angFromServer) { if (manual) toast('Sincronizarea nu e încă pregătită — mai încearcă într-o clipă', 'info'); return; }
   if (_reconRunning) return;
   _reconRunning = true;
@@ -2429,7 +2531,7 @@ async function reconcileAngajati(manual) {
         }
       } else {
         const patch = {};
-        if (s.numeAngajat !== a.name) { patch.numeAngajat = a.name; patch.numeSofer = a.name; stat.renamed++; }
+        if (s.numeAngajat !== a.name) { patch.numeAngajat = a.name; if (!s.legatManual) patch.numeSofer = a.name; stat.renamed++; }
         if (s.stersDinAngajati) { patch.stersDinAngajati = false; patch.arhivat = false; patch.arhivatLa = null; stat.restored++; }
         if (Object.keys(patch).length) updates.push([s.id, patch]);
       }
@@ -2462,6 +2564,118 @@ async function reconcileAngajati(manual) {
     } else if (manual) toast('✓ Totul e la zi cu aplicația Angajați');
   } catch (e) { console.warn('reconcileAngajati:', e); if (manual) toast('Eroare la sincronizare: ' + e.message, 'error'); }
   finally { _reconRunning = false; }
+}
+
+// ── stare sincronizare per persoana (bulina verde) ──
+// ok = legat de Angajati si la zi | pending = legat, se actualizeaza | deleted = sters din Angajati | unlinked = fara legatura
+function angSyncOf(s) {
+  if (!s.angajatId) return 'unlinked';
+  if (!angajatiDocs || !angFromServer) return 'ok';
+  const a = angajatiDocs.find(x => x.id === s.angajatId);
+  if (!a) return 'deleted';
+  return s.numeAngajat === a.name ? 'ok' : 'pending';
+}
+function angSyncDot(s) {
+  const st = angSyncOf(s);
+  const [c, t] = st === 'ok' ? ['var(--green)', s.legatManual ? 'Sincronizat cu Angajați (legat manual)' : 'Sincronizat cu Angajați']
+    : st === 'pending' ? ['#f59e0b', 'Se actualizează...']
+    : st === 'deleted' ? ['var(--red)', 'Șters din aplicația Angajați']
+    : ['#f59e0b', 'Nelegat de Angajați — apasă „Leagă”'];
+  return `<span title="${t}" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c};margin-right:6px;vertical-align:middle;flex-shrink:0"></span>`;
+}
+function angSyncSummary() {
+  const vis = allSoferi.filter(s => !s.arhivat);
+  const unl = vis.filter(s => !s.angajatId && !s.ascuns);
+  const del = vis.filter(s => angSyncOf(s) === 'deleted');
+  const pen = vis.filter(s => angSyncOf(s) === 'pending');
+  const waiting = angajatiDocs ? angajatiDocs.filter(a => !allSoferi.some(s => s.angajatId === a.id)) : [];
+  const linked = vis.filter(s => s.angajatId && angSyncOf(s) === 'ok').length;
+  return { unl, del, pen, waiting, linked, total: angajatiDocs ? angajatiDocs.length : 0, allOk: !unl.length && !del.length && !pen.length && !waiting.length };
+}
+function renderAngSyncSummary() {
+  const el = document.getElementById('ang-sync-summary'); if (!el) return;
+  if (!canSeeAll(currentUser) || angStatus.state !== 'live' || !angFromServer || !soferiLoaded) { el.innerHTML = ''; return; }
+  const r = angSyncSummary();
+  const t = angLastCheck ? angLastCheck.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+  const dot = c => `<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${c};margin-right:8px;vertical-align:middle"></span>`;
+  const chip = (n, label, col, filter) => n ? `<button class="filter-btn" style="border-color:${col};color:${col}" onclick="setSoferiFilter('${filter}')">${n} ${label}</button>` : '';
+  el.innerHTML = r.allOk
+    ? `<div class="card" style="margin-bottom:14px;padding:10px 14px;border-color:var(--green)"><span style="font-weight:800;font-size:13px">${dot('var(--green)')}Totul este sincronizat cu Angajați</span><span style="font-size:11px;color:var(--text3);margin-left:8px">${r.linked}/${r.total} persoane legate · verificat la ${t}</span></div>`
+    : `<div class="card" style="margin-bottom:14px;padding:10px 14px;border-color:#f59e0b">
+        <div style="font-weight:800;font-size:13px;margin-bottom:8px">${dot('#f59e0b')}Sincronizare incompletă <span style="font-size:11px;color:var(--text3);font-weight:500">· ${r.linked}/${r.total} legate · verificat la ${t}</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          ${chip(r.unl.length, 'nelegați de Angajați (fă match)', '#f59e0b', 'nesinc')}
+          ${chip(r.del.length, 'șterși din Angajați', 'var(--red)', 'nesinc')}
+          ${chip(r.pen.length + r.waiting.length, 'în curs de actualizare', 'var(--text3)', 'toti')}
+        </div></div>`;
+}
+
+// ── match manual: leaga un sofer existent de o persoana din Angajati ──
+function _tokOverlap(a, b) { const A = new Set(_nameKey(a).split(' ')), B = _nameKey(b).split(' '); return B.filter(x => A.has(x)).length; }
+function openMatchAng(sid) {
+  const s = allSoferi.find(x => x.id === sid); if (!s || !angajatiDocs) return;
+  const rows = angajatiDocs.map(a => {
+    const owner = allSoferi.find(x => x.angajatId === a.id && x.id !== sid);
+    const free = !owner || (!owner.tura && !owner.locatie && !owner.tipSofer);   // legat doar de o fisa goala creata automat
+    return { a, owner, free, score: _tokOverlap(s.numeSofer, a.name) };
+  }).sort((x, y) => (y.free - x.free) || (y.score - x.score) || x.a.name.localeCompare(y.a.name));
+  const m = bkModal(`
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-size:15px;font-weight:800">🔗 Leagă „${_esc(s.numeSofer)}”</div><div style="font-size:11px;color:var(--text3)">Alege persoana corespunzătoare din aplicația Angajați. Tura, locația și istoricul rămân.</div></div>
+      <button onclick="this.closest('.bk-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <div style="padding:12px 20px 0"><input id="match-search" placeholder="Caută în Angajați..." oninput="filterMatchList()" style="width:100%"/></div>
+    <div id="match-list" style="padding:10px 20px 16px;overflow-y:auto">${rows.map(r => `
+      <div class="match-row" data-n="${_esc(_nameKey(r.a.name))}" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);${r.free ? '' : 'opacity:0.5'}">
+        <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px">${_esc(r.a.name)}${r.score >= 1 && r.free ? ' <span class="badge badge-gray" style="font-size:9px">posibil</span>' : ''}</div>
+          ${r.owner ? `<div style="font-size:11px;color:var(--text3)">${r.free ? 'are o fișă goală creată automat (se va șterge)' : 'deja legat de ' + _esc(r.owner.numeSofer) + (r.owner.tura ? ' · tura ' + _esc(r.owner.tura) : '')}</div>` : ''}</div>
+        <button class="btn btn-primary" style="font-size:11px;padding:5px 12px" ${r.free ? `onclick="confirmMatchAng('${sid}','${r.a.id}')"` : 'disabled'}>Leagă</button>
+      </div>`).join('')}</div>`);
+}
+function filterMatchList() {
+  const q = _nameKey(document.getElementById('match-search')?.value || '').split(' ').filter(Boolean);
+  document.querySelectorAll('#match-list .match-row').forEach(r => { r.style.display = q.every(t => r.dataset.n.includes(t)) ? '' : 'none'; });
+}
+async function confirmMatchAng(sid, angId) {
+  const s = allSoferi.find(x => x.id === sid), a = angajatiDocs?.find(x => x.id === angId); if (!s || !a) return;
+  try {
+    const b = db.batch();
+    const owner = allSoferi.find(x => x.angajatId === angId && x.id !== sid);
+    if (owner) {
+      if (owner.tura || owner.locatie || owner.tipSofer) { toast('Persoana e deja legată de ' + owner.numeSofer, 'error'); return; }
+      b.delete(db.collection('soferi').doc(owner.id));
+    }
+    b.update(db.collection('soferi').doc(sid), { angajatId: angId, numeAngajat: a.name, sursa: 'angajati', legatManual: true, stersDinAngajati: false });
+    await b.commit();
+    document.querySelector('.bk-modal')?.remove();
+    toast('✓ ' + s.numeSofer + ' legat de ' + a.name);
+  } catch (e) { toast('Eroare la legare: ' + e.message, 'error'); }
+}
+// fisa noua din Angajati (goala) -> o poti lega de un sofer vechi nelegat
+function openMatchOld(angSoferId) {
+  const t = allSoferi.find(x => x.id === angSoferId); if (!t) return;
+  const olds = allSoferi.filter(x => !x.angajatId && !x.arhivat).map(x => ({ x, score: _tokOverlap(t.numeSofer, x.numeSofer) }))
+    .sort((p, q) => q.score - p.score || String(p.x.numeSofer).localeCompare(String(q.x.numeSofer)));
+  if (!olds.length) { toast('Nu există șoferi nelegați de care să-l legi', 'info'); return; }
+  bkModal(`
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-size:15px;font-weight:800">🔗 „${_esc(t.numeSofer)}” există deja la șoferi?</div><div style="font-size:11px;color:var(--text3)">Alege șoferul vechi (cu tură/istoric). Fișa nouă goală se șterge, iar el se leagă de Angajați.</div></div>
+      <button onclick="this.closest('.bk-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <div style="padding:10px 20px 16px;overflow-y:auto">${olds.map(o => `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px">${_esc(o.x.numeSofer)}${o.score >= 1 ? ' <span class="badge badge-gray" style="font-size:9px">posibil</span>' : ''}</div>
+          <div style="font-size:11px;color:var(--text3)">${o.x.tura ? 'Tura ' + _esc(o.x.tura) : 'fără tură'}${o.x.locatie ? ' · ' + _esc(o.x.locatie) : ''}</div></div>
+        <button class="btn btn-primary" style="font-size:11px;padding:5px 12px" onclick="confirmMatchAng('${o.x.id}','${t.angajatId}')">Leagă</button>
+      </div>`).join('')}</div>`);
+}
+async function unlinkAng(sid) {
+  const s = allSoferi.find(x => x.id === sid); if (!s) return;
+  if (!confirm('Dezleg „' + s.numeSofer + '” de Angajați? Persoana din Angajați va primi o fișă nouă.')) return;
+  try {
+    await db.collection('soferi').doc(sid).update({ angajatId: firebase.firestore.FieldValue.delete(), numeAngajat: firebase.firestore.FieldValue.delete(), legatManual: false });
+    toast('Dezlegat');
+  } catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
 
 // ── lista de soferi in timp real ──
@@ -8721,6 +8935,7 @@ async function renderBackupPage() {
   const listEl = document.getElementById('backup-list');
   if (!statusEl || !listEl) return;
   renderGithubBackupCard();
+  renderGithubList();
   statusEl.innerHTML = `<div class="loading-page" style="padding:20px"><div class="spinner"></div></div>`;
   listEl.innerHTML = '';
   try {
@@ -8729,8 +8944,8 @@ async function renderBackupPage() {
     _bkCompare = []; updateCompareBar();
     if (!_bkList.length) {
       statusEl.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3)"><div style="font-size:28px;margin-bottom:8px">📦</div>
-        <div style="font-weight:700;margin-bottom:4px">Niciun backup încă</div>
-        <div style="font-size:12px">Apasă „Backup acum”. Backup-ul automat rulează o dată pe zi, la prima logare a adminului.</div></div>`;
+        <div style="font-weight:700;margin-bottom:4px">Niciun backup în cloud (Firestore) încă</div>
+        <div style="font-size:12px">Backup-urile din GitHub sunt mai sus. Aici apar cele salvate în Firestore („Backup acum” → Salvează în cloud, sau cel automat zilnic).</div></div>`;
       return;
     }
     const last = _bkList[0];
@@ -8968,6 +9183,27 @@ async function bkGhCall(path, payload, opts) {
   return authPost(path, payload || {}, Object.assign({ headers: { 'Authorization': 'Bearer ' + idToken } }, opts || {}));
 }
 let _ghPoll = null;
+let _ghWasRunning = false;
+async function renderGithubList() {
+  const el = document.getElementById('backup-github-list'); if (!el) return;
+  if (!el.innerHTML) el.innerHTML = '<div style="padding:8px 2px;color:var(--text3);font-size:12px">Se încarcă backup-urile din GitHub...</div>';
+  try {
+    const { resp, body } = await bkGhCall('/backup/github/list', {}, { attempts: 2, timeoutMs: 45000 });
+    if (!resp.ok) { el.innerHTML = ''; return; }
+    const cs = body.commits || [];
+    window._ghCommits = cs;
+    if (!cs.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `<div style="font-size:12px;font-weight:800;margin:2px 2px 8px">🐙 Backup-uri în GitHub (${cs.length}) <span style="font-weight:500;color:var(--text3)">· ${_esc(body.repo || '')}</span></div>` +
+      cs.map((c, i) => `<div class="card" style="margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px"><div style="font-weight:800;font-size:13px">${i === 0 ? '🟢 ' : ''}${bkFmtDate(c.date)} <span style="font-family:var(--mono);font-size:10px;color:var(--text3);font-weight:500">${c.sha.slice(0, 7)}</span></div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">${_esc((c.message.split('—')[1] || c.message).trim())}</div></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <a class="btn btn-ghost" style="font-size:11px;padding:6px 10px;text-decoration:none" target="_blank" rel="noopener" href="https://github.com/${_esc(body.repo)}/commit/${c.sha}">↗ GitHub</a>
+            <button class="btn btn-ghost" style="font-size:11px;padding:6px 10px" onclick="ghDownloadCommit('${c.sha}')">⬇ Tot</button>
+            <button class="btn btn-ghost" style="font-size:11px;padding:6px 10px" onclick="ghRestoreCommit('${c.sha}')">♻️ Restaurează</button></div></div></div>`).join('');
+  } catch (e) { el.innerHTML = ''; }
+}
 async function renderGithubBackupCard() {
   const el = document.getElementById('backup-github-card'); if (!el) return;
   let st = null;
@@ -8992,6 +9228,8 @@ async function renderGithubBackupCard() {
         <button class="btn btn-ghost" style="font-size:12px;padding:7px 14px" onclick="openGithubHistory()">📜 Istoric & restaurare</button>
       </div>
     </div>`;
+  if (_ghWasRunning && !running) renderGithubList();
+  _ghWasRunning = running;
   if (running && !_ghPoll) _ghPoll = setInterval(() => { if (currentPage !== 'backup') { clearInterval(_ghPoll); _ghPoll = null; return; } renderGithubBackupCard().then(() => {}); }, 3500);
   if (!running && _ghPoll) { clearInterval(_ghPoll); _ghPoll = null; }
 }
@@ -9991,7 +10229,7 @@ function canEditSofer(s) {
 }
 const isAdminOnly = () => currentUser?.role === 'admin';
 
-let soferiFilter = 'toti';      // toti | fara_tura | fara_tip
+let soferiFilter = 'toti';      // toti | fara_tura | fara_tip | nesinc
 let soferiPtot = {}, soferiPtotLoaded = false, soferiShowHidden = false;
 function setSoferiFilter(f) { soferiFilter = f; renderSoferi(); }
 async function loadSoferiPtot() {
@@ -10043,6 +10281,7 @@ async function renderSoferi() {
   if (!soferiLoaded) { el.innerHTML = '<div class="loading-page"><div class="spinner"></div></div>'; setTimeout(() => { if (currentPage === 'soferi') renderSoferi(); }, 500); return; }
   if (canSeeAll(currentUser) && !soferiPtotLoaded) { soferiPtotLoaded = true; loadSoferiPtot().then(() => { if (currentPage === 'soferi') renderSoferi(); }); }
   updateAngStatusUI();
+  renderAngSyncSummary();
 
   const canAdm = canSeeAll(currentUser);
   const search = (document.getElementById('soferi-search-input')?.value || '').toLowerCase();
@@ -10053,6 +10292,7 @@ async function renderSoferi() {
   let filtered = active.filter(s => !search || (s.numeSofer || '').toLowerCase().includes(search) || String(s.tura || '').includes(search));
   if (soferiFilter === 'fara_tura') filtered = filtered.filter(s => !s.tura);
   if (soferiFilter === 'fara_tip') filtered = filtered.filter(s => !s.tipSofer);
+  if (soferiFilter === 'nesinc') filtered = filtered.filter(s => angSyncOf(s) !== 'ok');
 
   const arhBtn = document.getElementById('soferi-arhiva-btn');
   const nrArh = visible.filter(s => s.arhivat).length;
@@ -10063,7 +10303,7 @@ async function renderSoferi() {
   const seedBtn = document.getElementById('btn-seed'); if (seedBtn) seedBtn.style.display = allSoferi.length === 0 && canAdm ? 'flex' : 'none';
   const searchBar = document.getElementById('soferi-search'); if (searchBar) searchBar.style.display = visible.length > 0 ? 'block' : 'none';
   const chips = document.getElementById('soferi-filter-chips');
-  if (chips) chips.innerHTML = [['toti', 'Toți'], ['fara_tura', 'Fără tură'], ['fara_tip', 'Fără tip (Fix/Springer)']].map(([k, l]) =>
+  if (chips) chips.innerHTML = [['toti', 'Toți'], ['fara_tura', 'Fără tură'], ['fara_tip', 'Fără tip (Fix/Springer)']].concat(canAdm ? [['nesinc', 'Nesincronizați']] : []).map(([k, l]) =>
     `<button class="filter-btn ${soferiFilter === k ? 'active' : ''}" onclick="setSoferiFilter('${k}')">${l}</button>`).join('');
   const newBtn = document.getElementById('btn-sofer-nou'); if (newBtn) newBtn.style.display = canAdm ? '' : 'none';
   const syncBtn = document.getElementById('btn-sync-ang'); if (syncBtn) syncBtn.style.display = canAdm ? '' : 'none';
@@ -10089,8 +10329,8 @@ async function renderSoferi() {
       <div style="display:flex;align-items:center;gap:10px">
         <input value="${_esc(s.tura || '')}" ${can ? `onchange="setSoferTuraInline('${s.id}',this)" onkeydown="if(event.key==='Enter')this.blur()"` : 'disabled'} placeholder="tură" title="Număr tură" style="width:62px;flex-shrink:0;text-align:center;font-family:var(--mono);font-weight:800;font-size:14px;padding:8px 4px;border-radius:9px;border:1px solid ${s.tura ? 'var(--accent-border)' : 'var(--border)'};background:${s.tura ? 'var(--accent-bg)' : 'var(--bg3)'};color:${s.tura ? 'var(--accent)' : 'var(--text3)'}"/>
         <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${nm}">${nm}${linked ? ' <span title="Sincronizat din aplicația Angajați" style="font-size:10px;color:var(--text3)">🔗</span>' : ''}${s.stersDinAngajati ? ' <span class="badge badge-gray" style="font-size:9px">șters din Angajați</span>' : ''}</div>
-          <div style="font-size:11px;color:var(--text3)">${s.tura ? 'Tura ' + _esc(s.tura) : '<span style="color:var(--accent)">fără tură</span>'}${soferiPtot[s.tura] ? ' · ' + soferiPtot[s.tura].toLocaleString() + ' pachete' : ''}</div>
+          <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${nm}">${angSyncDot(s)}${nm}${s.stersDinAngajati ? ' <span class="badge badge-gray" style="font-size:9px">șters din Angajați</span>' : ''}</div>
+          <div style="font-size:11px;color:var(--text3)">${s.tura ? 'Tura ' + _esc(s.tura) : '<span style="color:var(--accent)">fără tură</span>'}${s.legatManual && s.numeAngajat ? ' · în Angajați: ' + _esc(s.numeAngajat) : ''}${soferiPtot[s.tura] ? ' · ' + soferiPtot[s.tura].toLocaleString() + ' pachete' : ''}</div>
         </div>
         <div class="sofer-actions">
           ${can && canSeeAll(currentUser) ? iconBtn('', `editSofer('${s.id}')`, 'Editează', P_EDIT) : ''}
@@ -10104,6 +10344,9 @@ async function renderSoferi() {
           ? `<select onchange="setSoferLocInline('${s.id}',this.value)" style="font-size:11px;padding:5px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text)"><option value="">— locație —</option><option value="Ruhstorf" ${s.locatie === 'Ruhstorf' ? 'selected' : ''}>Ruhstorf</option><option value="Eiselfing" ${s.locatie === 'Eiselfing' ? 'selected' : ''}>Eiselfing</option></select>`
           : `<span style="font-size:11px;color:var(--text3)">${_esc(s.locatie || '')}</span>`}
         ${segBtn(s, 'fix', 'Tură fixă', '#3b82f6', can)}${segBtn(s, 'springer', 'Springer', '#8b5cf6', can)}
+        ${canSeeAll(currentUser) && !linked && !isHiddenList && angajatiDocs ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px;border-color:#f59e0b;color:#f59e0b" onclick="openMatchAng('${s.id}')">🔗 Leagă de Angajați</button>` : ''}
+        ${canSeeAll(currentUser) && linked && !s.tura && !s.locatie && s.sursa === 'angajati' && String(s.id).startsWith('ang_') && !isHiddenList ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" onclick="openMatchOld('${s.id}')" title="Există deja la șoferi sub alt nume?">🔗 Există deja?</button>` : ''}
+        ${canSeeAll(currentUser) && s.legatManual && !isHiddenList ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" onclick="unlinkAng('${s.id}')">⛓ Dezleagă</button>` : ''}
         ${canSeeAll(currentUser) && !s.locatie && !isHiddenList ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px;margin-left:auto" onclick="ascundeSofer('${s.id}',true)" title="Nu e șofer (ex: birou, sortator)">🙈 Nu e șofer</button>` : ''}
       </div>
     </div>`;
@@ -11396,7 +11639,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.16.1</span>
+  <span id="version-badge-text">v5.16.5</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
