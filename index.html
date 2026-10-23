@@ -1711,6 +1711,12 @@ function localPinClear() { try { localStorage.removeItem(LOCAL_PIN_KEY); } catch
 // POST catre serverul de auth cu timeout per incercare + reincercari automate.
 // Un request blocat (cold start / retea) NU mai ramane agatat la nesfarsit:
 // dupa 15s il abandonam si reincercam, pana la ~75s in total; apoi eroare clara.
+// Antet de autentificare pentru apelurile către server (parsere PDF/ODS): tokenul sesiunii curente
+async function serverAuthHeaders() {
+  const fu = firebase.auth().currentUser;
+  if (!fu) throw new Error('Sesiune expirată — autentifică-te din nou');
+  return { 'Authorization': 'Bearer ' + await fu.getIdToken(false) };
+}
 async function authPost(path, payload, opts) {
   const attempts = (opts && opts.attempts) || 5;
   const timeoutMs = (opts && opts.timeoutMs) || 15000;
@@ -8453,6 +8459,7 @@ async function parseViaServer(file) {
   try {
     const resp = await fetch(HERMES_PARSER_SERVER_URL, {
       method: 'POST',
+      headers: await serverAuthHeaders(),
       body: formData,
       signal: controller.signal
     });
@@ -10182,7 +10189,7 @@ async function handleImportODSFile(file) {
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60000);
-    const resp = await fetch(SERVER_ODS_URL, { method: 'POST', body: formData, signal: controller.signal });
+    const resp = await fetch(SERVER_ODS_URL, { method: 'POST', headers: await serverAuthHeaders(), body: formData, signal: controller.signal });
     clearTimeout(timeout);
 
     if (!resp.ok) throw new Error('Server a răspuns cu eroare ' + resp.status);
@@ -11821,7 +11828,7 @@ async function importCorinaSachverhalt(file) {
   try {
     const fd = new FormData();
     fd.append('file', file);
-    const resp = await fetch(AUTH_SERVER_BASE + '/parse-sachverhalt-dpd', { method: 'POST', body: fd });
+    const resp = await fetch(AUTH_SERVER_BASE + '/parse-sachverhalt-dpd', { method: 'POST', headers: await serverAuthHeaders(), body: fd });
     const parsed = await resp.json();
     if (!resp.ok) throw new Error(parsed.error || 'Eroare server');
 
