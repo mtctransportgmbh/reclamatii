@@ -1122,7 +1122,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.0';
+const APP_VERSION = '9.0.2';
 const APP_VERSION_DATE = '23.10.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -1603,6 +1603,15 @@ function backToSelect() {
   currentUser = null; pinBuffer = '';
 }
 
+// PIN prea simplu (111111, 123456, 654321, 012345, 121212 ...) — respins și pe server
+function isWeakPin(p) {
+  if (!/^\d{6}$/.test(p)) return true;
+  if (/^(\d)\1+$/.test(p)) return true;
+  const d = [...p].map(Number), step = d[1] - d[0];
+  if ((step === 1 || step === -1) && d.every((x, i) => i === 0 || x - d[i - 1] === step)) return true;
+  for (const k of [2, 3]) if (p === p.slice(0, k).repeat(6 / k)) return true;
+  return ['123321','112233','102030','010203','159753','147258','258369','789456','741852','369258','000111','111222','121314','123123','112211','198765'].includes(p);
+}
 const PIN_LENGTH = 6; // PIN de 6 cifre pentru toti userii (in afara de Admin, care are email+parola)
 
 function updateDots() {
@@ -1758,7 +1767,9 @@ function startLockCountdownLocal(hintElId, seconds, baseText) {
   let remaining = seconds;
   const tick = () => {
     if (remaining <= 0) { if (hintEl) hintEl.textContent = baseText; return; }
-    if (hintEl) hintEl.textContent = `🔒 Prea multe încercări greșite — încearcă din nou în ${remaining}s`;
+    const fmt = remaining >= 3600 ? Math.floor(remaining / 3600) + ' h ' + String(Math.floor((remaining % 3600) / 60)).padStart(2, '0') + ' min'
+      : remaining >= 60 ? Math.floor(remaining / 60) + ' min ' + String(remaining % 60).padStart(2, '0') + ' s' : remaining + ' s';
+    if (hintEl) hintEl.textContent = `🔒 Prea multe încercări greșite — încearcă din nou în ${fmt}`;
     remaining--;
     setTimeout(tick, 1000);
   };
@@ -1845,6 +1856,12 @@ async function pinKey(k) {
     }
 
   } else if (pinMode === 'setup1') {
+    if (isWeakPin(pin)) {
+      shakePinDots('pin-dots');
+      pinBuffer = ''; updateDots();
+      showPinHint('PIN prea simplu (ex. 111111, 123456). Alege altul.');
+      return;
+    }
     tempPin = pin;
     pinBuffer = '';
     pinMode = 'setup2';
@@ -1870,7 +1887,7 @@ async function pinKey(k) {
         pinBuffer = ''; tempPin = ''; updateDots();
         enterApp();
       } else {
-        toast('Eroare la salvarea PIN-ului: ' + (body.error||'necunoscută'), 'error');
+        toast(body.error === 'setup_not_allowed' ? 'Cere adminului să-ți seteze PIN-ul (butonul „Setează PIN” din Utilizatori).' : body.error === 'pin_too_weak' ? 'PIN prea simplu — alege altul.' : ('Eroare la salvarea PIN-ului: ' + (body.error||'necunoscută')), 'error');
         pinMode = 'setup1'; pinBuffer = ''; tempPin = ''; updateDots();
         showPinHint(`Setează un PIN de ${PIN_LENGTH} cifre`);
       }
@@ -11222,7 +11239,19 @@ async function savePachete() {
 
 // UTILIZATORI
 // ════════════════════════════════════════════════════════
+// Șterge o singură dată pe sesiune PIN-urile rămase în clar în baza de date (doar Admin; idempotent)
+let _plainPinsPurged = false;
+async function purgePlainPinsOnce() {
+  if (_plainPinsPurged || currentUser?.role !== 'admin') return;
+  _plainPinsPurged = true;
+  try {
+    const fu = firebase.auth().currentUser; if (!fu) return;
+    const idToken = await fu.getIdToken(false);
+    await fetch(AUTH_SERVER_BASE + '/auth/admin-purge-plain-pins', { method: 'POST', headers: { 'Authorization': 'Bearer ' + idToken } });
+  } catch (e) { _plainPinsPurged = false; console.warn('purge PIN în clar:', e); }
+}
 async function renderUtilizatori() {
+  purgePlainPinsOnce();
   // Actualizam textul butonului cu versiunea curenta
   const btnPub = document.getElementById('btn-publish-version');
   if (btnPub) btnPub.innerHTML = '📢 Publică v' + APP_VERSION;
@@ -11253,7 +11282,7 @@ async function renderUtilizatori() {
           </div>
           ${(!isSelf || u.id==='admin') ? `
           <div style="margin-top:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            ${hasPin && info.pin && !isSelf ? `
+            ${false ? `
               <div style="display:flex;align-items:center;gap:6px">
                 <span style="font-size:11px;color:var(--text3)">PIN:</span>
                 <span style="font-family:var(--mono);font-size:15px;font-weight:800;
@@ -11262,7 +11291,7 @@ async function renderUtilizatori() {
                   ${info.pin}
                 </span>
               </div>` : `
-              <span style="font-size:11px;color:var(--text3)">${hasPin ? (isSelf ? 'PIN: setat' : 'PIN: setat (neafișabil — resetează pentru a vedea)') : (isSelf ? 'PIN necesar pentru deblocarea ecranului după inactivitate' : 'PIN: nesetat')}</span>
+              <span style="font-size:11px;color:var(--text3)">${hasPin ? (isSelf ? 'PIN: setat' : 'PIN: setat') : (isSelf ? 'PIN necesar pentru deblocarea ecranului după inactivitate' : 'PIN: nesetat')}</span>
             `}
             <button onclick="adminSetPin('${u.id}','${u.name}')" style="
               font-size:11px;font-weight:600;background:var(--bg3);
@@ -11289,6 +11318,7 @@ async function adminSetPin(userId, userName) {
   const newPin = prompt(`Setează PIN nou pentru ${userName} (6 cifre):`);
   if (!newPin) return;
   if (!/^\d{6}$/.test(newPin)) { toast('PIN-ul trebuie să fie exact 6 cifre!', 'error'); return; }
+  if (isWeakPin(newPin)) { toast('PIN prea simplu (ex. 111111, 123456, 121212). Alege altul.', 'error'); return; }
   try {
     // PIN-ul e verificat/hash-uit STRICT pe server acum (nu mai reproducem hash-ul in JS client)
     const fu = firebase.auth().currentUser;
@@ -11301,7 +11331,7 @@ async function adminSetPin(userId, userName) {
     });
     if (!resp.ok) { const errData = await resp.json().catch(()=>({})); console.warn('admin-set-pin refuzat:', errData); throw new Error((errData.error || ('HTTP '+resp.status)) + (errData.reason ? ' — ' + errData.reason : '')); }
     if (userId === 'admin' || userId === currentUser?.id) localPinSave(currentUser.id, newPin);
-    toast(`✓ PIN setat pentru ${userName}: ${newPin}`);
+    toast(`✓ PIN setat pentru ${userName}`);
     renderUtilizatori();
   } catch(e) { toast('Eroare: ' + e.message, 'error'); }
 }
@@ -12061,7 +12091,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v5.19.1</span>
+  <span id="version-badge-text">v9.0.2</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
