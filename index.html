@@ -13,6 +13,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
@@ -1544,6 +1545,14 @@ async function adminLogin() {
       resetBtn();
       return;
     }
+    if (!(await adminEnsureSession())) {
+      // 2FA: codul nu a fost dat / a fost greșit — nu intrăm
+      await firebase.auth().signOut();
+      hint.textContent = 'Cod 2FA necesar pentru contul de Admin';
+      hint.style.color = 'var(--red)';
+      resetBtn();
+      return;
+    }
     currentUser = USERS.find(u => u.id === 'admin');
     toast('Bun venit, Administrator!');
     enterApp();
@@ -1755,6 +1764,65 @@ async function authPost(path, payload, opts) {
   throw lastErr || new Error('timeout');
 }
 
+// ════════════════════════════════════════════════════════
+// 2FA (Google Authenticator) — fereastră pentru cod + ajutoare
+// ════════════════════════════════════════════════════════
+function askTotpCode(msg) {
+  return new Promise(resolve => {
+    const old = document.getElementById('totp-ask-overlay'); if (old) old.remove();
+    const ov = document.createElement('div');
+    ov.id = 'totp-ask-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+    ov.innerHTML = `<div style="background:var(--bg2,#fff);color:var(--text,#111);border:1px solid var(--border,#ddd);border-radius:14px;padding:22px;max-width:340px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.35)">
+      <div style="font-size:30px">🔐</div>
+      <div style="font-weight:800;font-size:16px;margin:6px 0">Cod de verificare</div>
+      <div id="totp-ask-msg" style="font-size:13px;color:var(--text2,#555);margin-bottom:12px"></div>
+      <input id="totp-ask-input" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000"
+        style="width:100%;font-size:26px;letter-spacing:8px;text-align:center;padding:10px;border:1.5px solid var(--border,#ccc);border-radius:10px;box-sizing:border-box">
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button id="totp-ask-cancel" style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border,#ccc);background:transparent;color:inherit;cursor:pointer">Anulează</button>
+        <button id="totp-ask-ok" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--accent,#f59e0b);color:#000;font-weight:700;cursor:pointer">Continuă</button>
+      </div></div>`;
+    document.body.appendChild(ov);
+    ov.querySelector('#totp-ask-msg').textContent = msg || 'Introdu codul de 6 cifre din Google Authenticator.';
+    const inp = ov.querySelector('#totp-ask-input');
+    const done = v => { ov.remove(); resolve(v); };
+    ov.querySelector('#totp-ask-cancel').onclick = () => done(null);
+    ov.querySelector('#totp-ask-ok').onclick = () => { const v = inp.value.trim(); if (/^\d{6}$/.test(v)) done(v); else inp.style.borderColor = 'red'; };
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') ov.querySelector('#totp-ask-ok').click(); });
+    setTimeout(() => inp.focus(), 50);
+  });
+}
+// Trimite cererea; dacă serverul cere cod 2FA (sau codul a fost greșit), întreabă utilizatorul și reîncearcă.
+// Întoarce { resp, body } sau { cancelled: true } dacă utilizatorul renunță.
+async function authPostWithCode(path, payload, opts) {
+  let r = await authPost(path, payload, opts);
+  let msg;
+  for (let i = 0; i < 4; i++) {
+    const err = r.body && r.body.error;
+    if (err !== 'code_required' && err !== 'wrong_code') return r;
+    msg = err === 'wrong_code' ? 'Cod greșit. Încearcă din nou cu codul curent din aplicație.' : null;
+    const code = await askTotpCode(msg);
+    if (!code) return { cancelled: true, resp: r.resp, body: r.body };
+    r = await authPost(path, Object.assign({}, payload, { code }), opts);
+  }
+  return r;
+}
+// După login Admin (email+parolă): dacă 2FA e activ, cere codul și deschide sesiunea de date.
+// Întoarce true dacă se poate continua.
+async function adminEnsureSession() {
+  try {
+    const fu = firebase.auth().currentUser; if (!fu) return false;
+    const idToken = await fu.getIdToken(true);
+    const r = await authPostWithCode('/auth/admin-session', {}, { headers: { 'Authorization': 'Bearer ' + idToken } });
+    if (r.cancelled) return false;
+    if (r.resp.status === 423) { toast('Prea multe încercări — blocat temporar', 'error'); return false; }
+    if (r.resp.ok) return true;
+    // Erori de server/rețea: nu blocăm Adminul aici — regulile Firestore rămân cele care decid accesul la date.
+    return ![401, 429].includes(r.resp.status);
+  } catch (e) { console.warn('admin-session (ignorat):', e); return true; }
+}
+
 function showPinHint(text) {
   const el = document.getElementById('pin-hint');
   if (el) el.textContent = text;
@@ -1811,8 +1879,10 @@ async function pinKey(k) {
         enterApp();
         return;
       }
-      const { resp, body } = await authPost('/auth/login-pin', { userId: uid, pin });
+      const _lr = await authPostWithCode('/auth/login-pin', { userId: uid, pin });
       clearTimeout(slowHintTimer);
+      if (_lr.cancelled) { pinBuffer = ''; updateDots(); showPinHint('Introdu PIN-ul tău'); return; }
+      const { resp, body } = _lr;
       // Daca intre timp userul a plecat de pe acest ecran (a dat logout, s-a
       // intors la selectie sau a ales alt user), ignoram complet raspunsul —
       // nu mai are ce sa faca pe un ecran care nu mai exista.
@@ -1842,7 +1912,7 @@ async function pinKey(k) {
       shakePinDots('pin-dots');
       pinBuffer = ''; updateDots();
       showPinHint('Introdu PIN-ul tău');
-      toast(body.error === 'wrong_pin' ? 'PIN incorect' : 'Eroare de conexiune la server', 'error');
+      toast(body.error === 'wrong_pin' ? 'PIN incorect' : body.error === 'wrong_code' ? 'Cod 2FA incorect' : 'Eroare de conexiune la server', 'error');
     } catch(e) {
       clearTimeout(slowHintTimer);
       if (myEpoch === loginEpoch) {
@@ -1879,7 +1949,9 @@ async function pinKey(k) {
     pinRequestInFlight = true;
     showPinHint('Se salvează...');
     try {
-      const { resp, body } = await authPost('/auth/setup-pin', { userId: uid, pin });
+      const _sr = await authPostWithCode('/auth/setup-pin', { userId: uid, pin });
+      if (_sr.cancelled) { pinMode = 'setup1'; pinBuffer = ''; tempPin = ''; updateDots(); showPinHint(`Setează un PIN de ${PIN_LENGTH} cifre`); return; }
+      const { resp, body } = _sr;
       if (resp.ok && body.token) {
         await firebase.auth().signInWithCustomToken(body.token);
         localPinSave(uid, pin);
@@ -2012,6 +2084,12 @@ async function adminUnlockWithPassword() {
       btn.disabled = false; btn.textContent = 'Deblochează';
       return;
     }
+    if (!(await adminEnsureSession())) {
+      await firebase.auth().signOut();
+      hint.textContent = 'Cod 2FA necesar pentru contul de Admin';
+      btn.disabled = false; btn.textContent = 'Deblochează';
+      return;
+    }
     document.getElementById('lock-admin-email').value = '';
     document.getElementById('lock-admin-pass').value = '';
     hideLockOverlay();
@@ -2095,11 +2173,17 @@ async function lockPinKey(k) {
       const fu = firebase.auth().currentUser;
       if (!fu) throw new Error('no_session');
       const idToken = await fu.getIdToken(true);
-      ({ resp, body } = await authPost('/auth/admin-unlock', { pin }, { headers: { 'Authorization': 'Bearer ' + idToken } }));
+      ({ resp, body } = await authPostWithCode('/auth/admin-unlock', { pin }, { headers: { 'Authorization': 'Bearer ' + idToken } }));
     } else {
-      ({ resp, body } = await authPost('/auth/login-pin', { userId: uid, pin }));
+      ({ resp, body } = await authPostWithCode('/auth/login-pin', { userId: uid, pin }));
     }
     clearTimeout(slowLockHintTimer);
+    if (body && (body.error === 'code_required' || body.error === 'wrong_code') && resp && resp.status === 401) {
+      // utilizatorul a renunțat la codul 2FA
+      lockPinBuffer = ''; updateLockDots();
+      setLockHint('🔒 Sesiune blocată — introdu PIN-ul');
+      return;
+    }
     // Daca intre timp s-a deblocat altfel (ex: Admin cu email+parola) sau s-a
     // dat deja logout, ignoram raspunsul — ecranul de lock nu mai exista.
     if (!isLockOverlayVisible()) return;
@@ -11262,6 +11346,15 @@ async function renderUtilizatori() {
     try{const s=await db.collection('users').doc(u.id).get();infos[u.id]=s.exists?s.data():{};
     }catch{infos[u.id]={};}
   }
+  let totpMap = {};
+  try {
+    const fu = firebase.auth().currentUser;
+    if (fu) {
+      const idToken = await fu.getIdToken(false);
+      const tr = await authPost('/auth/admin-totp-status', {}, { attempts: 2, headers: { 'Authorization': 'Bearer ' + idToken } });
+      if (tr.resp.ok) totpMap = tr.body.status || {};
+    }
+  } catch (e) { console.warn('totp status:', e); }
   el.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${USERS.map(u=>{
     const info=infos[u.id]||{};
     const hasPin=!!info.pinHashV2;
@@ -11279,6 +11372,11 @@ async function renderUtilizatori() {
             ${hasPin
               ? '🔒 PIN setat'+(info.pinSetAt?' · '+new Date(info.pinSetAt).toLocaleDateString('ro-RO'):'')+(info.lastLogin?' · Conectare: '+new Date(info.lastLogin.toDate?info.lastLogin.toDate():info.lastLogin).toLocaleDateString('ro-RO'):'')
               : '🔓 PIN nesetat — se va seta la prima conectare'}
+          </div>
+          <div style="margin-top:4px;font-size:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            ${totpMap[u.id]
+              ? `<span style="color:var(--green)">📱 2FA activ</span><button onclick="totpDisable('${u.id}','${u.name}')" style="font-size:11px;font-weight:600;background:var(--bg3);padding:2px 9px;border-radius:6px;border:1px solid var(--border);color:var(--text2);cursor:pointer;font-family:var(--font)">Dezactivează</button>`
+              : `<span style="color:var(--text3)">📱 fără 2FA</span><button onclick="totpStart('${u.id}','${u.name}')" style="font-size:11px;font-weight:600;background:var(--bg3);padding:2px 9px;border-radius:6px;border:1px solid var(--border);color:var(--text2);cursor:pointer;font-family:var(--font)">Activează 2FA</button>`}
           </div>
           ${(!isSelf || u.id==='admin') ? `
           <div style="margin-top:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -11350,6 +11448,59 @@ async function resetUserPin(userId,name){
     if (!resp.ok) { const errData = await resp.json().catch(()=>({})); throw new Error((errData.error || ('HTTP '+resp.status)) + (errData.reason ? ' — ' + errData.reason : '')); }
     toast(`PIN resetat pentru ${name}`);renderUtilizatori();
   }catch(e){toast('Eroare: '+e.message,'error');}
+}
+
+// ── 2FA (Google Authenticator) — activare / dezactivare de către Admin ──
+async function adminTotpCall(path, payload) {
+  const fu = firebase.auth().currentUser;
+  if (!fu) throw new Error('Sesiune Firebase inexistentă — intră din nou cu email și parolă');
+  const idToken = await fu.getIdToken(true);
+  const r = await authPost(path, payload, { attempts: 3, headers: { 'Authorization': 'Bearer ' + idToken } });
+  if (!r.resp.ok) throw new Error((r.body && (r.body.error === 'wrong_code' ? 'Cod greșit — verifică ora telefonului' : r.body.error)) || ('HTTP ' + r.resp.status));
+  return r.body;
+}
+function totpCloseModal() { const m = document.getElementById('totp-setup-overlay'); if (m) m.remove(); }
+async function totpStart(userId, name) {
+  try {
+    const r = await adminTotpCall('/auth/admin-totp-setup', { targetUserId: userId });
+    totpCloseModal();
+    const ov = document.createElement('div');
+    ov.id = 'totp-setup-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto';
+    let qrHtml = '';
+    try { const q = qrcode(0, 'M'); q.addData(r.url); q.make(); qrHtml = q.createImgTag(5, 8); } catch (e) { qrHtml = '<div style="font-size:12px;color:#b45309">Codul QR nu s-a putut încărca — folosește cheia de mai jos („Introdu o cheie de configurare” în aplicație).</div>'; }
+    ov.innerHTML = `<div style="background:var(--bg2,#fff);color:var(--text,#111);border:1px solid var(--border,#ddd);border-radius:14px;padding:22px;max-width:380px;width:100%;text-align:center">
+      <div style="font-weight:800;font-size:16px">📱 Activează 2FA — <span id="totp-who"></span></div>
+      <div style="font-size:12px;color:var(--text2,#555);margin:8px 0">1) În Google Authenticator: „+" → Scanează codul QR (pe telefonul persoanei).<br>2) Scrie mai jos codul de 6 cifre afișat de aplicație.</div>
+      <div style="margin:8px auto;background:#fff;padding:8px;border-radius:8px;display:inline-block">${qrHtml}</div>
+      <div style="font-size:11px;color:var(--text3,#888)">Cheie manuală:</div>
+      <div id="totp-secret" style="font-family:monospace;font-size:14px;letter-spacing:1px;margin:3px 0 10px;user-select:all"></div>
+      <input id="totp-confirm-code" type="text" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="000000" style="width:100%;font-size:24px;letter-spacing:7px;text-align:center;padding:9px;border:1.5px solid var(--border,#ccc);border-radius:10px;box-sizing:border-box">
+      <div id="totp-err" style="color:#dc2626;font-size:12px;min-height:16px;margin-top:6px"></div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button onclick="totpCloseModal()" style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border,#ccc);background:transparent;color:inherit;cursor:pointer">Anulează</button>
+        <button id="totp-confirm-btn" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--accent,#f59e0b);color:#000;font-weight:700;cursor:pointer">Confirmă și activează</button>
+      </div>
+      <div style="font-size:10px;color:var(--text3,#888);margin-top:8px">Codul QR apare doar acum. Nu-l fotografia și nu-l trimite nimănui.</div></div>`;
+    document.body.appendChild(ov);
+    ov.querySelector('#totp-who').textContent = name;
+    ov.querySelector('#totp-secret').textContent = (r.secret || '').replace(/(.{4})/g, '$1 ').trim();
+    const go = async () => {
+      const code = ov.querySelector('#totp-confirm-code').value.trim();
+      ov.querySelector('#totp-err').textContent = '';
+      try {
+        await adminTotpCall('/auth/admin-totp-confirm', { targetUserId: userId, code });
+        totpCloseModal(); toast('✓ 2FA activ pentru ' + name); renderUtilizatori();
+      } catch (e) { ov.querySelector('#totp-err').textContent = e.message; }
+    };
+    ov.querySelector('#totp-confirm-btn').onclick = go;
+    ov.querySelector('#totp-confirm-code').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  } catch (e) { toast('Eroare: ' + (e.message === 'already_enabled' ? '2FA e deja activ' : e.message), 'error'); }
+}
+async function totpDisable(userId, name) {
+  if (!confirm(`Dezactivezi 2FA pentru ${name}? Se va putea conecta din nou doar cu PIN-ul${userId === 'admin' ? ' / parola' : ''}.`)) return;
+  try { await adminTotpCall('/auth/admin-totp-disable', { targetUserId: userId }); toast('2FA dezactivat pentru ' + name); renderUtilizatori(); }
+  catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
 
 // ════════════════════════════════════════════════════════
