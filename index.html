@@ -1767,6 +1767,7 @@ async function authPost(path, payload, opts) {
 // ════════════════════════════════════════════════════════
 // 2FA (Google Authenticator) — fereastră pentru cod + ajutoare
 // ════════════════════════════════════════════════════════
+function trustKeyFor(path, payload) { return 'mtc_trust_' + (payload && payload.userId ? payload.userId : 'admin'); }
 function askTotpCode(msg) {
   return new Promise(resolve => {
     const old = document.getElementById('totp-ask-overlay'); if (old) old.remove();
@@ -1779,6 +1780,7 @@ function askTotpCode(msg) {
       <div id="totp-ask-msg" style="font-size:13px;color:var(--text2,#555);margin-bottom:12px"></div>
       <input id="totp-ask-input" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000"
         style="width:100%;font-size:26px;letter-spacing:8px;text-align:center;padding:10px;border:1.5px solid var(--border,#ccc);border-radius:10px;box-sizing:border-box">
+      <label style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:12px;font-size:13px;color:var(--text2,#555);cursor:pointer"><input type="checkbox" id="totp-ask-trust" style="width:17px;height:17px"> Nu mai cere codul azi pe acest calculator</label>
       <div style="display:flex;gap:8px;margin-top:14px">
         <button id="totp-ask-cancel" style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border,#ccc);background:transparent;color:inherit;cursor:pointer">Anulează</button>
         <button id="totp-ask-ok" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--accent,#f59e0b);color:#000;font-weight:700;cursor:pointer">Continuă</button>
@@ -1788,7 +1790,7 @@ function askTotpCode(msg) {
     const inp = ov.querySelector('#totp-ask-input');
     const done = v => { ov.remove(); resolve(v); };
     ov.querySelector('#totp-ask-cancel').onclick = () => done(null);
-    ov.querySelector('#totp-ask-ok').onclick = () => { const v = inp.value.trim(); if (/^\d{6}$/.test(v)) done(v); else inp.style.borderColor = 'red'; };
+    ov.querySelector('#totp-ask-ok').onclick = () => { const v = inp.value.trim(); if (/^\d{6}$/.test(v)) { window.__totpTrustChecked = !!ov.querySelector('#totp-ask-trust').checked; done(v); } else inp.style.borderColor = 'red'; };
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') ov.querySelector('#totp-ask-ok').click(); });
     setTimeout(() => inp.focus(), 50);
   });
@@ -1796,15 +1798,19 @@ function askTotpCode(msg) {
 // Trimite cererea; dacă serverul cere cod 2FA (sau codul a fost greșit), întreabă utilizatorul și reîncearcă.
 // Întoarce { resp, body } sau { cancelled: true } dacă utilizatorul renunță.
 async function authPostWithCode(path, payload, opts) {
-  let r = await authPost(path, payload, opts);
+  const tkey = trustKeyFor(path, payload);
+  let savedTrust = ''; try { savedTrust = localStorage.getItem(tkey) || ''; } catch (e) {}
+  const saveTrust = r => { try { if (r && r.body && r.body.trustToken) localStorage.setItem(tkey, r.body.trustToken); } catch (e) {} return r; };
+  let r = saveTrust(await authPost(path, savedTrust ? Object.assign({}, payload, { trustToken: savedTrust }) : payload, opts));
   let msg;
   for (let i = 0; i < 4; i++) {
     const err = r.body && r.body.error;
     if (err !== 'code_required' && err !== 'wrong_code') return r;
+    try { localStorage.removeItem(tkey); } catch (e) {}
     msg = err === 'wrong_code' ? 'Cod greșit. Încearcă din nou cu codul curent din aplicație.' : null;
     const code = await askTotpCode(msg);
     if (!code) return { cancelled: true, resp: r.resp, body: r.body };
-    r = await authPost(path, Object.assign({}, payload, { code }), opts);
+    r = saveTrust(await authPost(path, Object.assign({}, payload, { code, trust: !!window.__totpTrustChecked }), opts));
   }
   return r;
 }
