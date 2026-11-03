@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
@@ -1129,7 +1130,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.8';
+const APP_VERSION = '9.0.9';
 const APP_VERSION_DATE = '03.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -1688,6 +1689,7 @@ let pinRequestInFlight = false;
 // ca la verificarea PIN-ului sa fie deja pornit. Fire-and-forget, erorile se ignora.
 let authServerReady = false;
 let _warmTimer = null;
+// (Render se trezește acum doar pentru parser; login-ul nu mai depinde de el.)
 function warmUpAuthServer() {
   // Pingam la 3s pana raspunde serverul (cold start), apoi la 4 min cat timp pagina e deschisa
   // (Render adoarme dupa ~15 min de inactivitate)
@@ -1735,13 +1737,35 @@ function localPinClear() { try { localStorage.removeItem(LOCAL_PIN_KEY); } catch
 // POST catre serverul de auth cu timeout per incercare + reincercari automate.
 // Un request blocat (cold start / retea) NU mai ramane agatat la nesfarsit:
 // dupa 15s il abandonam si reincercam, pana la ~75s in total; apoi eroare clara.
+// ── Autentificarea (PIN, 2FA, deblocare, setare/resetare PIN) rulează în Cloud Functions (Google), nu pe Render:
+// nu mai există așteptare de pornire a serverului. Dacă funcția nu e (încă) disponibilă, se cade automat pe Render, ca înainte.
+// Render rămâne doar pentru parser (PDF/ODS) și webhook-ul de email.
+const AUTH_FN_REGION = 'us-central1';
+let _authFn = null;
+async function authPostCF(path, payload) {
+  if (!firebase.functions) throw Object.assign(new Error('functions-sdk-missing'), { code: 'unavailable' });
+  _authFn = _authFn || firebase.app().functions(AUTH_FN_REGION).httpsCallable('reclAuth', { timeout: 20000 });
+  const r = await _authFn({ path, payload: payload || {} });
+  const d = r.data || {};
+  const st = Number(d.status) || 500;
+  return { resp: { status: st, ok: st >= 200 && st < 300 }, body: d.body || {} };
+}
+async function authPost(path, payload, opts) {
+  try { return await authPostCF(path, payload); }
+  catch (e) {
+    const c = String((e && e.code) || '');
+    if (!/not-found|unavailable|internal|unknown/.test(c)) throw e;   // ex. deadline-exceeded: nu repetăm încercarea PIN pe alt server
+    console.warn('reclAuth indisponibil (' + c + ') — folosesc serverul Render', e && e.message);
+    return authPostRender(path, payload, opts);
+  }
+}
 // Antet de autentificare pentru apelurile către server (parsere PDF/ODS): tokenul sesiunii curente
 async function serverAuthHeaders() {
   const fu = firebase.auth().currentUser;
   if (!fu) throw new Error('Sesiune expirată — autentifică-te din nou');
   return { 'Authorization': 'Bearer ' + await fu.getIdToken(false) };
 }
-async function authPost(path, payload, opts) {
+async function authPostRender(path, payload, opts) {
   const attempts = (opts && opts.attempts) || 5;
   const timeoutMs = (opts && opts.timeoutMs) || 15000;
   let lastErr;
@@ -11527,7 +11551,7 @@ async function purgePlainPinsOnce() {
   try {
     const fu = firebase.auth().currentUser; if (!fu) return;
     const idToken = await fu.getIdToken(false);
-    await fetch(AUTH_SERVER_BASE + '/auth/admin-purge-plain-pins', { method: 'POST', headers: { 'Authorization': 'Bearer ' + idToken } });
+    await authPost('/auth/admin-purge-plain-pins', {}, { attempts: 1, headers: { 'Authorization': 'Bearer ' + idToken } });
   } catch (e) { _plainPinsPurged = false; console.warn('purge PIN în clar:', e); }
 }
 async function renderUtilizatori() {
@@ -11618,12 +11642,9 @@ async function adminSetPin(userId, userName) {
     const fu = firebase.auth().currentUser;
     if (!fu) throw new Error('Sesiune Firebase inexistentă — deloghează-te și intră din nou cu email și parolă');
     const idToken = await fu.getIdToken(true);
-    const resp = await fetch(AUTH_SERVER_BASE + '/auth/admin-set-pin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
-      body: JSON.stringify({ targetUserId: userId, newPin }),
-    });
-    if (!resp.ok) { const errData = await resp.json().catch(()=>({})); console.warn('admin-set-pin refuzat:', errData); throw new Error((errData.error || ('HTTP '+resp.status)) + (errData.reason ? ' — ' + errData.reason : '')); }
+    const _r = await authPost('/auth/admin-set-pin', { targetUserId: userId, newPin }, { attempts: 2, headers: { 'Authorization': 'Bearer ' + idToken } });
+    const resp = _r.resp;
+    if (!resp.ok) { const errData = _r.body || {}; console.warn('admin-set-pin refuzat:', errData); throw new Error((errData.error || ('HTTP '+resp.status)) + (errData.reason ? ' — ' + errData.reason : '')); }
     if (userId === 'admin' || userId === currentUser?.id) localPinSave(currentUser.id, newPin);
     toast(`✓ PIN setat pentru ${userName}`);
     renderUtilizatori();
@@ -11636,12 +11657,9 @@ async function resetUserPin(userId,name){
     const fu = firebase.auth().currentUser;
     if (!fu) throw new Error('Sesiune Firebase inexistentă — deloghează-te și intră din nou cu email și parolă');
     const idToken = await fu.getIdToken(true);
-    const resp = await fetch(AUTH_SERVER_BASE + '/auth/admin-reset-pin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
-      body: JSON.stringify({ targetUserId: userId }),
-    });
-    if (!resp.ok) { const errData = await resp.json().catch(()=>({})); throw new Error((errData.error || ('HTTP '+resp.status)) + (errData.reason ? ' — ' + errData.reason : '')); }
+    const _r = await authPost('/auth/admin-reset-pin', { targetUserId: userId }, { attempts: 2, headers: { 'Authorization': 'Bearer ' + idToken } });
+    const resp = _r.resp;
+    if (!resp.ok) { const errData = _r.body || {}; throw new Error((errData.error || ('HTTP '+resp.status)) + (errData.reason ? ' — ' + errData.reason : '')); }
     toast(`PIN resetat pentru ${name}`);renderUtilizatori();
   }catch(e){toast('Eroare: '+e.message,'error');}
 }
@@ -12438,7 +12456,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.8</span>
+  <span id="version-badge-text">v9.0.9</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
@@ -12517,7 +12535,6 @@ buildUserGrid();
   </style>
   <div class="bm-box"><div class="bm-head"><span>🧩 MANAGER BACKUP (pe module, Cloud Storage)</span><button class="bm-x" onclick="bmClose()">✕</button></div><div id="bm-body"></div></div>
 </div>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
 <script>
 /* Manager de backup pe module: funcțiile (backupList, backupRunNow, ...) rulează în proiectul Firebase al Reclamațiilor, regiunea us-central1. */
 let _bmFn=null; function bmFunctions(){ return _bmFn||(_bmFn=firebase.app().functions('us-central1')); }
