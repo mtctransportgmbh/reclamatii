@@ -1129,7 +1129,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.5';
+const APP_VERSION = '9.0.6';
 const APP_VERSION_DATE = '03.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -8168,17 +8168,17 @@ function rechnPozWarnings(r, p, ctx) {
   }
   const how = rec ? (sure ? '' : ' (potrivire nesigură: tură + nume)') : '';
   if (rec && rec.status === 'rezolvata') add(3, '🔴', 'Reclamație marcată REZOLVATĂ, dar pachetul e facturat — contestabil' + how);
-  else if (rec) add(2, '🟠', 'Reclamație în sistem, încă nerezolvată (' + (rec.status||'—') + ')' + how);
-  else add(2, '🟠', 'Nicio reclamație în sistem pentru acest pachet');
+  else if (rec) add(0, '✅', 'Reclamație în sistem, nerezolvată — factură corectă' + how);
+  else add(2, '🟠', 'Nicio reclamație în sistem pentru acest pachet — de verificat');
   // pachet pierdut înregistrat
   const pp = ctx.pierdute.find(x => matchPierdutPozitie(x, p));
   if (pp) {
     if (pp.imputat) add(0, '✅', 'Pachet pierdut înregistrat și deja IMPUTAT' + (pp.soferNume ? ' (' + pp.soferNume + ')' : ''));
     else add(3, '🔴', 'Pachet PIERDUT înregistrat' + (pp.soferNume ? ' de ' + pp.soferNume : '') + ' — încă NEIMPUTAT');
-  } else if (/verlust/i.test(p.schadenart||'')) {
-    add(2, '🟠', 'Facturat ca PIERDUT (' + p.schadenart + '), dar nu e în „Pachete pierdute”');
+  } else if (/verlust/i.test(p.schadenart||'') && !rec) {
+    // Totalverlust = pachet nerezolvat; e normal când are reclamație în sistem. Avertizăm doar dacă nu are nicio reclamație.
+    add(2, '🟠', 'Facturat ' + p.schadenart + ', dar nu există nicio reclamație pentru el');
   }
-  if (rec && (rec.tipReclamatie === 'pierdut') && !pp) add(2, '🟠', 'Reclamația e de tip „pierdut”, dar pachetul nu e înregistrat ca pierdut');
   // duplicate
   const dups = (ctx.track[tr]||[]);
   if (tr.length >= 6 && dups.length > 1) {
@@ -12380,7 +12380,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.5</span>
+  <span id="version-badge-text">v9.0.6</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
