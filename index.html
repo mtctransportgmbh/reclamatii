@@ -891,6 +891,7 @@ textarea{resize:vertical;min-height:80px}
         </div>
         <div id="rechn-search-results"></div>
         <div id="rechn-form" style="display:none"></div>
+        <div id="rechn-warn-bar"></div>
         <div id="rechn-lipsa-section"></div>
         <div id="rechn-fara-tura-section"></div>
         <div id="rechn-list"></div>
@@ -1026,6 +1027,11 @@ textarea{resize:vertical;min-height:80px}
           </div>
         </div>
 
+        <div id="backup-modular-card" class="card" style="margin-bottom:12px">
+          <div style="font-weight:700;margin-bottom:4px">🧩 Backup automat pe module (Cloud Storage)</div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Se face singur la 06:00, 14:00 și 22:00, direct din baza de date, fără să fii logat. Păstrat 14 zile complet, apoi o copie pe zi până la 90 de zile. Restaurezi un modul, o singură reclamație sau un singur șofer, cu previzualizare și copie de siguranță înainte de restaurare.</div>
+          <button class="btn btn-primary" onclick="openBackupManager()" style="padding:8px 16px;font-size:12px">🧩 Deschide managerul de backup</button>
+        </div>
         <div id="backup-github-card" class="card" style="margin-bottom:12px"></div>
         <div id="backup-github-list" style="margin-bottom:16px"></div>
         <div id="backup-status-card" class="card" style="margin-bottom:16px"></div>
@@ -1123,8 +1129,8 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.3';
-const APP_VERSION_DATE = '30.10.2026';
+const APP_VERSION = '9.0.5';
+const APP_VERSION_DATE = '03.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
 // "SPAȚIUL CORINEI" / "AUTENTIFICARE PIN" mai jos pentru detalii
@@ -3776,6 +3782,7 @@ function startPierduteWatch() {
     });
     let arr = all.filter(pp => pp.status !== 'recunoscut');
     pierduteActive = arr;
+    window.pierduteAllRaw = all;
     pierduteLoaded = true;
     renderReclamatii();
   }, err => console.warn('pachete_pierdute watch:', err.message));
@@ -7914,6 +7921,8 @@ async function renderRechnunguri() {
   rechnunguriData = snap.docs.map(d=>({id:d.id,...d.data()}));
   // Expunem pentru cautarea globala (dupa fetch)
   window.allRechnunguri = rechnunguriData;
+  if (!window.pierduteAllRaw) { try { const ps = await db.collection('pachete_pierdute').get(); window.pierduteAllRaw = ps.docs.map(d=>({id:d.id,...d.data()})); } catch(e) { window.pierduteAllRaw = []; } }
+  window._rechnCtx = buildRechnCtx();
 
   if (canSeeAll(currentUser)) {
     await loadRechnLipsa();
@@ -7944,8 +7953,25 @@ async function renderRechnunguri() {
     grupuri[key].rechn.push(r);
   });
 
+  // Rezumat avertizări + filtru „doar cu avertizări”
+  let totR = 0, totO = 0, nCards = 0;
+  Object.values(grupuri).forEach(g => {
+    g.all = g.rechn;
+    g.rechn.forEach(r => { const c = rechnWarnings(r, window._rechnCtx).cnt; totR += c[3]; totO += c[2]; if (c[3] + c[2] > 0) nCards++; });
+    if (rechnOnlyWarn) g.rechn = g.rechn.filter(r => { const c = rechnWarnings(r, window._rechnCtx).cnt; return c[3] + c[2] > 0; });
+  });
+  const wb = document.getElementById('rechn-warn-bar');
+  if (wb) wb.innerHTML = `<div class="card" style="margin-bottom:12px;padding:10px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <b style="font-size:13px">⚠ Avertizări facturi</b>
+      <span class="badge badge-red">🔴 ${totR} de acționat</span>
+      <span class="badge badge-yellow" style="color:#f59e0b">🟠 ${totO} de verificat</span>
+      <span style="font-size:12px;color:var(--text3)">${nCards} din ${rechnunguriData.length} facturi au avertizări</span>
+      <label style="margin-left:auto;font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" ${rechnOnlyWarn?'checked':''} onchange="setRechnOnlyWarn(this.checked)"> Arată doar facturile cu avertizări</label>
+    </div>`;
+  Object.keys(grupuri).forEach(k => { if (!grupuri[k].rechn.length) delete grupuri[k]; });
   const grupuriSortate = Object.entries(grupuri).sort((a,b) => b[0].localeCompare(a[0]));
 
+  if (!grupuriSortate.length) { el.innerHTML = '<div class="empty"><div class="empty-title">Nicio factură cu avertizări 🎉</div></div>'; return; }
   el.innerHTML = grupuriSortate.map(([key, g], gi) => {
     const label = g.luna && g.an ? `${MONTHS_RO[g.luna-1]} ${g.an}` : 'Fără dată';
     const totalRechn = g.rechn.length;
@@ -8099,6 +8125,105 @@ async function assignTuraToRechnPozitie(rechnId, pozIdx, tura) {
 }
 
 
+// ════════════════════════════════════════════════════════
+// AVERTIZĂRI PE FACTURĂ (tabul Rechnunguri)
+// Pentru fiecare poziție și pentru fiecare rechnung se adună tot ce e dubios:
+// rezolvat dar facturat, pachet pierdut (imputat sau nu), duplicate, sume care nu se potrivesc, fără tură/reclamație etc.
+// Niveluri: 3 = roșu (de acționat), 2 = portocaliu (de verificat), 1 = galben (neobișnuit), 0 = informare.
+// ════════════════════════════════════════════════════════
+let rechnOnlyWarn = false;
+function _wDate(s) {
+  const t = String(s||'').trim(); let m = t.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if (m) return new Date(+m[3], +m[2]-1, +m[1]);
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+  return null;
+}
+function buildRechnCtx() {
+  const all = window.allRechnunguri || rechnunguriData || [];
+  const track = {}, belegCount = {}, amounts = [];
+  all.forEach(r => {
+    if (r.belegNr) belegCount[r.belegNr] = (belegCount[r.belegNr]||0) + 1;
+    (r.pozitii||[]).forEach(p => {
+      const t = _pn(p.sendungsnummer || p.identnummer);
+      if (t.length >= 6) (track[t] = track[t] || []).push({ rechnId: r.id, belegNr: r.belegNr });
+      if (p.forderung > 0) amounts.push(p.forderung);
+    });
+  });
+  amounts.sort((a,b)=>a-b);
+  const median = amounts.length ? amounts[Math.floor(amounts.length/2)] : 0;
+  const recl = {};
+  allReclamatii.forEach(x => { const t = _pn(x.numarPachet || x.identnummer); if (t.length >= 6) (recl[t] = recl[t] || []).push(x); });
+  return { track, belegCount, median, recl, pierdute: window.pierduteAllRaw || [] };
+}
+function rechnPozWarnings(r, p, ctx) {
+  const w = [];
+  const add = (lvl, ic, txt) => w.push({ lvl, ic, txt });
+  const tr = _pn(p.sendungsnummer || p.identnummer);
+  // reclamație potrivită: sigur (nr. pachet) sau nesigur (tură + prenume)
+  let rec = null, sure = false;
+  if (tr.length >= 6 && ctx.recl[tr]) { rec = ctx.recl[tr][0]; sure = true; }
+  if (!rec && p.tour) {
+    const first = (p.name||'').split(' ')[0].toLowerCase();
+    rec = allReclamatii.find(x => String(x.turaSofer) === String(p.tour) && first && (x.numeClient||'').toLowerCase().includes(first)) || null;
+  }
+  const how = rec ? (sure ? '' : ' (potrivire nesigură: tură + nume)') : '';
+  if (rec && rec.status === 'rezolvata') add(3, '🔴', 'Reclamație marcată REZOLVATĂ, dar pachetul e facturat — contestabil' + how);
+  else if (rec) add(2, '🟠', 'Reclamație în sistem, încă nerezolvată (' + (rec.status||'—') + ')' + how);
+  else add(2, '🟠', 'Nicio reclamație în sistem pentru acest pachet');
+  // pachet pierdut înregistrat
+  const pp = ctx.pierdute.find(x => matchPierdutPozitie(x, p));
+  if (pp) {
+    if (pp.imputat) add(0, '✅', 'Pachet pierdut înregistrat și deja IMPUTAT' + (pp.soferNume ? ' (' + pp.soferNume + ')' : ''));
+    else add(3, '🔴', 'Pachet PIERDUT înregistrat' + (pp.soferNume ? ' de ' + pp.soferNume : '') + ' — încă NEIMPUTAT');
+  } else if (/verlust/i.test(p.schadenart||'')) {
+    add(2, '🟠', 'Facturat ca PIERDUT (' + p.schadenart + '), dar nu e în „Pachete pierdute”');
+  }
+  if (rec && (rec.tipReclamatie === 'pierdut') && !pp) add(2, '🟠', 'Reclamația e de tip „pierdut”, dar pachetul nu e înregistrat ca pierdut');
+  // duplicate
+  const dups = (ctx.track[tr]||[]);
+  if (tr.length >= 6 && dups.length > 1) {
+    const others = dups.filter(d => !(d.rechnId === r.id)).map(d => d.belegNr || '?');
+    const same = dups.filter(d => d.rechnId === r.id).length;
+    if (others.length) add(3, '🔴', 'Același pachet apare și în Rechnung ' + [...new Set(others)].join(', ') + ' — posibil facturat de două ori');
+    else if (same > 1) add(3, '🔴', 'Același pachet apare de ' + same + ' ori în această factură');
+  }
+  // date lipsă / neobișnuite
+  if (!p.tour || !String(p.tour).trim()) add(2, '🟠', 'Fără tură asignată');
+  else if (!allSoferi.some(s => String(s.tura) === String(p.tour))) add(2, '🟠', 'Tura ' + p.tour + ' nu există în lista de șoferi');
+  if (tr.length < 6) add(1, '🟡', 'Fără număr de urmărire valid');
+  if (!(p.forderung > 0)) add(1, '🟡', 'Sumă 0 sau lipsă');
+  else if (ctx.median && p.forderung > Math.max(100, ctx.median * 5)) add(1, '🟡', 'Sumă neobișnuit de mare (€' + p.forderung.toFixed(2) + ', mediana €' + ctx.median.toFixed(2) + ')');
+  const dp = _wDate(p.datum), de = _wDate(r.dataEmitere);
+  if (dp && de && dp > de) add(1, '🟡', 'Data pachetului (' + p.datum + ') e după data facturii');
+  if (dp && de && (de - dp) / 86400000 > 400) add(1, '🟡', 'Pachet foarte vechi față de factură (' + p.datum + ')');
+  return w;
+}
+function rechnWarnings(r, ctx) {
+  ctx = ctx || buildRechnCtx();
+  const head = [];
+  const add = (lvl, ic, txt) => head.push({ lvl, ic, txt });
+  const poz = r.pozitii || [];
+  if (r.disputat) add(3, '🔴', 'Marcată ca DISPUTĂ');
+  if (r.belegNr && ctx.belegCount[r.belegNr] > 1) add(3, '🔴', 'Nr. Beleg ' + r.belegNr + ' există de ' + ctx.belegCount[r.belegNr] + ' ori (factură încărcată dublu?)');
+  if (!r.belegNr) add(2, '🟠', 'Fără Nr. Beleg');
+  if (!poz.length) add(2, '🟠', 'Nicio poziție importată din PDF');
+  const sumP = poz.reduce((s,p) => s + (parseFloat(p.forderung)||0), 0);
+  const tot = parseFloat(r.suma);
+  if (poz.length && tot > 0 && Math.abs(sumP - tot) > 0.01) add(3, '🔴', 'Suma facturii (€' + tot.toFixed(2) + ') ≠ suma pozițiilor (€' + sumP.toFixed(2) + ') — lipsesc/sunt în plus poziții');
+  if (!r.verificat && !r.disputat) add(1, '🟡', 'Încă nemarcată ca verificată (✓ OK)');
+  const items = poz.map((p, i) => ({ i, w: rechnPozWarnings(r, p, ctx) }));
+  const cnt = { 3: head.filter(x=>x.lvl===3).length, 2: head.filter(x=>x.lvl===2).length, 1: head.filter(x=>x.lvl===1).length };
+  items.forEach(it => it.w.forEach(x => { if (x.lvl >= 1) cnt[x.lvl]++; }));
+  return { head, items, cnt };
+}
+function warnChips(arr) {
+  const col = { 3: 'var(--red)', 2: '#f59e0b', 1: '#ca8a04', 0: 'var(--green)' };
+  return arr.map(x => `<div style="font-size:10.5px;line-height:1.35;color:${col[x.lvl]};margin:1px 0">${x.ic} ${_wEsc(x.txt)}</div>`).join('');
+}
+function setRechnOnlyWarn(v) { rechnOnlyWarn = !!v; renderRechnunguri(); }
+
+function _wEsc(t){return String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
 function renderRechnCard(r) {
   const reclLuna = allReclamatii.filter(x => {
     const d = x.createdAt?.toDate ? x.createdAt.toDate() : new Date(x.createdAt||0);
@@ -8115,6 +8240,10 @@ function renderRechnCard(r) {
   });
   const disputabile = matchuri.filter(m => m.reclamatie && m.reclamatie.status === 'rezolvata');
   const cardId = 'rechn-card-' + r.id;
+  const W = rechnWarnings(r, window._rechnCtx);
+  const wBadges = (W.cnt[3] ? `<span class="badge badge-red" title="De acționat">🔴 ${W.cnt[3]}</span>` : '')
+    + (W.cnt[2] ? `<span class="badge badge-yellow" title="De verificat" style="color:#f59e0b">🟠 ${W.cnt[2]}</span>` : '')
+    + (W.cnt[1] ? `<span class="badge badge-gray" title="Neobișnuit">🟡 ${W.cnt[1]}</span>` : '');
 
   return `
     <div class="card" style="margin-bottom:8px;border:1px solid ${r.disputat?'rgba(248,113,113,0.3)':r.verificat?'rgba(52,211,153,0.2)':'var(--border)'}">
@@ -8135,7 +8264,9 @@ function renderRechnCard(r) {
             ${r.disputat ? '<span class="badge badge-red">⚠ Dispută</span>' : ''}
             ${r.verificat && !r.disputat ? '<span class="badge badge-green">✓ OK</span>' : ''}
             ${disputabile.length > 0 ? `<span class="badge badge-yellow">⚠ ${disputabile.length} contestabil${disputabile.length>1?'e':''}</span>` : ''}
+            ${wBadges}
           </div>
+          ${W.head.length ? `<div style="margin-top:4px">${warnChips(W.head)}</div>` : ''}
           <div style="font-size:11px;color:var(--text3);margin-top:2px;display:flex;gap:10px;flex-wrap:wrap">
             ${r.dataEmitere ? `<span>📅 ${r.dataEmitere}</span>` : ''}
             <span>📋 ${pozitii.length} poziți${pozitii.length===1?'e':'i'}</span>
@@ -8177,7 +8308,7 @@ function renderRechnCard(r) {
           <div style="overflow-x:auto">
             <table class="data-table" style="font-size:12px;min-width:900px">
               <thead>
-                <tr><th>Tour</th><th>Firmă</th><th>Tip</th><th>Nume</th><th>Nr. urmărire</th><th>Adresă</th><th>PLZ Localitate</th><th>Data</th><th style="text-align:right">€</th><th>Status</th></tr>
+                <tr><th>Tour</th><th>Firmă</th><th>Tip</th><th>Nume</th><th>Nr. urmărire</th><th>Adresă</th><th>PLZ Localitate</th><th>Data</th><th style="text-align:right">€</th><th>Status / Avertizări</th></tr>
               </thead>
               <tbody>
                 ${matchuri.map((m, mIdx) => {
@@ -8201,9 +8332,10 @@ function renderRechnCard(r) {
                     + '<td style="color:var(--text2);font-size:11px;white-space:nowrap">' + (m.plz?m.plz+' ':'') + (m.ort||'') + '</td>'
                     + '<td style="font-family:var(--mono);font-size:11px;color:var(--text3)">' + (m.datum||'—') + '</td>'
                     + '<td style="text-align:right;font-weight:700;font-family:var(--mono)">€' + (m.forderung||0).toFixed(2) + '</td>'
-                    + '<td>' + (isCont ? '<span class="badge badge-yellow" style="font-size:10px">⚠ Contestabil</span>'
+                    + '<td style="min-width:230px;max-width:340px">' + (isCont ? '<span class="badge badge-yellow" style="font-size:10px">⚠ Contestabil</span>'
                       : hasR ? '<span class="badge badge-gray" style="font-size:10px">În sistem</span>'
-                      : '<span class="badge badge-red" style="font-size:10px">Lipsă</span>') + '</td>'
+                      : '<span class="badge badge-red" style="font-size:10px">Lipsă</span>')
+                      + warnChips((W.items[mIdx] && W.items[mIdx].w) || []) + '</td>'
                     + '</tr>';
                 }).join('')}
               </tbody>
@@ -12248,7 +12380,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.3</span>
+  <span id="version-badge-text">v9.0.5</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
@@ -12312,5 +12444,169 @@ buildUserGrid();
     </button>
   </div>
 </div>
+<div id="bm-overlay" style="display:none;position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.6);align-items:flex-start;justify-content:center;padding:4vh 12px;overflow:auto;" onclick="if(event.target===this)bmClose()">
+  <style>
+    #bm-overlay .bm-box{background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:12px;max-width:720px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.4);}
+    #bm-overlay .bm-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:15px;}
+    #bm-overlay .bm-x{background:none;border:0;font-size:18px;cursor:pointer;color:var(--text2);}
+    #bm-overlay #bm-body{padding:16px 18px;font-size:14px;color:var(--text);}
+    #bm-overlay button{cursor:pointer;border:0;border-radius:8px;font:inherit;font-weight:600;padding:8px 14px;}
+    #bm-overlay button:disabled{opacity:.55;cursor:default;}
+    #bm-overlay .bm-sec{background:var(--bg3);color:var(--text);border:1px solid var(--border);}
+    #bm-overlay .bm-action{background:var(--accent);color:#111;}
+    #bm-overlay .bm-danger{background:var(--red);color:#fff;}
+    #bm-overlay input[type=checkbox]{accent-color:var(--accent);}
+  </style>
+  <div class="bm-box"><div class="bm-head"><span>🧩 MANAGER BACKUP (pe module, Cloud Storage)</span><button class="bm-x" onclick="bmClose()">✕</button></div><div id="bm-body"></div></div>
+</div>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+<script>
+/* Manager de backup pe module: funcțiile (backupList, backupRunNow, ...) rulează în proiectul Firebase al Reclamațiilor, regiunea us-central1. */
+let _bmFn=null; function bmFunctions(){ return _bmFn||(_bmFn=firebase.app().functions('us-central1')); }
+/* ======================= MANAGER BACKUP (doar admin) ======================= */
+const BM = { runs:[], cfg:null, runId:null, scope:null, list:[], plan:null };
+const bmLabels = { auto:"automat", manual:"manual", "pre-restore":"înainte de restaurare" };
+const bmEsc = v => String(v==null?"":v).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const bmWhen = iso => new Date(iso).toLocaleString("ro-RO",{timeZone:"Europe/Berlin",day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+const bmDay = iso => new Date(iso).toLocaleDateString("ro-RO",{timeZone:"Europe/Berlin",weekday:"long",day:"2-digit",month:"long",year:"numeric"});
+const bmTime = iso => new Date(iso).toLocaleTimeString("ro-RO",{timeZone:"Europe/Berlin",hour:"2-digit",minute:"2-digit"});
+const BM_BTN = 'style="text-align:left;padding:12px;width:100%"';
+function bmShow(html){ document.getElementById("bm-body").innerHTML = html; document.getElementById("bm-overlay").style.display='flex'; }
+function bmClose(){ document.getElementById("bm-overlay").style.display='none'; }
+const bmCall = (name, data) => bmFunctions().httpsCallable(name)(data).then(r => r.data);
+function bmErr(e){ return '<div style="padding:10px;background:#cc33331a;border:1px solid var(--red);border-radius:4px;font-size:13px;color:var(--red)">'+bmEsc(e && e.message || e)+'</div>'; }
+const bmBack = (to) => '<button class="bm-sec" onclick="'+to+'">← Înapoi</button>';
+window.openBackupManager = async function(){
+  bmShow('<div style="color:var(--text2);font-size:13px">Se încarcă lista de backup-uri...</div>');
+  try{
+    const r = await bmCall("backupList", {});
+    BM.runs = r.runs||[]; BM.cfg = r.config; bmRenderRuns();
+  }catch(e){
+    bmShow(bmErr(e)+'<div style="font-size:12.5px;color:var(--text2);margin-top:10px">Dacă e prima dată: funcțiile de backup trebuie publicate, iar bucket-ul creat (vezi instrucțiunile primite). Dacă ai 2FA activ, deschide mai întâi datele cu codul din Google Authenticator.</div><div style="margin-top:14px"><button class="bm-sec" onclick="bmClose()">Închide</button></div>');
+  }
+};
+function bmRenderRuns(){
+  const days = new Map();
+  BM.runs.forEach(r=>{ const d=bmDay(r.createdAt); if(!days.has(d)) days.set(d,[]); days.get(d).push(r); });
+  const sumCounts = c => Object.entries(c||{}).map(([k,v])=>v+" "+((BM.cfg.modules.find(m=>m.id===k)||{}).label||k)).join(" · ");
+  const body = BM.runs.length ? Array.from(days.entries()).map(([d,list])=>
+    '<div style="font-size:12px;font-weight:700;color:var(--text2);margin:12px 0 4px;text-transform:capitalize">'+bmEsc(d)+'</div>'+
+    list.map(r=>'<div style="display:flex;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--border);border-radius:4px;margin-bottom:5px">'+
+      '<div style="min-width:48px;font-weight:700">'+bmEsc(bmTime(r.createdAt))+'</div>'+
+      '<div style="flex:1;min-width:0;font-size:12px;color:var(--text2)"><span style="font-weight:600;color:var(--text)">'+bmEsc(bmLabels[r.label]||r.label)+'</span>'+
+        (r.skipped&&Object.keys(r.skipped).length?' <span style="color:var(--red)">⚠ module sărite (prea multe documente)</span>':'')+'<br>'+bmEsc(sumCounts(r.counts))+'</div>'+
+      '<button class="bm-action" style="padding:6px 14px;font-size:14px" onclick="bmPick(\''+bmEsc(r.id)+'\')">Alege</button></div>').join("")
+  ).join("") : '<div style="font-size:13px;color:var(--text2);padding:12px 0">Încă nu există backup-uri. Apasă „Fă backup acum”.</div>';
+  bmShow('<div style="font-size:12.5px;color:var(--text2);margin-bottom:10px">Se face automat la 06:00, 14:00 și 22:00. Se păstrează toate copiile 14 zile, apoi câte una pe zi până la '+BM.cfg.retention.dailyDays+' de zile. Înainte de orice restaurare se face automat o copie a stării de acum.</div>'+
+    '<button class="bm-action" id="bm-now" onclick="bmNow()">Fă backup acum</button> <button class="bm-sec" id="bm-mail" onclick="bmTestMail()">✉ Trimite email de test</button>'+
+    '<div style="max-height:46vh;overflow-y:auto;margin-top:6px">'+body+'</div>'+
+    '<div style="margin-top:14px"><button class="bm-sec" onclick="bmClose()">Închide</button></div>');
+}
+window.bmTestMail = async function(){
+  const b=document.getElementById("bm-mail"); if(b){ b.disabled=true; b.textContent="Se trimite..."; }
+  try{ await bmCall("backupTestAlert",{}); bmToast("Email de test trimis. Verifică inbox-ul."); }
+  catch(e){ bmToast("Eroare: "+(e.message||e), true); }
+  if(b){ b.disabled=false; b.textContent="✉ Trimite email de test"; }
+};
+window.bmNow = async function(){
+  const b=document.getElementById("bm-now"); if(b){ b.disabled=true; b.textContent="Se face backup..."; }
+  try{ await bmCall("backupRunNow",{}); bmToast("Backup făcut"); openBackupManager(); }
+  catch(e){ if(b){ b.disabled=false; b.textContent="Fă backup acum"; } bmToast("Eroare: "+(e.message||e), true); }
+};
+window.bmPick = function(id){
+  BM.runId = id;
+  const r = BM.runs.find(x=>x.id===id);
+  const quick = (BM.cfg.quick||[]);
+  bmShow('<div style="font-size:13px;margin-bottom:12px">Backup din <b>'+bmEsc(bmWhen(r.createdAt))+'</b> ('+bmEsc(bmLabels[r.label]||r.label)+'). Ce vrei să restaurezi?</div>'+
+    '<div style="display:grid;gap:8px">'+
+      '<button class="bm-sec" '+BM_BTN+' onclick="bmStartModule()"><b>📦 Un modul</b><br><span style="font-size:12px;color:var(--text2)">Reclamații, rechnunguri, șoferi, pachete, setări etc.: tot modulul sau doar anumite elemente (de ex. o singură reclamație sau un singur șofer).</span></button>'+
+      quick.map((q,i)=>'<button class="bm-sec" '+BM_BTN+' onclick="bmQuick('+i+')"><b>🔗 '+bmEsc(q.label)+'</b><br><span style="font-size:12px;color:var(--text2)">'+bmEsc(q.hint)+'</span></button>').join("")+
+    '</div><div style="margin-top:14px">'+bmBack('bmRenderRuns()')+'</div>');
+};
+window.bmQuick = function(i){ bmPreview({multi:BM.cfg.quick[i].multi}); };
+window.bmRenderRuns = bmRenderRuns;
+window.bmFilterList = function(){
+  const q=(document.getElementById("bm-q").value||"").toLowerCase();
+  document.querySelectorAll("#bm-list [data-l]").forEach(el=>{ el.style.display = el.dataset.l.includes(q)?"flex":"none"; });
+};
+function bmListHtml(){
+  return '<input id="bm-q" placeholder="Caută..." oninput="bmFilterList()" style="width:100%;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--text);margin-bottom:8px">'+
+    '<div id="bm-list" style="max-height:36vh;overflow-y:auto;border:1px solid var(--border);border-radius:4px">'+
+    BM.list.map((x,i)=>'<label data-l="'+bmEsc((x.label||"").toLowerCase())+'" style="display:flex;gap:10px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px">'+
+      '<input type="checkbox" name="bm-sel" value="'+i+'"> <span>'+bmEsc(x.label)+'</span></label>').join("")+'</div>';
+}
+const bmField = (label, inner) => '<div style="margin-bottom:12px"><label style="display:block;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--text2);margin-bottom:6px">'+label+'</label>'+inner+'</div>';
+const bmSel = 'style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:14px"';
+window.bmStartModule = function(){
+  bmShow(bmField('Modul','<select id="bm-mod" '+bmSel+' onchange="bmModChanged()">'+BM.cfg.modules.map(m=>'<option value="'+bmEsc(m.id)+'">'+bmEsc(m.label)+'</option>').join("")+'</select><div id="bm-hint" style="font-size:12px;color:var(--text2);margin-top:4px"></div>')+
+    bmField('Ce restaurezi din el','<select id="bm-mode" '+bmSel+' onchange="bmModeChanged()"></select>')+
+    '<div id="bm-items"></div>'+
+    '<div style="display:flex;gap:8px;margin-top:14px">'+bmBack('bmPick(BM.runId)')+'<button class="bm-action" style="padding:8px 18px;font-size:15px" onclick="bmGoModule()">Previzualizează</button></div>');
+  bmModChanged();
+};
+window.bmModChanged = function(){
+  const m = BM.cfg.modules.find(x=>x.id===document.getElementById("bm-mod").value);
+  document.getElementById("bm-hint").textContent = m.hint||"";
+  document.getElementById("bm-mode").innerHTML = '<option value="all">Tot modulul (toate elementele)</option><option value="items">Doar anumite elemente</option>'+m.fieldsets.map(f=>'<option value="fs:'+bmEsc(f.id)+'">'+bmEsc(f.label)+' (toate elementele)</option>').join("");
+  document.getElementById("bm-items").innerHTML = "";
+};
+window.bmModeChanged = async function(){
+  const box=document.getElementById("bm-items");
+  if(document.getElementById("bm-mode").value!=="items"){ box.innerHTML=""; return; }
+  box.innerHTML='<div style="color:var(--text2);font-size:13px">Se încarcă...</div>';
+  try{
+    const r = await bmCall("backupItems",{runId:BM.runId, moduleId:document.getElementById("bm-mod").value}); BM.list=r.items;
+    box.innerHTML = bmListHtml();
+  }catch(e){ box.innerHTML = bmErr(e); }
+};
+window.bmGoModule = function(){
+  const mod=document.getElementById("bm-mod").value, mode=document.getElementById("bm-mode").value;
+  if(mode==="all") return bmPreview({module:mod, mode:"all"});
+  if(mode.startsWith("fs:")) return bmPreview({module:mod, mode:"fieldset", fieldset:mode.slice(3)});
+  const sel=Array.from(document.querySelectorAll('input[name="bm-sel"]:checked')).map(i=>BM.list[+i.value]);
+  if(!sel.length){ bmToast("Alege cel puțin un element", true); return; }
+  bmPreview({module:mod, mode:"items", ids:sel.map(x=>({c:x.c,id:x.id}))});
+};
+async function bmPreview(scope){
+  BM.scope = scope;
+  bmShow('<div style="color:var(--text2);font-size:13px">Se compară backup-ul cu starea de acum...</div>');
+  try{
+    const p = await bmCall("backupPreview",{runId:BM.runId, scope}); BM.plan = p;
+    const s = p.summary, anyChange = s.create+s.update+s.delete>0;
+    const act = {create:"se recreează", update:"se modifică", delete:"se șterge", skip:"sărit"};
+    const rows = p.items.map(x=>'<div style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:12.5px"><b>'+bmEsc(x.label)+'</b> <span style="color:var(--text2)">· '+bmEsc(act[x.action]||x.action)+'</span>'+
+      (x.note?'<div style="color:var(--text2)">'+bmEsc(x.note)+'</div>':'')+
+      (x.changes||[]).map(c=>'<div style="color:var(--text2);margin-top:2px"><code>'+bmEsc(c.field)+'</code>: acum <b style="color:var(--text)">'+bmEsc(c.current==null?"(gol)":c.current)+'</b> → în backup <b style="color:var(--accent)">'+bmEsc(c.backup==null?"(gol)":c.backup)+'</b></div>').join("")+'</div>').join("");
+    bmShow('<div style="font-size:13px;margin-bottom:10px">Din backup-ul <b>'+bmEsc(bmWhen(BM.runs.find(x=>x.id===BM.runId).createdAt))+'</b>:</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:12.5px"><span style="padding:3px 9px;border-radius:4px;background:#c9a92e22">'+s.update+' de modificat</span><span style="padding:3px 9px;border-radius:4px;background:#c9a92e22">'+s.create+' de recreat</span><span style="padding:3px 9px;border-radius:4px;background:var(--bg3)">'+s.same+' identice</span>'+(s.skipped?'<span style="padding:3px 9px;border-radius:4px;background:var(--bg3)">'+s.skipped+' sărite</span>':'')+'</div>'+
+      (p.warnings.length?'<div style="padding:8px 10px;background:var(--bg3);border-radius:4px;font-size:12.5px;margin-bottom:10px">'+p.warnings.map(w=>'<div>⚠️ '+bmEsc(w)+'</div>').join("")+'</div>':'')+
+      (rows?'<div style="max-height:34vh;overflow-y:auto;border:1px solid var(--border);border-radius:4px">'+rows+'</div>':'<div style="font-size:13px;color:var(--text2)">Nu e nicio diferență: starea de acum e identică cu backup-ul.</div>')+
+      (p.truncated?'<div style="font-size:12px;color:var(--text2);margin-top:4px">Se afișează primele elemente; restaurarea le include pe toate.</div>':'')+
+      (scope.mode==="all"&&s.delete>0?'<label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="bm-del"> <span><b style="color:var(--red)">Șterge și cele '+s.delete+' elemente create după acest backup</b> (implicit rămân neatinse)</span></label>':'')+
+      '<div style="font-size:12px;color:var(--text2);margin-top:12px">Înainte de restaurare se face automat un backup al stării de acum, ca să poți reveni.</div>'+
+      '<div style="display:flex;gap:8px;margin-top:14px">'+bmBack('bmPick(BM.runId)')+(anyChange?'<button class="bm-danger" style="padding:9px 18px;font-size:14px" id="bm-go" onclick="bmConfirm()">Restaurează</button>':'')+'</div>');
+  }catch(e){ bmShow(bmErr(e)+'<div style="margin-top:14px">'+bmBack('bmPick(BM.runId)')+'</div>'); }
+}
+let _bmArmed=false;
+window.bmConfirm = async function(){
+  const b=document.getElementById("bm-go");
+  if(!_bmArmed){ _bmArmed=true; b.textContent="Apasă încă o dată pentru a confirma"; setTimeout(()=>{ _bmArmed=false; const x=document.getElementById("bm-go"); if(x) x.textContent="Restaurează"; },5000); return; }
+  _bmArmed=false; b.disabled=true; b.textContent="Se restaurează...";
+  try{
+    const del = !!(document.getElementById("bm-del")&&document.getElementById("bm-del").checked);
+    const r = await bmCall("backupRestore",{runId:BM.runId, scope:BM.scope, confirm:true, deleteExtra:del});
+    const x=r.result;
+    bmShow('<div style="font-size:14px;margin-bottom:8px">✅ Restaurare terminată.</div><div style="font-size:13px;color:var(--text2)">'+x.updated+' modificate · '+x.created+' recreate · '+x.deleted+' șterse'+(x.skipped?' · '+x.skipped+' sărite':'')+'.<br>Starea de dinainte e salvată automat în backup-ul „înainte de restaurare”, deci poți reveni.</div><div style="margin-top:14px"><button class="bm-action" style="padding:8px 18px;font-size:15px" onclick="openBackupManager()">Gata</button></div>');
+  }catch(e){ bmShow(bmErr(e)+'<div style="margin-top:14px">'+bmBack('bmPick(BM.runId)')+'</div>'); }
+};
+
+
+function bmToast(msg,isErr){
+  let t=document.getElementById('bm-toast'); if(!t){ t=document.createElement('div'); t.id='bm-toast'; t.style.cssText='position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:100001;padding:10px 16px;border-radius:8px;font-size:13.5px;color:#fff;max-width:90vw;box-shadow:0 4px 16px rgba(0,0,0,.25)'; document.body.appendChild(t); }
+  t.style.background=isErr?'#C0392B':'#2b3350'; t.textContent=msg; t.style.display='block'; clearTimeout(t._h); t._h=setTimeout(()=>{ t.style.display='none'; },3500);
+}
+
+
+</script>
 </body>
 </html>
