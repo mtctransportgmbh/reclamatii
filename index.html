@@ -489,6 +489,22 @@ textarea{resize:vertical;min-height:80px}
 .form-panel-title{font-size:15px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px}
 
 /* ── TOAST ── */
+/* ── BARA DE NOTIFICĂRI (fixă, sus, rămâne până o închizi) ── */
+#notif-bar{position:sticky;top:0;z-index:60;display:none;padding:10px 16px 6px;background:linear-gradient(var(--bg) 78%,transparent)}
+#notif-bar .nb-box{border:1.5px solid var(--accent-border);background:var(--bg2);border-radius:var(--radius-sm);box-shadow:0 6px 24px rgba(0,0,0,.35);overflow:hidden}
+#notif-bar .nb-head{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:12px;font-weight:800;letter-spacing:.3px;background:var(--accent-bg);color:var(--accent)}
+#notif-bar .nb-head button{margin-left:auto;background:none;border:none;color:var(--text2);font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;padding:2px 6px;border-radius:6px}
+#notif-bar .nb-head button+button{margin-left:0}
+#notif-bar .nb-head button:hover{background:var(--bg3);color:var(--text)}
+#notif-bar .nb-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-top:1px solid var(--border);border-left:4px solid var(--blue);font-size:13px;font-weight:600;color:var(--text)}
+#notif-bar .nb-item.error{border-left-color:var(--red);background:var(--red-bg)}
+#notif-bar .nb-item.warn{border-left-color:#f59e0b;background:rgba(245,158,11,.1)}
+#notif-bar .nb-item.success{border-left-color:var(--green)}
+#notif-bar .nb-msg{flex:1;min-width:0;line-height:1.35}
+#notif-bar .nb-time{font-size:11px;color:var(--text3);font-weight:500;white-space:nowrap}
+#notif-bar .nb-go{background:var(--accent);color:#111;border:none;border-radius:7px;padding:4px 10px;font:inherit;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
+#notif-bar .nb-x{background:none;border:none;color:var(--text2);font-size:17px;line-height:1;cursor:pointer;padding:2px 7px;border-radius:6px}
+#notif-bar .nb-x:hover{background:var(--bg3);color:var(--text)}
 .toast-container{position:fixed;bottom:24px;right:24px;z-index:1000;display:flex;flex-direction:column;gap:8px;pointer-events:none}
 .toast{
   background:var(--bg3);border:1px solid var(--border2);
@@ -775,6 +791,7 @@ textarea{resize:vertical;min-height:80px}
     </div>
 
     <div class="main-content" id="main-content">
+      <div id="notif-bar"></div>
       <!-- DASHBOARD -->
       <div class="page active" id="page-dashboard">
         <div class="page-header">
@@ -1130,8 +1147,8 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.9';
-const APP_VERSION_DATE = '03.11.2026';
+const APP_VERSION = '9.0.10';
+const APP_VERSION_DATE = '04.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
 // "SPAȚIUL CORINEI" / "AUTENTIFICARE PIN" mai jos pentru detalii
@@ -1499,6 +1516,45 @@ function toast(msg, type='success') {
   setTimeout(() => { el.style.animation = 'toastOut 0.25s ease forwards'; setTimeout(()=>el.remove(), 250); }, 2800);
 }
 
+
+// ════════════════════════════════════════════════════════
+// BARA DE NOTIFICĂRI — fixă sus; notificările importante rămân până le închizi (și după refresh), per utilizator
+// ════════════════════════════════════════════════════════
+let _nb = [], _nbOpen = false;
+const NB_KEEP_MS = 14 * 86400000, NB_SHOW = 3;
+const nbKey = () => 'recl_notifs_v1_' + (currentUser && currentUser.id || '');
+function nbLoad() {
+  try { _nb = JSON.parse(localStorage.getItem(nbKey()) || '[]').filter(x => x && x.msg && Date.now() - x.ts < NB_KEEP_MS); } catch (e) { _nb = []; }
+  nbRender();
+}
+function nbSave() { try { localStorage.setItem(nbKey(), JSON.stringify(_nb.slice(0, 40))); } catch (e) {} }
+// notify(msg, tip 'info'|'warn'|'error'|'success', {key, page, label}) — aceeași cheie nu se dublează cât timp e în bară
+function notify(msg, type, opt) {
+  opt = opt || {}; type = type || 'info';
+  const key = opt.key || msg;
+  if (_nb.some(x => x.key === key)) return;
+  _nb.unshift({ key, msg, type, ts: Date.now(), page: opt.page || '', label: opt.label || '' });
+  nbSave(); nbRender();
+}
+function nbDismiss(i) { _nb.splice(i, 1); nbSave(); nbRender(); }
+function nbClear() { _nb = []; nbSave(); nbRender(); }
+function nbToggle() { _nbOpen = !_nbOpen; nbRender(); }
+function nbGo(i) { const n = _nb[i]; if (!n) return; const p = n.page; nbDismiss(i); try { if (p) showPage(p); } catch (e) {} }
+function nbAgo(ts) { const m = Math.round((Date.now() - ts) / 60000); if (m < 1) return 'acum'; if (m < 60) return m + ' min'; const h = Math.round(m / 60); if (h < 24) return h + ' h'; return Math.round(h / 24) + ' z'; }
+function nbRender() {
+  const el = document.getElementById('notif-bar'); if (!el) return;
+  if (!_nb.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const shown = _nbOpen ? _nb : _nb.slice(0, NB_SHOW);
+  const rows = shown.map((n, i) => '<div class="nb-item ' + esc(n.type) + '"><div class="nb-msg">' + esc(n.msg) + '</div><span class="nb-time">' + nbAgo(n.ts) + '</span>' +
+    (n.page ? '<button class="nb-go" onclick="nbGo(' + i + ')">' + esc(n.label || 'Deschide') + '</button>' : '') +
+    '<button class="nb-x" title="Închide" onclick="nbDismiss(' + i + ')">✕</button></div>').join('');
+  const more = _nb.length > NB_SHOW ? '<button onclick="nbToggle()">' + (_nbOpen ? 'Arată mai puține ▴' : 'Încă ' + (_nb.length - NB_SHOW) + ' ▾') + '</button>' : '';
+  el.innerHTML = '<div class="nb-box"><div class="nb-head">🔔 Notificări (' + _nb.length + ')' + more + '<button onclick="nbClear()"' + (more ? '' : '') + '>Șterge toate</button></div>' + rows + '</div>';
+  el.style.display = 'block';
+}
+setInterval(() => { try { if (_nb.length) nbRender(); } catch (e) {} }, 60000);
+
 // ════════════════════════════════════════════════════════
 // LOGIN
 // ════════════════════════════════════════════════════════
@@ -1617,6 +1673,7 @@ function backToSelect() {
   document.getElementById('login-admin').style.display = 'none';
   document.getElementById('login-pin').style.display = 'none';
   currentUser = null; pinBuffer = '';
+  _nb = []; try { nbRender(); } catch (e) {}
 }
 
 // PIN prea simplu (111111, 123456, 654321, 012345, 121212 ...) — respins și pe server
@@ -2287,6 +2344,7 @@ function enterApp() {
   buildSidebar();
   buildMobileNav();
   updateSidebarUser();
+  nbLoad();
   // Operatori + Mihaela => direct la reclamatii; Corina => direct in spatiul ei propriu
   const startPage = currentUser?.role === 'corina' ? 'corina-reclamatii'
     : (currentUser?.role === 'operator' || isLimited(currentUser)) ? 'reclamatii' : 'dashboard';
@@ -2744,7 +2802,7 @@ async function reconcileAngajati(manual) {
       if (stat.renamed) parts.push(`${stat.renamed} redenumite`);
       if (stat.archived) parts.push(`${stat.archived} arhivate (șterse din Angajați)`);
       if (stat.restored) parts.push(`${stat.restored} reactivate`);
-      toast('🔄 Angajați: ' + parts.join(' · '));
+      notify('🔄 Angajați: ' + parts.join(' · '), 'info', { page: 'soferi', label: 'Șoferi' });
     } else if (manual) toast('✓ Totul e la zi cu aplicația Angajați');
   } catch (e) { console.warn('reconcileAngajati:', e); if (manual) toast('Eroare la sincronizare: ' + e.message, 'error'); }
   finally { _reconRunning = false; }
@@ -3599,7 +3657,7 @@ async function checkImportAutoBadgeAtLogin() {
       updateImportAutoBadge(items.length);
       const fresh = items.filter(r => !importAutoSeen.has(r.id));
       items.forEach(r => importAutoSeen.add(r.id));
-      if (!importAutoWatchFirst && fresh.length && currentPage !== 'import-auto') toast(`📥 ${fresh.length} reclamați${fresh.length === 1 ? 'e nouă' : 'i noi'} din import automat de verificat`, 'info');
+      if (!importAutoWatchFirst && fresh.length && currentPage !== 'import-auto') notify(`📥 ${fresh.length} reclamați${fresh.length === 1 ? 'e nouă' : 'i noi'} din import automat de verificat`, 'info', { page: 'import-auto', label: 'Verifică' });
       importAutoWatchFirst = false;
     }, err => console.warn('Import auto watch:', err.message));
 }
@@ -3802,7 +3860,7 @@ function startPierduteWatch() {
       if (alertedFactIds.has(pp.id)) return;
       alertedFactIds.add(pp.id);
       const f = pp.facturaGasita || {};
-      toast(`💶 Pachet pierdut FACTURAT: ${pp.numeClient||'—'}${f.belegNr?' (Rechnung '+f.belegNr+')':''} — de imputat șoferului ${pp.soferNume||''}`, 'error');
+      notify(`💶 Pachet pierdut FACTURAT: ${pp.numeClient||'—'}${f.belegNr?' (Rechnung '+f.belegNr+')':''} — de imputat șoferului ${pp.soferNume||''}`, 'error', { key: 'fact:' + pp.id, page: 'pachete-pierdute', label: 'Vezi' });
     });
     let arr = all.filter(pp => pp.status !== 'recunoscut');
     pierduteActive = arr;
@@ -3988,7 +4046,7 @@ function renderReclamatii() {
     });
     matches.forEach(m => {
       if (!alertedReclIds.has(m.r.id)) {
-        if (window._pierdutAlertSeeded) toast(`⚠️ Pachet pierdut înregistrat: ${m.r.numeClient||'—'}`, 'error');
+        if (window._pierdutAlertSeeded) notify(`⚠️ Pachet pierdut înregistrat: ${m.r.numeClient||'—'}`, 'warn', { key: 'pierd:' + m.r.id, page: 'pachete-pierdute', label: 'Vezi' });
         alertedReclIds.add(m.r.id);
       }
     });
@@ -7782,7 +7840,7 @@ async function syncRechnLipsa(opts) {
     await writeRechnLipsaSummary();
     if (opts.toast && toCreate.length) {
       const suma = toCreate.reduce((s,p) => s + (p.forderung||0), 0);
-      toast(`🚨 ${toCreate.length} poziți${toCreate.length===1?'e':'i'} noi facturate nu sunt în sistem (€${suma.toFixed(2)}) — vezi Rechnunguri`, 'error');
+      notify(`🚨 ${toCreate.length} poziți${toCreate.length===1?'e':'i'} noi facturate nu sunt în sistem (€${suma.toFixed(2)})`, 'error', { key: 'lipsa-nou', page: 'rechnunguri', label: 'Rechnunguri' });
     }
     if (document.getElementById('page-rechnunguri')?.classList.contains('active')) renderRechnLipsaSection();
   } catch(e) { console.warn('syncRechnLipsa:', e.message); toast('Eroare la recalculare: ' + e.message, 'error'); }
@@ -7936,7 +7994,7 @@ async function notifyRechnLipsa() {
     const doc = await db.collection('setari').doc('rechn_lipsa_summary').get();
     if (!doc.exists) return;
     const s = doc.data();
-    if (s.nou > 0) toast(`🚨 ${s.nou} poziți${s.nou===1?'e':'i'} facturate noi de verificat (nu sunt în sistem) — vezi Rechnunguri`, 'error');
+    if (s.nou > 0) notify(`🚨 ${s.nou} poziți${s.nou===1?'e':'i'} facturate noi de verificat (nu sunt în sistem)`, 'error', { key: 'lipsa-nou', page: 'rechnunguri', label: 'Rechnunguri' });
   } catch(e) { console.warn('notifyRechnLipsa:', e.message); }
 }
 
@@ -12456,7 +12514,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.9</span>
+  <span id="version-badge-text">v9.0.10</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
