@@ -1147,7 +1147,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.11';
+const APP_VERSION = '9.0.13';
 const APP_VERSION_DATE = '06.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -8284,11 +8284,8 @@ function rechnPozWarnings(r, p, ctx) {
   // reclamație potrivită: sigur (nr. pachet) sau nesigur (tură + prenume)
   let rec = null, sure = false;
   if (tr.length >= 6 && ctx.recl[tr]) { rec = ctx.recl[tr][0]; sure = true; }
-  if (!rec && p.tour) {
-    const first = (p.name||'').split(' ')[0].toLowerCase();
-    rec = allReclamatii.find(x => String(x.turaSofer) === String(p.tour) && first && (x.numeClient||'').toLowerCase().includes(first)) || null;
-  }
-  const how = rec ? (sure ? '' : ' (potrivire nesigură: tură + nume)') : '';
+  // potrivirea se face DOAR după numărul pachetului (nu mai există „potrivire nesigură” tură + nume)
+  const how = '';
   if (rec && rec.status === 'rezolvata') add(3, '🔴', 'Reclamație marcată REZOLVATĂ, dar pachetul e facturat — contestabil' + how, 'rez');
   else if (rec) add(0, '✅', 'Reclamație în sistem, nerezolvată — factură corectă' + how);
   else add(2, '🟠', 'Nicio reclamație în sistem pentru acest pachet — de verificat', 'norecl');
@@ -8386,10 +8383,9 @@ function renderRechnCard(r) {
   const rezLuna = reclLuna.filter(x => x.status === 'rezolvata');
   const pozitii = r.pozitii || [];
   const matchuri = pozitii.map(p => {
-    const reclMatch = allReclamatii.find(x =>
-      String(x.turaSofer) === String(p.tour) &&
-      (x.numeClient || '').toLowerCase().includes((p.name || '').split(' ')[0].toLowerCase())
-    );
+    // potrivire DOAR după numărul pachetului (la fel ca în avertizări)
+    const _trk = _pn(p.sendungsnummer || p.identnummer);
+    const reclMatch = (_trk.length >= 6 && window._rechnCtx && window._rechnCtx.recl[_trk]) ? window._rechnCtx.recl[_trk][0] : null;
     return { ...p, reclamatie: reclMatch || null };
   });
   const disputabile = matchuri.filter(m => m.reclamatie && m.reclamatie.status === 'rezolvata');
@@ -12527,7 +12523,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.11</span>
+  <span id="version-badge-text">v9.0.13</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
