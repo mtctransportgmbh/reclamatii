@@ -1147,8 +1147,8 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.10';
-const APP_VERSION_DATE = '04.11.2026';
+const APP_VERSION = '9.0.11';
+const APP_VERSION_DATE = '06.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
 // "SPAȚIUL CORINEI" / "AUTENTIFICARE PIN" mai jos pentru detalii
@@ -8200,7 +8200,7 @@ async function assignTuraToRechnPozitie(rechnId, pozIdx, tura) {
 
     await rechnRef.update({ pozitii, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
     toast('✓ Tura ' + tura + (sofer?' ('+sofer.numeSofer+')':'') + ' asignată!');
-    renderRechnunguri();
+    renderRechnKeep();
   } catch(e) {
     toast('Eroare: ' + e.message, 'error');
   }
@@ -8343,13 +8343,26 @@ function warnChips(arr, r) {
     return `<div style="font-size:10.5px;line-height:1.35;color:${col[x.lvl]};margin:1px 0">${x.ic} ${_wEsc(x.txt)}${btn}</div>`;
   }).join('');
 }
+// Păstrează ce era deschis (luni, facturi, liste) și poziția pe pagină când lista de facturi se redesenează
+function rechnUiSnapshot() {
+  const open = sel => Array.from(document.querySelectorAll(sel)).filter(e => e.style.display !== 'none' && e.style.display !== '').map(e => e.id);
+  return { y: window.scrollY, x: window.scrollX, groups: open('[id^="rechn-luna-"][id$="-content"]'), cards: open('[id^="rechn-card-"][id$="-details"]') };
+}
+function rechnUiRestore(st) {
+  if (!st) return;
+  st.groups.forEach(id => { const c = document.getElementById(id); if (c && c.style.display === 'none') toggleRechnLunaGroup(id.replace(/-content$/, '')); });
+  st.cards.forEach(id => { const c = document.getElementById(id); if (c && c.style.display === 'none') toggleRechnCard(id.replace(/^rechn-card-/, '').replace(/-details$/, '')); });
+  window.scrollTo(st.x, st.y);
+  requestAnimationFrame(() => window.scrollTo(st.x, st.y));
+}
+async function renderRechnKeep() { const st = rechnUiSnapshot(); await renderRechnunguri(); rechnUiRestore(st); }
 async function ackRechnWarn(rechnId, key, on) {
   try {
     const ref = db.collection('rechnunguri').doc(rechnId);
     await ref.update({ ['warnAck.' + key]: on ? { at: Date.now(), by: currentUser?.name || '' } : firebase.firestore.FieldValue.delete() });
     const r = (window.allRechnunguri || []).find(x => x.id === rechnId);
     if (r) { r.warnAck = r.warnAck || {}; if (on) r.warnAck[key] = { at: Date.now(), by: currentUser?.name || '' }; else delete r.warnAck[key]; }
-    renderRechnunguri();
+    await renderRechnKeep();
   } catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
 async function ackRechnAll(rechnId) {
@@ -8358,11 +8371,11 @@ async function ackRechnAll(rechnId) {
   [...W.head, ...W.items.flatMap(i => i.w)].forEach(x => { if (x.lvl >= 1 && x.code && !x.ack) upd['warnAck.' + x.key] = { at: Date.now(), by }; });
   if (!Object.keys(upd).length) return;
   if (!confirm('Marchezi TOATE avertizările acestei facturi ca verificate?')) return;
-  try { await db.collection('rechnunguri').doc(rechnId).update(upd); Object.keys(upd).forEach(k => { r.warnAck = r.warnAck || {}; r.warnAck[k.slice(8)] = upd[k]; }); renderRechnunguri(); }
+  try { await db.collection('rechnunguri').doc(rechnId).update(upd); Object.keys(upd).forEach(k => { r.warnAck = r.warnAck || {}; r.warnAck[k.slice(8)] = upd[k]; }); await renderRechnKeep(); }
   catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
 function _wEsc(t){return String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-function setRechnOnlyWarn(v) { rechnOnlyWarn = !!v; renderRechnunguri(); }
+function setRechnOnlyWarn(v) { rechnOnlyWarn = !!v; renderRechnKeep(); }
 
 
 function renderRechnCard(r) {
@@ -8500,7 +8513,7 @@ async function verifyRechn(id, dispute) {
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   });
   toast(dispute ? '⚠ Marcată ca dispută' : '✓ Marcată ca verificată');
-  renderRechnunguri();
+  renderRechnKeep();
 }
 
 // ════════════════════════════════════════════════════════
@@ -8699,7 +8712,7 @@ async function applyMissingPositions(rowId) {
     r.diff.lipsa = [];
     r.diff.identic = r.diff.extra.length === 0;
     renderVerifyResults();
-    renderRechnunguri();
+    renderRechnKeep();
   } catch(e) {
     toast('Eroare: ' + e.message, 'error');
   }
@@ -8743,7 +8756,7 @@ async function handleReparseFile(file, rechnId) {
 
     await db.collection('rechnunguri').doc(rechnId).update(updateData);
     toast(`✓ Re-parsat cu succes! ${parsed.pozitii.length} poziții actualizate.`);
-    renderRechnunguri();
+    renderRechnKeep();
   } catch(e) {
     toast('Eroare la re-parsare: ' + e.message, 'error');
   }
@@ -8754,7 +8767,7 @@ async function deleteRechn(id, belegNr) {
   try {
     await db.collection('rechnunguri').doc(id).delete();
     toast('Rechnung șters');
-    renderRechnunguri();
+    renderRechnKeep();
   } catch(e) {
     toast('Eroare: ' + e.message, 'error');
   }
@@ -9205,7 +9218,7 @@ async function saveOneRechn(qid) {
     syncRechnLipsa({ fetchFresh: true, toast: true });
 
     renderRechnQueue();
-    renderRechnunguri();
+    renderRechnKeep();
   } catch(e) {
     toast('Eroare la salvare: ' + e.message, 'error');
   }
@@ -9279,7 +9292,7 @@ async function saveAllRechn() {
   }
 
   renderRechnQueue();
-  renderRechnunguri();
+  renderRechnKeep();
 }
 
 // ════════════════════════════════════════════════════════
@@ -10409,7 +10422,7 @@ Se păstrează câte unul per Nr. Beleg (cel cu cele mai multe poziții).
     }
 
     toast(`✓ ${deleted} rechnunguri duplicate șterse! Au rămas ${snap.docs.length - deleted} unice.`);
-    renderRechnunguri();
+    renderRechnKeep();
   } catch(e) {
     toast('Eroare: ' + e.message, 'error');
   } finally {
@@ -12514,7 +12527,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.10</span>
+  <span id="version-badge-text">v9.0.11</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
