@@ -1147,7 +1147,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.13';
+const APP_VERSION = '9.0.14';
 const APP_VERSION_DATE = '06.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -8042,12 +8042,15 @@ async function renderRechnunguri() {
     g.rechn.forEach(r => { const c = rechnWarnings(r, window._rechnCtx).cnt; totR += c[3]; totO += c[2]; if (c[3] + c[2] > 0) nCards++; });
     if (rechnOnlyWarn) g.rechn = g.rechn.filter(r => { const c = rechnWarnings(r, window._rechnCtx).cnt; return c[3] + c[2] > 0; });
   });
+  const nSent = rechnSentList().length, nTodo = rechnTodoList().length;
   const wb = document.getElementById('rechn-warn-bar');
   if (wb) wb.innerHTML = `<div class="card" style="margin-bottom:12px;padding:10px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
       <b style="font-size:13px">⚠ Avertizări facturi</b>
       <span class="badge badge-red">🔴 ${totR} de acționat</span>
       <span class="badge badge-yellow" style="color:#f59e0b">🟠 ${totO} de verificat</span>
       <span style="font-size:12px;color:var(--text3)">${nCards} din ${rechnunguriData.length} facturi au avertizări</span>
+      <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px;border-color:#6366f1;color:#6366f1" onclick="rechnPanelOpen('sent')">📤 Trimise la verificare (${nSent})</button>
+      <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="rechnPanelOpen('todo')">📋 Facturi nebifate OK (${nTodo})</button>
       <label style="margin-left:auto;font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" ${rechnOnlyWarn?'checked':''} onchange="setRechnOnlyWarn(this.checked)"> Arată doar facturile cu avertizări</label>
     </div>`;
   Object.keys(grupuri).forEach(k => { if (!grupuri[k].rechn.length) delete grupuri[k]; });
@@ -8326,6 +8329,9 @@ function rechnWarnings(r, ctx) {
   const ackMap = r.warnAck || {};
   head.forEach(x => { x.key = _wKey('h', x.code); x.ack = x.lvl >= 1 ? ackMap[x.key] || null : null; });
   items.forEach(it => it.w.forEach(x => { x.key = _wKey('p' + it.i, x.code); x.ack = (x.lvl >= 1 && x.code) ? ackMap[x.key] || null : null; }));
+  const sentMap = r.warnSent || {};
+  head.forEach(x => { x.sent = (x.lvl >= 1 && x.code && !x.ack) ? sentMap[x.key] || null : null; });
+  items.forEach(it => it.w.forEach(x => { x.sent = (x.lvl >= 1 && x.code && !x.ack) ? sentMap[x.key] || null : null; }));
   const cnt = { 3: 0, 2: 0, 1: 0, ack: 0 };
   const tally = (x) => { if (x.lvl >= 1) { if (x.ack) cnt.ack++; else cnt[x.lvl]++; } };
   head.forEach(tally); items.forEach(it => it.w.forEach(tally));
@@ -8334,12 +8340,32 @@ function rechnWarnings(r, ctx) {
 function warnChips(arr, r) {
   const col = { 3: 'var(--red)', 2: '#f59e0b', 1: '#ca8a04', 0: 'var(--text3)' };
   const okBtn = 'border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:5px;font-size:10px;padding:0 6px;cursor:pointer;margin-left:6px';
+  const sendBtn = 'border:1px solid #6366f1;background:rgba(99,102,241,.10);color:#6366f1;border-radius:5px;font-size:10px;padding:0 6px;cursor:pointer;margin-left:6px';
+  const fmtD = t => { try { return new Date(t).toLocaleDateString('ro-RO'); } catch (e) { return ''; } };
   return arr.map(x => {
     if (x.ack) return `<div style="font-size:10.5px;line-height:1.35;color:var(--text3);margin:1px 0;text-decoration:line-through;text-decoration-color:rgba(120,120,120,.4)">✓ ${_wEsc(x.txt)} <span style="text-decoration:none;display:inline-block">· verificat${x.ack.by ? ' de ' + _wEsc(x.ack.by) : ''}</span> <button style="${okBtn}" onclick="event.stopPropagation();ackRechnWarn('${r.id}','${x.key}',false)" title="Redeschide avertizarea">↩</button></div>`;
-    const btn = (x.lvl >= 1 && x.code) ? `<button style="${okBtn}" onclick="event.stopPropagation();ackRechnWarn('${r.id}','${x.key}',true)" title="Am verificat — scoate avertizarea">✓ OK</button>` : '';
+    const canAct = x.lvl >= 1 && x.code;
+    const isNev = x.code === 'neverif';
+    let btn = '';
+    if (canAct && isNev) {
+      const bl = rechnBlockers(r);
+      btn = bl ? `<button style="${okBtn};opacity:.55;cursor:not-allowed" onclick="event.stopPropagation();toast('Mai ai ${bl} probleme nerezolvate — rezolvă-le întâi','error')" title="Nu poți bifa factura OK până nu sunt rezolvate toate problemele">🔒 OK</button>`
+        : `<button style="${okBtn}" onclick="event.stopPropagation();ackRechnWarn('${r.id}','${x.key}',true)" title="Toate problemele sunt rezolvate — marchează factura OK">✓ OK</button>`;
+    } else if (canAct && x.sent) {
+      btn = ` <span style="color:#6366f1">📤 trimis la verificare${x.sent.by ? ' de ' + _wEsc(x.sent.by) : ''}${x.sent.at ? ' · ' + fmtD(x.sent.at) : ''}</span><button style="${okBtn}" onclick="event.stopPropagation();ackRechnWarn('${r.id}','${x.key}',true)" title="S-a rezolvat">✓ Rezolvat</button><button style="${okBtn}" onclick="event.stopPropagation();sendRechnWarn('${r.id}','${x.key}',false)" title="Anulează trimiterea">↩</button>`;
+    } else if (canAct) {
+      btn = `<button style="${sendBtn}" onclick="event.stopPropagation();sendRechnWarn('${r.id}','${x.key}',true)" title="Trimite la verificare (apare în lista „Trimise la verificare”)">📤 Trimite la verificare</button><button style="${okBtn}" onclick="event.stopPropagation();ackRechnWarn('${r.id}','${x.key}',true)" title="Am verificat — scoate avertizarea">✓ OK</button>`;
+    }
     return `<div style="font-size:10.5px;line-height:1.35;color:${col[x.lvl]};margin:1px 0">${x.ic} ${_wEsc(x.txt)}${btn}</div>`;
   }).join('');
 }
+// Probleme nerezolvate ale unei facturi (fără „nemarcată verificată”): până sunt 0, factura nu se poate bifa OK
+function rechnBlockers(r) {
+  const W = rechnWarnings(r, window._rechnCtx); let n = 0;
+  const t = x => { if (x.lvl >= 1 && x.code && x.code !== 'neverif' && !x.ack) n++; };
+  W.head.forEach(t); W.items.forEach(it => it.w.forEach(t)); return n;
+}
+function rechnIsChecked(r) { return !!(r.verificat || (r.warnAck && r.warnAck[_wKey('h', 'neverif')])); }
 // Păstrează ce era deschis (luni, facturi, liste) și poziția pe pagină când lista de facturi se redesenează
 function rechnUiSnapshot() {
   const open = sel => Array.from(document.querySelectorAll(sel)).filter(e => e.style.display !== 'none' && e.style.display !== '').map(e => e.id);
@@ -8355,22 +8381,83 @@ function rechnUiRestore(st) {
 async function renderRechnKeep() { const st = rechnUiSnapshot(); await renderRechnunguri(); rechnUiRestore(st); }
 async function ackRechnWarn(rechnId, key, on) {
   try {
+    const r0 = (window.allRechnunguri || []).find(x => x.id === rechnId);
+    if (on && r0 && key === _wKey('h', 'neverif')) { const bl = rechnBlockers(r0); if (bl) { toast('Mai ai ' + bl + ' probleme nerezolvate — rezolvă-le întâi', 'error'); return; } }
     const ref = db.collection('rechnunguri').doc(rechnId);
-    await ref.update({ ['warnAck.' + key]: on ? { at: Date.now(), by: currentUser?.name || '' } : firebase.firestore.FieldValue.delete() });
-    const r = (window.allRechnunguri || []).find(x => x.id === rechnId);
-    if (r) { r.warnAck = r.warnAck || {}; if (on) r.warnAck[key] = { at: Date.now(), by: currentUser?.name || '' }; else delete r.warnAck[key]; }
-    await renderRechnKeep();
+    const upd = { ['warnAck.' + key]: on ? { at: Date.now(), by: currentUser?.name || '' } : firebase.firestore.FieldValue.delete() };
+    if (on) upd['warnSent.' + key] = firebase.firestore.FieldValue.delete();
+    await ref.update(upd);
+    const r = r0;
+    if (r) { r.warnAck = r.warnAck || {}; if (on) { r.warnAck[key] = { at: Date.now(), by: currentUser?.name || '' }; if (r.warnSent) delete r.warnSent[key]; } else delete r.warnAck[key]; }
+    await renderRechnKeep(); rechnPanelRefresh();
   } catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
+async function sendRechnWarn(rechnId, key, on) {
+  try {
+    await db.collection('rechnunguri').doc(rechnId).update({ ['warnSent.' + key]: on ? { at: Date.now(), by: currentUser?.name || '' } : firebase.firestore.FieldValue.delete() });
+    const r = (window.allRechnunguri || []).find(x => x.id === rechnId);
+    if (r) { r.warnSent = r.warnSent || {}; if (on) r.warnSent[key] = { at: Date.now(), by: currentUser?.name || '' }; else delete r.warnSent[key]; }
+    toast(on ? '📤 Trimis la verificare' : 'Trimiterea a fost anulată');
+    await renderRechnKeep(); rechnPanelRefresh();
+  } catch (e) { toast('Eroare: ' + e.message, 'error'); }
+}
+// „Factura e OK”: doar dacă toate problemele sunt rezolvate
 async function ackRechnAll(rechnId) {
   const r = (window.allRechnunguri || []).find(x => x.id === rechnId); if (!r) return;
-  const W = rechnWarnings(r, window._rechnCtx); const upd = {}; const by = currentUser?.name || '';
-  [...W.head, ...W.items.flatMap(i => i.w)].forEach(x => { if (x.lvl >= 1 && x.code && !x.ack) upd['warnAck.' + x.key] = { at: Date.now(), by }; });
-  if (!Object.keys(upd).length) return;
-  if (!confirm('Marchezi TOATE avertizările acestei facturi ca verificate?')) return;
-  try { await db.collection('rechnunguri').doc(rechnId).update(upd); Object.keys(upd).forEach(k => { r.warnAck = r.warnAck || {}; r.warnAck[k.slice(8)] = upd[k]; }); await renderRechnKeep(); }
-  catch (e) { toast('Eroare: ' + e.message, 'error'); }
+  const bl = rechnBlockers(r);
+  if (bl) { toast('Mai ai ' + bl + ' probleme nerezolvate — rezolvă-le întâi (✓ OK pe fiecare)', 'error'); return; }
+  try {
+    const by = currentUser?.name || '';
+    await db.collection('rechnunguri').doc(rechnId).update({ verificat: true, disputat: false, ['warnAck.' + _wKey('h', 'neverif')]: { at: Date.now(), by }, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    toast('✓ Factura marcată OK');
+    await renderRechnKeep(); rechnPanelRefresh();
+  } catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
+
+// ─── Panou: „Trimise la verificare” și „Facturi nebifate OK” ───────────────────
+let rechnPanel = null;   // { kind: 'sent' | 'todo', f: 'all' | 'cu' | 'fara' }
+function rechnSentList() {
+  const out = [];
+  (window.allRechnunguri || []).forEach(r => {
+    const W = rechnWarnings(r, window._rechnCtx);
+    W.head.forEach(x => { if (x.sent) out.push({ r, x, p: null }); });
+    W.items.forEach(it => it.w.forEach(x => { if (x.sent) out.push({ r, x, p: (r.pozitii || [])[it.i] }); }));
+  });
+  return out.sort((a, b) => (a.x.sent.at || 0) - (b.x.sent.at || 0));
+}
+function rechnTodoList() {
+  return (window.allRechnunguri || []).filter(r => !r.disputat && !rechnIsChecked(r))
+    .map(r => ({ r, bl: rechnBlockers(r), cnt: rechnWarnings(r, window._rechnCtx).cnt }))
+    .sort((a, b) => (_wDate(a.r.dataEmitere) || 0) - (_wDate(b.r.dataEmitere) || 0));
+}
+function rechnPanelOpen(kind) { rechnPanel = { kind, f: 'all' }; rechnPanelRefresh(); }
+function rechnPanelClose() { rechnPanel = null; const o = document.getElementById('rechn-panel'); if (o) o.remove(); }
+function rechnPanelFilter(f) { if (rechnPanel) { rechnPanel.f = f; rechnPanelRefresh(); } }
+function rechnPanelGo(id) { rechnPanelClose(); openRechnungFromSearch(id); }
+function rechnPanelRefresh() {
+  if (!rechnPanel) return;
+  let o = document.getElementById('rechn-panel');
+  if (!o) { o = document.createElement('div'); o.id = 'rechn-panel'; o.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;padding:4vh 12px;overflow:auto'; o.onclick = e => { if (e.target === o) rechnPanelClose(); }; document.body.appendChild(o); }
+  const btn = 'border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:6px;font-size:11px;padding:3px 9px;cursor:pointer';
+  const fmtD = t => { try { return new Date(t).toLocaleDateString('ro-RO'); } catch (e) { return ''; } };
+  let body = '', title = '';
+  if (rechnPanel.kind === 'sent') {
+    const L = rechnSentList(); title = '📤 Trimise la verificare (' + L.length + ')';
+    body = L.length ? L.map(({ r, x, p }) => `<div style="padding:10px 0;border-top:1px solid var(--border)"><div style="font-size:13px"><b>Nr. ${_wEsc(r.belegNr || '?')}</b> <span style="color:var(--text3)">${_wEsc(r.dataEmitere || '')}</span>${p ? ` · ${_wEsc(p.name || '')} <span style="font-family:monospace;color:var(--text3)">${_wEsc(p.sendungsnummer || p.identnummer || '')}</span>` : ''}</div>
+        <div style="font-size:12px;margin:3px 0">${x.ic} ${_wEsc(x.txt)}</div><div style="font-size:11px;color:#6366f1">📤 trimis${x.sent.by ? ' de ' + _wEsc(x.sent.by) : ''}${x.sent.at ? ' · ' + fmtD(x.sent.at) : ''}</div>
+        <div style="display:flex;gap:6px;margin-top:6px"><button style="${btn};border-color:var(--green);color:var(--green)" onclick="ackRechnWarn('${r.id}','${x.key}',true)">✓ Rezolvat</button><button style="${btn}" onclick="sendRechnWarn('${r.id}','${x.key}',false)">↩ Înapoi (nu mai e trimis)</button><button style="${btn}" onclick="rechnPanelGo('${r.id}')">Deschide factura</button></div></div>`).join('') : '<div style="padding:20px;text-align:center;color:var(--text3)">Nimic trimis la verificare 🎉</div>';
+  } else {
+    let L = rechnTodoList(); const nCu = L.filter(x => x.bl > 0).length, nFara = L.length - nCu;
+    if (rechnPanel.f === 'cu') L = L.filter(x => x.bl > 0); else if (rechnPanel.f === 'fara') L = L.filter(x => x.bl === 0);
+    title = '📋 Facturi nebifate OK (' + (nCu + nFara) + ')';
+    const fb = (f, t) => `<button style="${btn};${rechnPanel.f === f ? 'background:var(--accent,#6366f1);color:#fff' : ''}" onclick="rechnPanelFilter('${f}')">${t}</button>`;
+    body = `<div style="display:flex;gap:6px;margin:8px 0">${fb('all', 'Toate ' + (nCu + nFara))}${fb('cu', 'Cu probleme ' + nCu)}${fb('fara', 'Fără probleme ' + nFara)}</div>`
+      + (L.length ? L.map(({ r, bl, cnt }) => `<div style="padding:9px 0;border-top:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:200px"><b>Nr. ${_wEsc(r.belegNr || '?')}</b> <span style="color:var(--text3);font-size:12px">${_wEsc(r.dataEmitere || '')} · €${(parseFloat(r.suma) || 0).toFixed(2)}</span><div style="font-size:11px;margin-top:2px">${bl ? `<span style="color:#f59e0b">⚠ ${bl} ${bl === 1 ? 'problemă' : 'probleme'} nerezolvate</span>` : '<span style="color:var(--green)">✓ fără probleme nerezolvate</span>'}</div></div>
+        <button style="${btn}" onclick="rechnPanelGo('${r.id}')">Deschide</button>${bl ? '' : `<button style="${btn};border-color:var(--green);color:var(--green)" onclick="ackRechnAll('${r.id}')">✓ OK</button>`}</div>`).join('') : '<div style="padding:20px;text-align:center;color:var(--text3)">Nicio factură în această listă 🎉</div>');
+  }
+  o.innerHTML = `<div class="card" style="max-width:720px;width:100%;padding:16px 18px;margin:auto"><div style="display:flex;align-items:center;gap:10px"><b style="font-size:15px;flex:1">${title}</b><button style="${btn}" onclick="rechnPanelClose()">✕ Închide</button></div>${body}</div>`;
+}
+
 function _wEsc(t){return String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function setRechnOnlyWarn(v) { rechnOnlyWarn = !!v; renderRechnKeep(); }
 
@@ -8417,7 +8504,7 @@ function renderRechnCard(r) {
             ${wBadges}
           </div>
           ${W.head.length ? `<div style="margin-top:4px">${warnChips(W.head, r)}</div>` : ''}
-          ${(W.cnt[3]+W.cnt[2]+W.cnt[1]) ? `<button class="btn btn-ghost" style="padding:2px 8px;font-size:10.5px;margin-top:3px" onclick="event.stopPropagation();ackRechnAll('${r.id}')">✓ Marchează tot ca verificat</button>` : ''}
+          ${(!rechnIsChecked(r) && !r.disputat) ? (() => { const _bl = rechnBlockers(r); return _bl ? `<button class="btn btn-ghost" style="padding:2px 8px;font-size:10.5px;margin-top:3px;opacity:.6;cursor:not-allowed" onclick="event.stopPropagation();toast('Mai ai ${_bl} probleme nerezolvate — rezolvă-le întâi','error')" title="Nu poți bifa factura OK până nu sunt rezolvate toate problemele">🔒 Rezolvă ${_bl} ${_bl===1?'problemă':'probleme'} ca să bifezi factura OK</button>` : `<button class="btn btn-ghost" style="padding:2px 8px;font-size:10.5px;margin-top:3px" onclick="event.stopPropagation();ackRechnAll('${r.id}')">✓ Factura e OK</button>`; })() : ''}
           <div style="font-size:11px;color:var(--text3);margin-top:2px;display:flex;gap:10px;flex-wrap:wrap">
             ${r.dataEmitere ? `<span>📅 ${r.dataEmitere}</span>` : ''}
             <span>📋 ${pozitii.length} poziți${pozitii.length===1?'e':'i'}</span>
@@ -8504,6 +8591,7 @@ function renderRechnCard(r) {
 }
 
 async function verifyRechn(id, dispute) {
+  if (!dispute) { const _r = (window.allRechnunguri || []).find(x => x.id === id); const _bl = _r ? rechnBlockers(_r) : 0; if (_bl) { toast('Mai ai ' + _bl + ' probleme nerezolvate — rezolvă-le întâi', 'error'); return; } }
   await db.collection('rechnunguri').doc(id).update({
     verificat: !dispute, disputat: dispute,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -12523,7 +12611,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.13</span>
+  <span id="version-badge-text">v9.0.14</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
