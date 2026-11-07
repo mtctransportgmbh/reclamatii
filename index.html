@@ -1147,7 +1147,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.15';
+const APP_VERSION = '9.0.16';
 const APP_VERSION_DATE = '07.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -8390,14 +8390,17 @@ async function ackRechnWarn(rechnId, key, on) {
 }
 
 // Un singur set de butoane pe factură: trimite TOATE problemele la verificare / marchează TOATE rezolvate
-function rechnPendingKeys(r, W) {
+function rechnPendingKeys(r, W, si) {
   const out = [];
   const t = x => { if (x.lvl >= 1 && x.code && x.code !== 'neverif' && !x.ack) out.push(x); };
-  W.head.forEach(t); W.items.forEach(it => it.w.forEach(t));
+  if (si === undefined || si === null) { W.head.forEach(t); W.items.forEach(it => it.w.forEach(t)); }
+  else if (W.items[si]) W.items[si].w.forEach(t);
   return out;
 }
-function rechnActionBar(r, W) {
-  const P = rechnPendingKeys(r, W); if (!P.length) return '';
+// si = indexul poziției (bară pe poziție) sau nimic (bară pe toată factura)
+function rechnActionBar(r, W, si) {
+  const sc = (si === undefined || si === null) ? '' : ',' + si;
+  const P = rechnPendingKeys(r, W, si); if (!P.length) return '';
   const sent = P.filter(x => x.sent), notSent = P.filter(x => !x.sent);
   const b = 'border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:6px;font-size:11px;padding:2px 9px;cursor:pointer';
   const bs = 'border:1px solid #6366f1;background:rgba(99,102,241,.10);color:#6366f1;border-radius:6px;font-size:11px;padding:2px 9px;cursor:pointer';
@@ -8406,17 +8409,17 @@ function rechnActionBar(r, W) {
   if (sent.length) {
     const f = sent[0].sent;
     h += `<span style="font-size:11px;color:#6366f1">📤 trimis la verificare${f.by ? ' de ' + _wEsc(f.by) : ''}${f.at ? ' · ' + fmtD(f.at) : ''}</span>`;
-    h += `<button style="${b}" onclick="event.stopPropagation();ackRechnBulk('${r.id}')" title="Toate problemele au fost rezolvate">✓ Rezolvat (toate)</button>`;
-    h += `<button style="${b}" onclick="event.stopPropagation();sendRechnBulk('${r.id}',false)" title="Anulează trimiterea">↩</button>`;
+    h += `<button style="${b}" onclick="event.stopPropagation();ackRechnBulk('${r.id}'${sc})" title="Toate problemele au fost rezolvate">✓ Rezolvat (toate)</button>`;
+    h += `<button style="${b}" onclick="event.stopPropagation();sendRechnBulk('${r.id}',false${sc})" title="Anulează trimiterea">↩</button>`;
   }
-  if (notSent.length) h += `<button style="${bs}" onclick="event.stopPropagation();sendRechnBulk('${r.id}',true)">📤 Trimite la verificare (${P.length} ${P.length === 1 ? 'problemă' : 'probleme'})</button>`;
-  if (!sent.length) h += `<button style="${b}" onclick="event.stopPropagation();ackRechnBulk('${r.id}')" title="Marchează toate problemele ca rezolvate">✓ Rezolvat (toate)</button>`;
+  if (notSent.length) h += `<button style="${bs}" onclick="event.stopPropagation();sendRechnBulk('${r.id}',true${sc})">📤 Trimite la verificare${sc ? '' : ' (' + P.length + ' ' + (P.length === 1 ? 'problemă' : 'probleme') + ')'}</button>`;
+  if (!sent.length) h += `<button style="${b}" onclick="event.stopPropagation();ackRechnBulk('${r.id}'${sc})" title="Marchează ca rezolvat">✓ Rezolvat (toate)</button>`;
   return h + '</div>';
 }
-async function sendRechnBulk(rechnId, on) {
+async function sendRechnBulk(rechnId, on, si) {
   try {
     const r = (window.allRechnunguri || []).find(x => x.id === rechnId); if (!r) return;
-    const W = rechnWarnings(r, window._rechnCtx), P = rechnPendingKeys(r, W);
+    const W = rechnWarnings(r, window._rechnCtx), P = rechnPendingKeys(r, W, si);
     const by = currentUser?.name || '', at = Date.now(), upd = {};
     P.forEach(x => { if (on) { if (!x.sent) upd['warnSent.' + x.key] = { at, by }; } else upd['warnSent.' + x.key] = firebase.firestore.FieldValue.delete(); });
     if (!Object.keys(upd).length) return;
@@ -8427,10 +8430,10 @@ async function sendRechnBulk(rechnId, on) {
     await renderRechnKeep(); rechnPanelRefresh();
   } catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
-async function ackRechnBulk(rechnId) {
+async function ackRechnBulk(rechnId, si) {
   try {
     const r = (window.allRechnunguri || []).find(x => x.id === rechnId); if (!r) return;
-    const W = rechnWarnings(r, window._rechnCtx), P = rechnPendingKeys(r, W);
+    const W = rechnWarnings(r, window._rechnCtx), P = rechnPendingKeys(r, W, si);
     const by = currentUser?.name || '', at = Date.now(), upd = {};
     P.forEach(x => { upd['warnAck.' + x.key] = { at, by }; upd['warnSent.' + x.key] = firebase.firestore.FieldValue.delete(); });
     if (!Object.keys(upd).length) return;
@@ -8621,7 +8624,7 @@ function renderRechnCard(r) {
                     + '<td style="font-family:var(--mono);font-size:11px;color:var(--text3)">' + (m.datum||'—') + '</td>'
                     + '<td style="text-align:right;font-weight:700;font-family:var(--mono)">€' + (m.forderung||0).toFixed(2) + '</td>'
                     + '<td style="min-width:230px;max-width:340px">'
-                      + warnChips((W.items[mIdx] && W.items[mIdx].w) || [], r) + '</td>'
+                      + warnChips((W.items[mIdx] && W.items[mIdx].w) || [], r) + rechnActionBar(r, W, mIdx) + '</td>'
                     + '</tr>';
                 }).join('')}
               </tbody>
@@ -12661,7 +12664,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.15</span>
+  <span id="version-badge-text">v9.0.16</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
