@@ -1148,8 +1148,8 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.17';
-const APP_VERSION_DATE = '07.11.2026';
+const APP_VERSION = '9.0.18';
+const APP_VERSION_DATE = '08.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
 // "SPAȚIUL CORINEI" / "AUTENTIFICARE PIN" mai jos pentru detalii
@@ -1379,7 +1379,7 @@ const USERS = [
   { id:'mihaela',  name:'Mihaela',  role:'operator_limited', location:'Ruhstorf',  avatar:'Mi', color:'#f472b6', bg:'rgba(244,114,182,0.15)', glow:'rgba(244,114,182,0.2)' },
   { id:'madalina', name:'Mădălina', role:'operator', location:'Eiselfing', avatar:'Md', color:'#a78bfa', bg:'rgba(167,139,250,0.15)', glow:'rgba(167,139,250,0.2)' },
   { id:'corina',   name:'Corina',   role:'corina',   location:null,        avatar:'C',  color:'#fb923c', bg:'rgba(251,146,60,0.15)',  glow:'rgba(251,146,60,0.2)' },
-  { id:'admin',    name:'Admin',    role:'admin',    location:null,        avatar:'A',  color:'#e8c547', bg:'rgba(232,197,71,0.15)',  glow:'rgba(232,197,71,0.25)', email:'paulandreimacarie@yahoo.com' },
+  { id:'admin',    name:'Paul',    role:'admin',    location:null,        avatar:'A',  color:'#e8c547', bg:'rgba(232,197,71,0.15)',  glow:'rgba(232,197,71,0.25)', email:'paulandreimacarie@yahoo.com' },
 ];
 
 const MONTHS_RO = ['Ianuarie','Februarie','Martie','Aprilie','Mai','Iunie','Iulie','August','Septembrie','Octombrie','Noiembrie','Decembrie'];
@@ -1500,7 +1500,7 @@ function canSeeAll(u) { return u && (u.role === 'admin' || u.role === 'tania'); 
 function isLimited(u) { return u?.role === 'operator_limited'; } // Mihaela — doar reclamatii proprii
 function getUserLabel(u) {
   if (!u) return '—';
-  const names = { admin:'Paul (Admin)', tania:'Tania', raluca:'Raluca', mihaela:'Mihaela', madalina:'Mădălina', corina:'Corina' };
+  const names = { admin:'Paul', tania:'Tania', raluca:'Raluca', mihaela:'Mihaela', madalina:'Mădălina', corina:'Corina' };
   return names[u.id] || u.name;
 }
 
@@ -2464,7 +2464,15 @@ function buildMobileNav() {
   `).join('');
 }
 
+// Numele vechi „Admin” din date se afiseaza ca „Paul”
+function _normAdmin(n){ return (n === 'Admin' || n === 'Administrator') ? 'Paul' : n; }
+function _normWarnMaps(r){ ['warnAck','warnSent'].forEach(k => { const m = r[k]; if (m) Object.keys(m).forEach(x => { if (m[x] && m[x].by) m[x].by = _normAdmin(m[x].by); }); }); return r; }
+function _normRecl(r){ if (r.adaugatDeNume) r.adaugatDeNume = _normAdmin(r.adaugatDeNume); if (r.adaugatDe === 'Admin') r.adaugatDe = 'Paul'; return r; }
+
 function showPage(id) {
+  // Pagina trebuie sa fie permisa utilizatorului (ex. in Mod Test ca Mihaela: doar Reclamatii)
+  { const _it = NAV_ITEMS.find(n => n.id === id);
+    if (_it && !visibleNav().some(n => n.id === id)) { const _v = visibleNav(); id = _v.length ? _v[0].id : 'reclamatii'; } }
   // Daca plecam de pe Statistici, anulam orice timer activ pentru Alerte
   if (currentPage === 'statistici' && id !== 'statistici') cancelAlerteSeenTimer();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -2530,7 +2538,7 @@ async function loadReclamatii() {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         allReclamatii = snap.docs
-          .map(d => ({id:d.id,...d.data()}))
+          .map(d => _normRecl({id:d.id,...d.data()}))
           .filter(r => {
             if (r.status === 'neprelucrat') return true;
             const created = r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt||0);
@@ -2554,7 +2562,7 @@ async function loadReclamatii() {
     q = q.where('locatie','==',currentUser.location);
   }
   reclamatiUnsubscribe = q.onSnapshot(snap => {
-    allReclamatii = snap.docs.map(d=>({id:d.id,...d.data()}));
+    allReclamatii = snap.docs.map(d=>_normRecl({id:d.id,...d.data()}));
     renderReclamatii();
     renderDashboard();
     document.getElementById('recl-count').textContent = allReclamatii.length + ' înregistrări';
@@ -3115,6 +3123,7 @@ function startTestMode(userId) {
 
   realAdminUser = currentUser; // salvam adminul real
   currentUser = targetUser;
+  ['rechn-list','rechn-warn-bar','rechn-depot-bar','rechn-search-results','rechn-fara-tura-section','rechn-lipsa-section'].forEach(i => { const e = document.getElementById(i); if (e) e.innerHTML = ''; });
 
   renderTestModeBanner();
   updateSidebarUser();
@@ -3130,6 +3139,7 @@ function exitTestMode() {
   if (!realAdminUser) return;
   currentUser = realAdminUser;
   realAdminUser = null;
+  ['rechn-list','rechn-warn-bar','rechn-depot-bar','rechn-search-results','rechn-fara-tura-section','rechn-lipsa-section'].forEach(i => { const e = document.getElementById(i); if (e) e.innerHTML = ''; });
 
   document.getElementById('test-mode-banner')?.remove();
   updateSidebarUser();
@@ -3137,7 +3147,7 @@ function exitTestMode() {
   loadReclamatii();
   loadSoferi();
 
-  toast('✓ Ai revenit la contul Admin');
+  toast('✓ Ai revenit la contul Paul');
 }
 
 function renderTestModeBanner() {
@@ -3151,7 +3161,7 @@ function renderTestModeBanner() {
   banner.innerHTML = `
     🧪 MOD TEST — vezi aplicația ca <strong>${currentUser.name}</strong>
     <button onclick="exitTestMode()" style="background:rgba(255,255,255,0.25);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">
-      ← Revino la Admin
+      ← Revino la Paul
     </button>`;
 }
 
@@ -8080,7 +8090,7 @@ function renderRechnDepotBar() {
 
 async function renderRechnunguri() {
   const snap = await db.collection('rechnunguri').orderBy('uploadedAt','desc').get();
-  const _allR = snap.docs.map(d=>({id:d.id,...d.data()}));
+  const _allR = snap.docs.map(d=>_normWarnMaps({id:d.id,...d.data()}));
   // Expunem pentru cautarea globala (dupa fetch) — lista COMPLETA (pentru verificari intre facturi)
   window.allRechnunguri = _allR;
   // Soferii (tura -> depozit) trebuie sa fie incarcati ca sa stim depozitul facturilor
@@ -8108,7 +8118,13 @@ async function renderRechnunguri() {
   renderRechnSearch();
 
   const el = document.getElementById('rechn-list');
+  if (rechnunguriData.length===0 && currentUser?.role === 'operator') {
+    const _wb0 = document.getElementById('rechn-warn-bar'); if (_wb0) _wb0.innerHTML = '';
+    el.innerHTML = `<div class="empty"><div class="empty-title">Nicio factură pentru depozitul ${_wEsc(currentUser.location||'')}</div><div class="empty-sub">Facturile apar aici după ce sunt încărcate de Paul.</div></div>`;
+    return;
+  }
   if (rechnunguriData.length===0) {
+    { const _wb0 = document.getElementById('rechn-warn-bar'); if (_wb0) _wb0.innerHTML = ''; }
     el.innerHTML=`<div class="empty"><div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg></div><div class="empty-title">Niciun rechnung uploadat</div><div class="empty-sub">Uploadează primul rechnung Hermes</div></div>`;
     return;
   }
@@ -8132,6 +8148,12 @@ async function renderRechnunguri() {
   Object.values(grupuri).forEach(g => {
     g.all = g.rechn;
     g.rechn.forEach(r => { const c = rechnWarnings(r, window._rechnCtx).cnt; totR += c[3]; totO += c[2]; if (c[3] + c[2] > 0) nCards++; });
+    g.st = { red: 0, org: 0, sent: 0, unchecked: 0, n: g.all.length };
+    g.all.forEach(r => {
+      const W = rechnWarnings(r, window._rechnCtx); g.st.red += W.cnt[3]; g.st.org += W.cnt[2];
+      const sc = x => { if (x.sent) g.st.sent++; }; W.head.forEach(sc); W.items.forEach(it => it.w.forEach(sc));
+      if (!r.disputat && !rechnIsChecked(r)) g.st.unchecked++;
+    });
     if (rechnOnlyWarn) g.rechn = g.rechn.filter(r => { const c = rechnWarnings(r, window._rechnCtx).cnt; return c[3] + c[2] > 0; });
   });
   const nSent = rechnSentList().length, nTodo = rechnTodoList().length;
@@ -8168,6 +8190,14 @@ async function renderRechnunguri() {
             <span>${totalPozitii} poziții</span>
             ${totalSuma>0?`<span style="color:var(--accent);font-weight:700">€${totalSuma.toFixed(2)}</span>`:''}
           </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px">${(() => {
+            const st = g.st || { red: 0, org: 0, sent: 0, unchecked: 0 };
+            if (!st.red && !st.org && !st.sent && !st.unchecked) return '<span class="badge badge-green">✅ Lună completă — totul rezolvat</span>';
+            return (st.red ? `<span class="badge badge-red">🔴 ${st.red} de acționat</span>` : '')
+              + (st.org ? `<span class="badge badge-yellow" style="color:#f59e0b">🟠 ${st.org} de verificat</span>` : '')
+              + (st.sent ? `<span class="badge" style="background:rgba(99,102,241,.12);color:#6366f1">📤 ${st.sent} trimise</span>` : '')
+              + (st.unchecked ? `<span class="badge badge-gray">📋 ${st.unchecked} facturi nebifate OK</span>` : '');
+          })()}</div>
         </div>
         <div id="${groupId}-arrow" style="color:var(--text3);transition:transform 0.2s;transform:${isOpen?'rotate(180deg)':''}">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
@@ -8430,13 +8460,14 @@ function rechnWarnings(r, ctx) {
   head.forEach(tally); items.forEach(it => it.w.forEach(tally));
   return { head, items, cnt };
 }
+function _wWhen(t) { try { const d = new Date(t); return d.toLocaleDateString('ro-RO') + ' ' + d.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } }
 function warnChips(arr, r) {
   const col = { 3: 'var(--red)', 2: '#f59e0b', 1: '#ca8a04', 0: 'var(--text3)' };
   const okBtn = 'border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:5px;font-size:10px;padding:0 6px;cursor:pointer;margin-left:6px';
   const sendBtn = 'border:1px solid #6366f1;background:rgba(99,102,241,.10);color:#6366f1;border-radius:5px;font-size:10px;padding:0 6px;cursor:pointer;margin-left:6px';
   const fmtD = t => { try { return new Date(t).toLocaleDateString('ro-RO'); } catch (e) { return ''; } };
   return arr.map(x => {
-    if (x.ack) return `<div style="font-size:10.5px;line-height:1.35;color:var(--text3);margin:1px 0;text-decoration:line-through;text-decoration-color:rgba(120,120,120,.4)">✓ ${_wEsc(x.txt)} <span style="text-decoration:none;display:inline-block">· verificat${x.ack.by ? ' de ' + _wEsc(x.ack.by) : ''}</span> <button style="${okBtn}" onclick="event.stopPropagation();ackRechnWarn('${r.id}','${x.key}',false)" title="Redeschide avertizarea">↩</button></div>`;
+    if (x.ack) return `<div style="font-size:10.5px;line-height:1.35;color:var(--text3);margin:1px 0;text-decoration:line-through;text-decoration-color:rgba(120,120,120,.4)">✓ ${_wEsc(x.txt)} <span style="text-decoration:none;display:inline-block">· ✓ rezolvat${x.ack.by ? ' de ' + _wEsc(x.ack.by) : ''}${x.ack.at ? ' · ' + _wWhen(x.ack.at) : ''}</span> <button style="${okBtn}" onclick="event.stopPropagation();ackRechnWarn('${r.id}','${x.key}',false)" title="Redeschide avertizarea">↩</button></div>`;
     const canAct = x.lvl >= 1 && x.code;
     const isNev = x.code === 'neverif';
     let btn = '';
@@ -8493,7 +8524,15 @@ function rechnPendingKeys(r, W, si) {
 // si = indexul poziției (bară pe poziție) sau nimic (bară pe toată factura)
 function rechnActionBar(r, W, si) {
   const sc = (si === undefined || si === null) ? '' : ',' + si;
-  const P = rechnPendingKeys(r, W, si); if (!P.length) return '';
+  const P = rechnPendingKeys(r, W, si);
+  if (!P.length) {
+    // nimic de facut: arata cine a rezolvat si cand
+    const _acks = []; const _t = x => { if (x.ack && x.lvl >= 1 && x.code && x.code !== 'neverif') _acks.push(x.ack); };
+    if (si === undefined || si === null) { W.head.forEach(_t); W.items.forEach(it => it.w.forEach(_t)); } else if (W.items[si]) W.items[si].w.forEach(_t);
+    if (!_acks.length) return '';
+    const _l = _acks.reduce((a, b) => ((b.at || 0) > (a.at || 0) ? b : a));
+    return `<div style="margin-top:6px;font-size:11px;color:var(--green)">✓ rezolvat${_l.by ? ' de ' + _wEsc(_l.by) : ''}${_l.at ? ' · ' + _wWhen(_l.at) : ''}</div>`;
+  }
   const sent = P.filter(x => x.sent), notSent = P.filter(x => !x.sent);
   const b = 'border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:6px;font-size:11px;padding:2px 9px;cursor:pointer';
   const bs = 'border:1px solid #6366f1;background:rgba(99,102,241,.10);color:#6366f1;border-radius:6px;font-size:11px;padding:2px 9px;cursor:pointer';
@@ -8501,7 +8540,7 @@ function rechnActionBar(r, W, si) {
   let h = '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
   if (sent.length) {
     const f = sent[0].sent;
-    h += `<span style="font-size:11px;color:#6366f1">📤 trimis la verificare${f.by ? ' de ' + _wEsc(f.by) : ''}${f.at ? ' · ' + fmtD(f.at) : ''}</span>`;
+    h += `<span style="font-size:11px;color:#6366f1">📤 trimis la verificare${f.by ? ' de ' + _wEsc(f.by) : ''}${f.at ? ' · ' + _wWhen(f.at) : ''}</span>`;
     h += `<button style="${b}" onclick="event.stopPropagation();ackRechnBulk('${r.id}'${sc})" title="Toate problemele au fost rezolvate">✓ Rezolvat (toate)</button>`;
     h += `<button style="${b}" onclick="event.stopPropagation();sendRechnBulk('${r.id}',false${sc})" title="Anulează trimiterea">↩</button>`;
   }
@@ -8589,7 +8628,7 @@ function rechnPanelRefresh() {
   if (rechnPanel.kind === 'sent') {
     const L = rechnSentList(); title = '📤 Trimise la verificare (' + L.length + ')';
     body = L.length ? L.map(({ r, x, p }) => `<div style="padding:10px 0;border-top:1px solid var(--border)"><div style="font-size:13px"><b>Nr. ${_wEsc(r.belegNr || '?')}</b> <span style="color:var(--text3)">${_wEsc(r.dataEmitere || '')}</span>${p ? ` · ${_wEsc(p.name || '')} <span style="font-family:monospace;color:var(--text3)">${_wEsc(p.sendungsnummer || p.identnummer || '')}</span>` : ''}</div>
-        <div style="font-size:12px;margin:3px 0">${x.ic} ${_wEsc(x.txt)}</div><div style="font-size:11px;color:#6366f1">📤 trimis${x.sent.by ? ' de ' + _wEsc(x.sent.by) : ''}${x.sent.at ? ' · ' + fmtD(x.sent.at) : ''}</div>
+        <div style="font-size:12px;margin:3px 0">${x.ic} ${_wEsc(x.txt)}</div><div style="font-size:11px;color:#6366f1">📤 trimis${x.sent.by ? ' de ' + _wEsc(x.sent.by) : ''}${x.sent.at ? ' · ' + _wWhen(x.sent.at) : ''}</div>
         <div style="display:flex;gap:6px;margin-top:6px"><button style="${btn};border-color:var(--green);color:var(--green)" onclick="ackRechnWarn('${r.id}','${x.key}',true)">✓ Rezolvat</button><button style="${btn}" onclick="sendRechnWarn('${r.id}','${x.key}',false)">↩ Înapoi (nu mai e trimis)</button><button style="${btn}" onclick="rechnPanelGo('${r.id}')">Deschide factura</button></div></div>`).join('') : '<div style="padding:20px;text-align:center;color:var(--text3)">Nimic trimis la verificare 🎉</div>';
   } else {
     let L = rechnTodoList(); const nCu = L.filter(x => x.bl > 0).length, nFara = L.length - nCu;
@@ -12763,7 +12802,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.17</span>
+  <span id="version-badge-text">v9.0.18</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
