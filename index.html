@@ -891,7 +891,7 @@ textarea{resize:vertical;min-height:80px}
             <div class="page-sub">Facturi lunare · Verificare reclamații</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-ghost" onclick="showVerifyRechnModal()" style="font-size:12px;padding:9px 14px">
+            <button class="btn btn-ghost" id="btn-verify-rechn" onclick="showVerifyRechnModal()" style="font-size:12px;padding:9px 14px">
               🔍 Verifică completitudine
             </button>
             <button class="btn btn-primary" id="btn-add-rechn" onclick="toggleRechnForm()">
@@ -1148,7 +1148,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.18';
+const APP_VERSION = '9.0.20';
 const APP_VERSION_DATE = '08.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -1497,6 +1497,8 @@ function fmtDateShort(ts) {
 function getUserById(id) { return USERS.find(u => u.id === id); }
 function canEdit(u) { return u && (u.role === 'admin' || u.role === 'operator' || u.role === 'operator_limited'); }
 function canSeeAll(u) { return u && (u.role === 'admin' || u.role === 'tania'); }
+// Mihaela vede facturile fara sume de bani
+function noMoney() { return isLimited(currentUser); }
 function isLimited(u) { return u?.role === 'operator_limited'; } // Mihaela — doar reclamatii proprii
 function getUserLabel(u) {
   if (!u) return '—';
@@ -2432,8 +2434,8 @@ const NAV_ITEMS = [
 
 function visibleNav() {
   if (isLimited(currentUser)) {
-    // Mihaela vede DOAR reclamatii
-    return NAV_ITEMS.filter(n => n.id === 'reclamatii');
+    // Mihaela vede Reclamatii + Rechnunguri (fara sume)
+    return NAV_ITEMS.filter(n => n.id === 'reclamatii' || n.id === 'rechnunguri');
   }
   if (currentUser?.role === 'corina') {
     // Corina vede STRICT spatiul ei — nimic din restul aplicatiei (nici Reclamatii,
@@ -7700,7 +7702,7 @@ function renderRechnSearch() {
             <td style="color:var(--text2);font-size:11px">${p ? _esc([p.strasse,p.plz,p.ort].filter(Boolean).join(' ')||'—') : '—'}</td>
             <td style="font-size:11px;font-weight:600;color:${p && (p.schadenart||'').includes('Verlust')?'var(--red)':'var(--accent)'}">${p ? _esc(p.schadenart||'—') : '—'}</td>
             <td style="font-family:var(--mono);font-size:11px;color:var(--text3);white-space:nowrap">${p ? _esc(p.datum||'—') : '—'}</td>
-            <td style="text-align:right;font-weight:700;font-family:var(--mono)">${p ? '€'+(p.forderung||0).toFixed(2) : ''}</td>
+            <td style="text-align:right;font-weight:700;font-family:var(--mono)">${p && !noMoney() ? '€'+(p.forderung||0).toFixed(2) : ''}</td>
             <td><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;white-space:nowrap" onclick="openRechnungFromSearch('${r.id}')">Deschide rechnung →</button></td>
           </tr>`).join('')}
         </tbody>
@@ -8031,7 +8033,7 @@ function rechnDepotOfNew(pozitii) { const i = rechnDepotInfo({ pozitii: pozitii 
 function rechnVisible(list) {
   list = list || [];
   if (canSeeAll(currentUser)) return list;
-  if (currentUser?.role !== 'operator') return [];
+  if (currentUser?.role !== 'operator' && !isLimited(currentUser)) return [];
   const L = currentUser.location, map = _depotMapBuild();
   if (!L) return [];
   return list.filter(r => { const i = rechnDepotInfo(r, map); return i.src === 'manual' ? i.loc === L : (L === 'Ruhstorf' ? i.ruh : i.eis) > 0; });
@@ -8057,7 +8059,7 @@ function renderRechnDepotBar() {
   if (!canSeeAll(currentUser)) { el.innerHTML = ''; return; }
   const all = window.allRechnunguri || [], map = _depotMapBuild();
   const fmt = t => { try { const d = new Date(t); return d.toLocaleDateString('ro-RO') + ' ' + d.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
-  const who = { Ruhstorf: 'Raluca', Eiselfing: 'Mădălina' };
+  const who = { Ruhstorf: 'Raluca, Mihaela', Eiselfing: 'Mădălina' };
   const stat = { Ruhstorf: null, Eiselfing: null, null: null };
   const S = { Ruhstorf: { n: 0, red: 0, org: 0, sent: 0, ack: {}, last: 0, lastBy: '' }, Eiselfing: { n: 0, red: 0, org: 0, sent: 0, ack: {}, last: 0, lastBy: '' }, nec: { n: 0 } };
   all.forEach(r => {
@@ -8097,13 +8099,18 @@ async function renderRechnunguri() {
   if (typeof soferiLoaded !== 'undefined' && !soferiLoaded) { try { loadSoferi(); } catch(e){} for (let _w = 0; _w < 40 && !soferiLoaded; _w++) await new Promise(r => setTimeout(r, 150)); }
   // Ce se afiseaza: Raluca/Madalina doar depozitul lor; admin/Tania tot (+ filtru pe depozit)
   rechnunguriData = rechnVisible(_allR);
+  // Mihaela are incarcate doar reclamatiile recente; pentru avertizari folosim toate reclamatiile depozitului ei
+  window._rechnReclFull = null;
+  if (isLimited(currentUser) && currentUser.location) {
+    try { const _rs = await db.collection('reclamatii').where('locatie', '==', currentUser.location).get(); window._rechnReclFull = _rs.docs.map(d => ({ id: d.id, ...d.data() })); } catch (e) { console.warn('reclamatii complete:', e.message); }
+  }
   if (canSeeAll(currentUser) && rechnDepotFilter !== 'toate') {
     const _m = _depotMapBuild();
     rechnunguriData = rechnunguriData.filter(r => (rechnDepotInfo(r, _m).loc || 'nec') === rechnDepotFilter);
   }
-  { const _isOp = currentUser?.role === 'operator';
-    const _b = document.getElementById('btn-add-rechn'); if (_b) _b.style.display = _isOp ? 'none' : '';
-    const _f = document.getElementById('rechn-fara-tura-section'); if (_f && _isOp) _f.innerHTML = ''; }
+  { const _isOp = !canSeeAll(currentUser);
+    const _isOp2 = !canSeeAll(currentUser); const _b = document.getElementById('btn-add-rechn'); if (_b) _b.style.display = _isOp2 ? 'none' : ''; const _vb = document.getElementById('btn-verify-rechn'); if (_vb) _vb.style.display = _isOp2 ? 'none' : '';
+    const _f = document.getElementById('rechn-fara-tura-section'); if (_f && _isOp2) _f.innerHTML = ''; }
   if (!window.pierduteAllRaw) { try { const ps = await db.collection('pachete_pierdute').get(); window.pierduteAllRaw = ps.docs.map(d=>({id:d.id,...d.data()})); } catch(e) { window.pierduteAllRaw = []; } }
   window._rechnCtx = buildRechnCtx();
   renderRechnDepotBar();
@@ -8118,7 +8125,7 @@ async function renderRechnunguri() {
   renderRechnSearch();
 
   const el = document.getElementById('rechn-list');
-  if (rechnunguriData.length===0 && currentUser?.role === 'operator') {
+  if (rechnunguriData.length===0 && !canSeeAll(currentUser)) {
     const _wb0 = document.getElementById('rechn-warn-bar'); if (_wb0) _wb0.innerHTML = '';
     el.innerHTML = `<div class="empty"><div class="empty-title">Nicio factură pentru depozitul ${_wEsc(currentUser.location||'')}</div><div class="empty-sub">Facturile apar aici după ce sunt încărcate de Paul.</div></div>`;
     return;
@@ -8188,7 +8195,7 @@ async function renderRechnunguri() {
           <div style="font-size:12px;color:var(--text3);display:flex;gap:10px;flex-wrap:wrap">
             <span>${totalRechn} rechnung${totalRechn===1?'':'-uri'}</span>
             <span>${totalPozitii} poziții</span>
-            ${totalSuma>0?`<span style="color:var(--accent);font-weight:700">€${totalSuma.toFixed(2)}</span>`:''}
+            ${totalSuma>0 && !noMoney()?`<span style="color:var(--accent);font-weight:700">€${totalSuma.toFixed(2)}</span>`:''}
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px">${(() => {
             const st = g.st || { red: 0, org: 0, sent: 0, unchecked: 0 };
@@ -8226,7 +8233,7 @@ function toggleRechnLunaGroup(groupId) {
 function renderFaraTuraSection() {
   const el = document.getElementById('rechn-fara-tura-section');
   if (!el) return;
-  if (currentUser?.role === 'operator') { el.innerHTML = ''; return; }
+  if (!canSeeAll(currentUser)) { el.innerHTML = ''; return; }
 
   // Colectam toate pozitiile fara tura, cu referinta la rechnung + index
   const faraTura = [];
@@ -8347,7 +8354,7 @@ function _wDate(s) {
   m = t.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return new Date(+m[1], +m[2]-1, +m[3]);
   return null;
 }
-const _wEur = (n) => (n < 0 ? '-€' : '€') + Math.abs(n).toFixed(2);
+const _wEur = (n) => noMoney() ? '€ ···' : (n < 0 ? '-€' : '€') + Math.abs(n).toFixed(2);
 // Același pachet = ACELAȘI nr. de urmărire + același client + aceeași adresă (altfel sunt pachete diferite)
 function _wSame(a, b) {
   if (!a.nm.length || !b.nm.length) return false;
@@ -8372,7 +8379,7 @@ function buildRechnCtx() {
   amounts.sort((a,b)=>a-b);
   const median = amounts.length ? amounts[Math.floor(amounts.length/2)] : 0;
   const recl = {};
-  allReclamatii.forEach(x => { const t = _pn(x.numarPachet || x.identnummer); if (t.length >= 6) (recl[t] = recl[t] || []).push(x); });
+  (window._rechnReclFull || allReclamatii).forEach(x => { const t = _pn(x.numarPachet || x.identnummer); if (t.length >= 6) (recl[t] = recl[t] || []).push(x); });
   return { track, belegCount, median, recl, pierdute: window.pierduteAllRaw || [] };
 }
 function rechnPozWarnings(r, p, ctx) {
@@ -8636,7 +8643,7 @@ function rechnPanelRefresh() {
     title = '📋 Facturi nebifate OK (' + (nCu + nFara) + ')';
     const fb = (f, t) => `<button style="${btn};${rechnPanel.f === f ? 'background:var(--accent,#6366f1);color:#fff' : ''}" onclick="rechnPanelFilter('${f}')">${t}</button>`;
     body = `<div style="display:flex;gap:6px;margin:8px 0">${fb('all', 'Toate ' + (nCu + nFara))}${fb('cu', 'Cu probleme ' + nCu)}${fb('fara', 'Fără probleme ' + nFara)}</div>`
-      + (L.length ? L.map(({ r, bl, cnt }) => `<div style="padding:9px 0;border-top:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:200px"><b>Nr. ${_wEsc(r.belegNr || '?')}</b> <span style="color:var(--text3);font-size:12px">${_wEsc(r.dataEmitere || '')} · €${(parseFloat(r.suma) || 0).toFixed(2)}</span><div style="font-size:11px;margin-top:2px">${bl ? `<span style="color:#f59e0b">⚠ ${bl} ${bl === 1 ? 'problemă' : 'probleme'} nerezolvate</span>` : '<span style="color:var(--green)">✓ fără probleme nerezolvate</span>'}</div></div>
+      + (L.length ? L.map(({ r, bl, cnt }) => `<div style="padding:9px 0;border-top:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:200px"><b>Nr. ${_wEsc(r.belegNr || '?')}</b> <span style="color:var(--text3);font-size:12px">${_wEsc(r.dataEmitere || '')}${noMoney() ? '' : ' · €' + (parseFloat(r.suma) || 0).toFixed(2)}</span><div style="font-size:11px;margin-top:2px">${bl ? `<span style="color:#f59e0b">⚠ ${bl} ${bl === 1 ? 'problemă' : 'probleme'} nerezolvate</span>` : '<span style="color:var(--green)">✓ fără probleme nerezolvate</span>'}</div></div>
         <button style="${btn}" onclick="rechnPanelGo('${r.id}')">Deschide</button>${bl ? '' : `<button style="${btn};border-color:var(--green);color:var(--green)" onclick="ackRechnAll('${r.id}')">✓ OK</button>`}</div>`).join('') : '<div style="padding:20px;text-align:center;color:var(--text3)">Nicio factură în această listă 🎉</div>');
   }
   o.innerHTML = `<div class="card" style="max-width:720px;width:100%;padding:16px 18px;margin:auto"><div style="display:flex;align-items:center;gap:10px"><b style="font-size:15px;flex:1">${title}</b><button style="${btn}" onclick="rechnPanelClose()">✕ Închide</button></div>${body}</div>`;
@@ -8682,7 +8689,7 @@ function renderRechnCard(r) {
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="font-size:14px;font-weight:700">${r.belegNr ? 'Nr. '+r.belegNr : (r.fileName||'Rechnung')}</span>
             ${rechnDepotBadge(r)}
-            ${r.suma ? `<span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${parseFloat(r.suma).toFixed(2)}</span>` : ''}
+            ${r.suma && !noMoney() ? `<span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${parseFloat(r.suma).toFixed(2)}</span>` : ''}
             ${r.disputat ? '<span class="badge badge-red">⚠ Dispută</span>' : ''}
             ${r.verificat && !r.disputat ? '<span class="badge badge-green">✓ OK</span>' : ''}
             ${disputabile.length > 0 ? `<span class="badge badge-yellow">⚠ ${disputabile.length} contestabil${disputabile.length>1?'e':''}</span>` : ''}
@@ -8727,14 +8734,14 @@ function renderRechnCard(r) {
         ${pozitii.length > 0 ? `
           ${disputabile.length > 0 ? `
             <div style="padding:8px 12px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--accent)">
-              ⚠ <strong>${disputabile.length} poziție(i) contestabile</strong> — rezolvate de șofer dar facturate! Sumă: <strong>€${disputabile.reduce((s,p)=>s+p.forderung,0).toFixed(2)}</strong>
+              ⚠ <strong>${disputabile.length} poziție(i) contestabile</strong> — rezolvate de șofer dar facturate! ${noMoney()?'':`Sumă: <strong>€${disputabile.reduce((s,p)=>s+p.forderung,0).toFixed(2)}</strong>`}
             </div>
           ` : ''}
 
           <div style="overflow-x:auto">
             <table class="data-table" style="font-size:12px;min-width:900px">
               <thead>
-                <tr><th>Tour</th><th>Firmă</th><th>Tip</th><th>Nume</th><th>Nr. urmărire</th><th>Adresă</th><th>PLZ Localitate</th><th>Data</th><th style="text-align:right">€</th><th>Status / Avertizări</th></tr>
+                <tr><th>Tour</th><th>Firmă</th><th>Tip</th><th>Nume</th><th>Nr. urmărire</th><th>Adresă</th><th>PLZ Localitate</th><th>Data</th><th style="text-align:right">${noMoney()?'':'€'}</th><th>Status / Avertizări</th></tr>
               </thead>
               <tbody>
                 ${matchuri.map((m, mIdx) => {
@@ -8757,7 +8764,7 @@ function renderRechnCard(r) {
                     + '<td style="color:var(--text2);font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (m.strasse||'') + '">' + (m.strasse||'—') + '</td>'
                     + '<td style="color:var(--text2);font-size:11px;white-space:nowrap">' + (m.plz?m.plz+' ':'') + (m.ort||'') + '</td>'
                     + '<td style="font-family:var(--mono);font-size:11px;color:var(--text3)">' + (m.datum||'—') + '</td>'
-                    + '<td style="text-align:right;font-weight:700;font-family:var(--mono)">€' + (m.forderung||0).toFixed(2) + '</td>'
+                    + '<td style="text-align:right;font-weight:700;font-family:var(--mono)">' + (noMoney() ? '' : '€' + (m.forderung||0).toFixed(2)) + '</td>'
                     + '<td style="min-width:230px;max-width:340px">'
                       + warnChips((W.items[mIdx] && W.items[mIdx].w) || [], r) + rechnActionBar(r, W, mIdx) + '</td>'
                     + '</tr>';
@@ -8766,7 +8773,7 @@ function renderRechnCard(r) {
               <tfoot>
                 <tr style="border-top:2px solid var(--border)">
                   <td colspan="8" style="font-weight:700;padding-top:8px;font-size:12px">TOTAL</td>
-                  <td style="text-align:right;font-weight:800;font-family:var(--mono);color:var(--accent);padding-top:8px">€${pozitii.reduce((s,p)=>s+(p.forderung||0),0).toFixed(2)}</td>
+                  <td style="text-align:right;font-weight:800;font-family:var(--mono);color:var(--accent);padding-top:8px">${noMoney()?'':'€'+pozitii.reduce((s,p)=>s+(p.forderung||0),0).toFixed(2)}</td>
                   <td></td>
                 </tr>
               </tfoot>
@@ -12802,7 +12809,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.18</span>
+  <span id="version-badge-text">v9.0.20</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
