@@ -1148,7 +1148,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.20';
+const APP_VERSION = '9.0.21';
 const APP_VERSION_DATE = '08.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -8049,10 +8049,10 @@ async function setRechnDepot(id, loc) {
     await db.collection('rechnunguri').doc(id).update({ locatie: loc || firebase.firestore.FieldValue.delete() });
     const r = (window.allRechnunguri || []).find(x => x.id === id); if (r) { if (loc) r.locatie = loc; else delete r.locatie; }
     toast(loc ? '📍 Depozit setat: ' + loc : 'Depozit șters (se deduce din ture)');
-    await renderRechnKeep();
+    await renderRechnKeep(true);
   } catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
-function setRechnDepotFilter(f) { rechnDepotFilter = f; renderRechnKeep(); }
+function setRechnDepotFilter(f) { rechnDepotFilter = f; renderRechnKeep(true, true); }
 // Rezumat pe depozit pentru admin: ce a făcut fiecare persoană pe facturile depozitului ei
 function renderRechnDepotBar() {
   const el = document.getElementById('rechn-depot-bar'); if (!el) return;
@@ -8090,9 +8090,13 @@ function renderRechnDepotBar() {
     <div style="display:flex;gap:10px;flex-wrap:wrap">${card('Ruhstorf')}${card('Eiselfing')}</div></div>`;
 }
 
-async function renderRechnunguri() {
-  const snap = await db.collection('rechnunguri').orderBy('uploadedAt','desc').get();
-  const _allR = snap.docs.map(d=>_normWarnMaps({id:d.id,...d.data()}));
+async function renderRechnunguri(fromMemory) {
+  let _allR;
+  if (fromMemory && window.allRechnunguri && window.allRechnunguri.length) { _allR = window.allRechnunguri; }
+  else {
+    const snap = await db.collection('rechnunguri').orderBy('uploadedAt','desc').get();
+    _allR = snap.docs.map(d=>_normWarnMaps({id:d.id,...d.data()}));
+  }
   // Expunem pentru cautarea globala (dupa fetch) — lista COMPLETA (pentru verificari intre facturi)
   window.allRechnunguri = _allR;
   // Soferii (tura -> depozit) trebuie sa fie incarcati ca sa stim depozitul facturilor
@@ -8100,8 +8104,8 @@ async function renderRechnunguri() {
   // Ce se afiseaza: Raluca/Madalina doar depozitul lor; admin/Tania tot (+ filtru pe depozit)
   rechnunguriData = rechnVisible(_allR);
   // Mihaela are incarcate doar reclamatiile recente; pentru avertizari folosim toate reclamatiile depozitului ei
-  window._rechnReclFull = null;
-  if (isLimited(currentUser) && currentUser.location) {
+  if (!(fromMemory && window._rechnReclFull)) window._rechnReclFull = null;
+  if (isLimited(currentUser) && currentUser.location && !window._rechnReclFull) {
     try { const _rs = await db.collection('reclamatii').where('locatie', '==', currentUser.location).get(); window._rechnReclFull = _rs.docs.map(d => ({ id: d.id, ...d.data() })); } catch (e) { console.warn('reclamatii complete:', e.message); }
   }
   if (canSeeAll(currentUser) && rechnDepotFilter !== 'toate') {
@@ -8161,7 +8165,7 @@ async function renderRechnunguri() {
       const sc = x => { if (x.sent) g.st.sent++; }; W.head.forEach(sc); W.items.forEach(it => it.w.forEach(sc));
       if (!r.disputat && !rechnIsChecked(r)) g.st.unchecked++;
     });
-    if (rechnOnlyWarn) g.rechn = g.rechn.filter(r => { const c = rechnWarnings(r, window._rechnCtx).cnt; return c[3] + c[2] > 0; });
+    if (rechnOnlyWarn) g.rechn = g.rechn.filter(r => { const c = rechnWarnings(r, window._rechnCtx).cnt; return c[3] + c[2] > 0 || !!(window._rechnKeep && window._rechnKeep.has(r.id)); });
   });
   const nSent = rechnSentList().length, nTodo = rechnTodoList().length;
   const wb = document.getElementById('rechn-warn-bar');
@@ -8495,17 +8499,38 @@ function rechnBlockers(r) {
 function rechnIsChecked(r) { return !!(r.verificat || (r.warnAck && r.warnAck[_wKey('h', 'neverif')])); }
 // Păstrează ce era deschis (luni, facturi, liste) și poziția pe pagină când lista de facturi se redesenează
 function rechnUiSnapshot() {
-  const open = sel => Array.from(document.querySelectorAll(sel)).filter(e => e.style.display !== 'none' && e.style.display !== '').map(e => e.id);
-  return { y: window.scrollY, x: window.scrollX, groups: open('[id^="rechn-luna-"][id$="-content"]'), cards: open('[id^="rechn-card-"][id$="-details"]') };
+  // Zona care derulează e #main-content (nu fereastra): ținem minte poziția, lunile/cardurile deschise
+  // și cardul de sus din ecran, ca după orice bifare să rămâi exact unde erai.
+  const mc = document.getElementById('main-content');
+  const groups = {}, cards = {};
+  document.querySelectorAll('[id^="rechn-luna-"][id$="-content"]').forEach(e => { groups[e.id] = e.style.display !== 'none'; });
+  document.querySelectorAll('[id^="rechn-card-"][id$="-details"]').forEach(e => { cards[e.id] = e.style.display !== 'none'; });
+  let anchor = null;
+  const roots = Array.from(document.querySelectorAll('[id^="rechn-card-root-"]'));
+  if (mc) { const top = mc.getBoundingClientRect().top; for (const el of roots) { const r = el.getBoundingClientRect(); if (r.height && r.bottom > top + 8) { anchor = { id: el.id, off: r.top - top }; break; } } }
+  return { y: mc ? mc.scrollTop : 0, wy: window.scrollY, groups, cards, anchor, keep: new Set(roots.map(e => e.id.replace('rechn-card-root-', ''))) };
 }
 function rechnUiRestore(st) {
   if (!st) return;
-  st.groups.forEach(id => { const c = document.getElementById(id); if (c && c.style.display === 'none') toggleRechnLunaGroup(id.replace(/-content$/, '')); });
-  st.cards.forEach(id => { const c = document.getElementById(id); if (c && c.style.display === 'none') toggleRechnCard(id.replace(/^rechn-card-/, '').replace(/-details$/, '')); });
-  window.scrollTo(st.x, st.y);
-  requestAnimationFrame(() => window.scrollTo(st.x, st.y));
+  Object.entries(st.groups).forEach(([id, open]) => { const c = document.getElementById(id); if (c && (c.style.display !== 'none') !== open) toggleRechnLunaGroup(id.replace(/-content$/, '')); });
+  Object.entries(st.cards).forEach(([id, open]) => { const c = document.getElementById(id); if (c && (c.style.display !== 'none') !== open) toggleRechnCard(id.replace(/^rechn-card-/, '').replace(/-details$/, '')); });
+  const mc = document.getElementById('main-content');
+  const apply = () => {
+    if (mc) {
+      mc.scrollTop = st.y;
+      if (st.anchor) { const el = document.getElementById(st.anchor.id); if (el) { const top = mc.getBoundingClientRect().top; mc.scrollTop += (el.getBoundingClientRect().top - top) - st.anchor.off; } }
+    }
+    window.scrollTo(0, st.wy || 0);
+  };
+  apply(); requestAnimationFrame(apply);
 }
-async function renderRechnKeep() { const st = rechnUiSnapshot(); await renderRechnunguri(); rechnUiRestore(st); }
+// mem = refac din memorie (fara reincarcare din baza de date, mult mai rapid); noKeep = nu pastra facturile rezolvate in lista „doar cu avertizari”
+async function renderRechnKeep(mem, noKeep) {
+  const st = rechnUiSnapshot();
+  window._rechnKeep = noKeep ? null : st.keep;
+  try { await renderRechnunguri(!!mem); } finally { window._rechnKeep = null; }
+  rechnUiRestore(st);
+}
 async function ackRechnWarn(rechnId, key, on) {
   try {
     const r0 = (window.allRechnunguri || []).find(x => x.id === rechnId);
@@ -8516,7 +8541,7 @@ async function ackRechnWarn(rechnId, key, on) {
     await ref.update(upd);
     const r = r0;
     if (r) { r.warnAck = r.warnAck || {}; if (on) { r.warnAck[key] = { at: Date.now(), by: currentUser?.name || '' }; if (r.warnSent) delete r.warnSent[key]; } else delete r.warnAck[key]; }
-    await renderRechnKeep(); rechnPanelRefresh();
+    await renderRechnKeep(true); rechnPanelRefresh();
   } catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
 
@@ -8566,7 +8591,7 @@ async function sendRechnBulk(rechnId, on, si) {
     r.warnSent = r.warnSent || {};
     P.forEach(x => { if (on) { if (!x.sent) r.warnSent[x.key] = { at, by }; } else delete r.warnSent[x.key]; });
     toast(on ? '📤 Trimis la verificare' : 'Trimiterea a fost anulată');
-    await renderRechnKeep(); rechnPanelRefresh();
+    await renderRechnKeep(true); rechnPanelRefresh();
   } catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
 async function ackRechnBulk(rechnId, si) {
@@ -8580,7 +8605,7 @@ async function ackRechnBulk(rechnId, si) {
     r.warnAck = r.warnAck || {};
     P.forEach(x => { r.warnAck[x.key] = { at, by }; if (r.warnSent) delete r.warnSent[x.key]; });
     toast('✓ Toate problemele marcate rezolvate');
-    await renderRechnKeep(); rechnPanelRefresh();
+    await renderRechnKeep(true); rechnPanelRefresh();
   } catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
 async function sendRechnWarn(rechnId, key, on) {
@@ -8589,7 +8614,7 @@ async function sendRechnWarn(rechnId, key, on) {
     const r = (window.allRechnunguri || []).find(x => x.id === rechnId);
     if (r) { r.warnSent = r.warnSent || {}; if (on) r.warnSent[key] = { at: Date.now(), by: currentUser?.name || '' }; else delete r.warnSent[key]; }
     toast(on ? '📤 Trimis la verificare' : 'Trimiterea a fost anulată');
-    await renderRechnKeep(); rechnPanelRefresh();
+    await renderRechnKeep(true); rechnPanelRefresh();
   } catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
 // „Factura e OK”: doar dacă toate problemele sunt rezolvate
@@ -8599,9 +8624,11 @@ async function ackRechnAll(rechnId) {
   if (bl) { toast('Mai ai ' + bl + ' probleme nerezolvate — rezolvă-le întâi (✓ OK pe fiecare)', 'error'); return; }
   try {
     const by = currentUser?.name || '';
-    await db.collection('rechnunguri').doc(rechnId).update({ verificat: true, disputat: false, ['warnAck.' + _wKey('h', 'neverif')]: { at: Date.now(), by }, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    const _at = Date.now();
+    await db.collection('rechnunguri').doc(rechnId).update({ verificat: true, disputat: false, ['warnAck.' + _wKey('h', 'neverif')]: { at: _at, by }, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    r.verificat = true; r.disputat = false; r.warnAck = r.warnAck || {}; r.warnAck[_wKey('h', 'neverif')] = { at: _at, by };
     toast('✓ Factura marcată OK');
-    await renderRechnKeep(); rechnPanelRefresh();
+    await renderRechnKeep(true); rechnPanelRefresh();
   } catch (e) { toast('Eroare: ' + e.message, 'error'); }
 }
 
@@ -8650,7 +8677,7 @@ function rechnPanelRefresh() {
 }
 
 function _wEsc(t){return String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-function setRechnOnlyWarn(v) { rechnOnlyWarn = !!v; renderRechnKeep(); }
+function setRechnOnlyWarn(v) { rechnOnlyWarn = !!v; renderRechnKeep(true, true); }
 
 
 function renderRechnCard(r) {
@@ -8674,7 +8701,7 @@ function renderRechnCard(r) {
     + (W.cnt[1] ? `<span class="badge badge-gray" title="Neobișnuit">🟡 ${W.cnt[1]}</span>` : '');
 
   return `
-    <div class="card" style="margin-bottom:8px;border:1px solid ${r.disputat?'rgba(248,113,113,0.3)':r.verificat?'rgba(52,211,153,0.2)':'var(--border)'}">
+    <div class="card" id="rechn-card-root-${r.id}" style="margin-bottom:8px;border:1px solid ${r.disputat?'rgba(248,113,113,0.3)':r.verificat?'rgba(52,211,153,0.2)':'var(--border)'}">
 
       <!-- HEADER compact — mereu vizibil -->
       <div style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:2px 0" onclick="toggleRechnCard('${r.id}')">
@@ -12809,7 +12836,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.20</span>
+  <span id="version-badge-text">v9.0.21</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
