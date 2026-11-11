@@ -11,15 +11,15 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+<script src="vendor/chart.umd.js"></script>
+<script src="vendor/pdf.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/qrcode.js"></script>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css"/>
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/leaflet/leaflet.markercluster.js"></script>
+<link rel="stylesheet" href="vendor/leaflet/MarkerCluster.css"/>
+<link rel="stylesheet" href="vendor/leaflet/MarkerCluster.Default.css"/>
 <style>
 :root {
   --bg: #0a0b0f;
@@ -1148,8 +1148,8 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.21';
-const APP_VERSION_DATE = '08.11.2026';
+const APP_VERSION = '9.0.22';
+const APP_VERSION_DATE = '11.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
 // "SPAȚIUL CORINEI" / "AUTENTIFICARE PIN" mai jos pentru detalii
@@ -3751,9 +3751,16 @@ function renderImportAutoCard(r) {
       <div style="font-size:12px;font-weight:800;color:#fff">⚠️ ACORD DE OPRIRE — pachet lăsat la locul de depozitare stabilit (Ablageort), nu predat direct</div>
     </div>` : '';
 
+  const vecinBadge = r.esteVecin ? `
+    <div style="margin-bottom:12px;padding:10px 12px;background:linear-gradient(135deg,#dc2626,#ea580c);border-radius:8px;animation:pulse-red 2s infinite">
+      <div style="font-size:12px;font-weight:800;color:#fff;margin-bottom:4px">⚠️ LIVRAT LA VECIN (Nachbar): ${r.vecinNume||'—'}</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.95)">${r.vecinAdresa||''}</div>
+    </div>` : '';
+
   return `
-    <div class="card" style="margin-bottom:12px;border-color:${(r.adresaLivrareDiferita||r.esteAblageort)?'var(--red)':'rgba(232,197,71,0.3)'}" id="import-auto-card-${r.id}">
+    <div class="card" style="margin-bottom:12px;border-color:${(r.adresaLivrareDiferita||r.esteAblageort||r.esteVecin)?'var(--red)':'rgba(232,197,71,0.3)'}" id="import-auto-card-${r.id}">
       ${adresaBadge}
+      ${vecinBadge}
       ${ablageortBadge}
       <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
         <div style="width:38px;height:38px;background:var(--accent-bg);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px">⚡</div>
@@ -4116,6 +4123,11 @@ function reclItemHTML(r, compact) {
             ? `<span class="badge badge-gray" style="font-size:10px">acord de oprire</span>`
             : `<span style="color:#fff;background:linear-gradient(135deg,#dc2626,#ea580c);padding:3px 10px;border-radius:5px;font-weight:800;font-size:11px;letter-spacing:0.4px;text-transform:uppercase;animation:pulse-red 1.5s infinite;display:inline-flex;align-items:center;gap:4px">⚠️ ACORD DE OPRIRE</span>`
         ) : ''}
+        ${r.esteVecin ? (
+          r.status==='rezolvata'
+            ? `<span class="badge badge-gray" style="font-size:10px">livrat la vecin</span>`
+            : `<span style="color:#fff;background:linear-gradient(135deg,#dc2626,#ea580c);padding:3px 10px;border-radius:5px;font-weight:800;font-size:11px;letter-spacing:0.4px;text-transform:uppercase;animation:pulse-red 1.5s infinite;display:inline-flex;align-items:center;gap:4px">🏠 la vecin${r.vecinNume?': '+r.vecinNume:''}</span>`
+        ) : ''}
         ${(() => {
           if (!r.termin) return '';
           // Parse termin date - format YYYY-MM-DD sau DD.MM.YYYY
@@ -4459,6 +4471,9 @@ async function saveReclamatie() {
   // NU se atinge la editare, ca sa nu suprascriem valoarea existenta cu una stale
   if (!editingId) {
     payload.esteAblageort = !!(window._lastAblieferung && window._lastAblieferung.esteAblageort);
+    payload.esteVecin = !!(window._lastAblieferung && window._lastAblieferung.esteVecin);
+    payload.vecinNume = (window._lastAblieferung && window._lastAblieferung.vecinNume) || '';
+    payload.vecinAdresa = (window._lastAblieferung && window._lastAblieferung.vecinAdresa) || '';
   }
 
   try {
@@ -9618,7 +9633,7 @@ async function extractPDFText(file) {
           return;
         }
         pdfjsLib.GlobalWorkerOptions.workerSrc =
-          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          'vendor/pdf.worker.min.js';
 
         const typedArray = new Uint8Array(e.target.result);
         const pdf = await pdfjsLib.getDocument(typedArray).promise;
@@ -11605,14 +11620,28 @@ function parseSachverhaltPDF(pdfData) {
   // Adresa de livrare: header poate fi "Zustelladresse" SAU "Ablageort" (variante PDF Hermes)
   // Colectam DINAMIC toate randurile de sub header pana la "Quelle:" — nu folosim offset fix,
   // pentru ca unele PDF-uri au un rand extra (ex: numar apartament/etaj "118") intre nume si strada
-  const headerItem = items.find(it => it.text === 'Zustelladresse' || it.text === 'Ablageort' || it.text === 'An Haushalt übergeben');
+  let headerItem = items.find(it => it.text === 'Zustelladresse' || it.text === 'Ablageort' || it.text === 'An Haushalt übergeben');
+  // "Nachbar" = predat la VECIN: titlul din coloana dreapta (pe randul "Originaladresse:") e "Nachbar"
+  result.esteVecin = false;
+  let _yhVecin = null;
+  if (!headerItem) {
+    const origHdr = items.find(it => it.text.startsWith('Originaladresse') && it.x < 120);
+    if (origHdr) {
+      const rightHdr = items.find(it => Math.abs(it.y - origHdr.y) <= 3 && it.x >= 250 && it.x <= 420);
+      if (rightHdr) {
+        headerItem = rightHdr;
+        result.esteVecin = rightHdr.text.startsWith('Nachbar');
+        _yhVecin = Math.min(rightHdr.y, origHdr.y) - 3;
+      }
+    }
+  }
 
   // "Ablageort" = pachetul a fost lasat la un loc de depozitare stabilit prin
   // acord (nu predat direct), spre deosebire de "Zustelladresse"/"übergeben"
   result.esteAblageort = !!(headerItem && headerItem.text === 'Ablageort');
 
   if (headerItem) {
-    const yh = headerItem.y;
+    const yh = (_yhVecin !== null) ? _yhVecin : headerItem.y;
 
     // Gasim Y-ul liniei "Quelle:" care marcheaza sfarsitul blocului de adresa
     const quelleItem = items.find(it => it.text.startsWith('Quelle') && it.x >= 250 && it.x <= 420 && it.y < yh);
@@ -11636,6 +11665,13 @@ function parseSachverhaltPDF(pdfData) {
     const normOrig = normalizeStrada(orig.strasse);
     const normDeliv = normalizeStrada(deliv.strasse);
     result.adresaLivrareDiferita = !!(normOrig && normDeliv && normOrig !== normDeliv);
+
+    // Predat la vecin: numele din dreapta e al vecinului; clientul real = destinatarul original (stanga)
+    if (result.esteVecin) {
+      result.vecinNume = deliv.name;
+      result.vecinAdresa = [deliv.strasse, (deliv.plz + ' ' + deliv.ort).trim()].filter(Boolean).join(', ');
+      result.name = orig.name;
+    }
   }
 
   // Split name into Vorname/Nachname — format Hermes: "Nachname , Vorname"
@@ -11766,6 +11802,16 @@ async function handleAbliefererFile(file) {
       if (banEl) banEl.innerHTML += `
         <div style="margin-top:10px;padding:10px 12px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.35);border-radius:8px">
           <div style="font-size:12px;font-weight:800;color:var(--red)">⚠️ Acord de oprire — pachet lăsat la Ablageort, nu predat direct</div>
+        </div>`;
+    }
+
+    // ALERTA: pachet predat la vecin (Nachbar)
+    if (parsed.esteVecin) {
+      descParts.push('⚠️ LIVRAT LA VECIN (Nachbar)' + (parsed.vecinNume ? ': ' + parsed.vecinNume : '') + (parsed.vecinAdresa ? ' · ' + parsed.vecinAdresa : ''));
+      if (banEl) banEl.innerHTML += `
+        <div style="margin-top:10px;padding:10px 12px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.35);border-radius:8px">
+          <div style="font-size:12px;font-weight:800;color:var(--red)">⚠️ Livrat la vecin (Nachbar): ${parsed.vecinNume||'—'}</div>
+          <div style="font-size:11px;color:var(--text2)">${parsed.vecinAdresa||''}</div>
         </div>`;
     }
 
@@ -12836,7 +12882,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.21</span>
+  <span id="version-badge-text">v9.0.22</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
