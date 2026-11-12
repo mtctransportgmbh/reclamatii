@@ -11,15 +11,15 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
-<script src="vendor/chart.umd.js"></script>
-<script src="vendor/pdf.min.js"></script>
-<script src="vendor/xlsx.full.min.js"></script>
-<script src="vendor/qrcode.js"></script>
-<link rel="stylesheet" href="vendor/leaflet/leaflet.css"/>
-<script src="vendor/leaflet/leaflet.js"></script>
-<script src="vendor/leaflet/leaflet.markercluster.js"></script>
-<link rel="stylesheet" href="vendor/leaflet/MarkerCluster.css"/>
-<link rel="stylesheet" href="vendor/leaflet/MarkerCluster.Default.css"/>
+<script src="vendor-chart.umd.js"></script>
+<script src="vendor-pdf.min.js"></script>
+<script src="vendor-xlsx.full.min.js"></script>
+<script src="vendor-qrcode.js"></script>
+<link rel="stylesheet" href="vendor-leaflet.css"/>
+<script src="vendor-leaflet.js"></script>
+<script src="vendor-leaflet.markercluster.js"></script>
+<link rel="stylesheet" href="vendor-MarkerCluster.css"/>
+<link rel="stylesheet" href="vendor-MarkerCluster.Default.css"/>
 <style>
 :root {
   --bg: #0a0b0f;
@@ -9633,7 +9633,7 @@ async function extractPDFText(file) {
           return;
         }
         pdfjsLib.GlobalWorkerOptions.workerSrc =
-          'vendor/pdf.worker.min.js';
+          'vendor-pdf.worker.min.js';
 
         const typedArray = new Uint8Array(e.target.result);
         const pdf = await pdfjsLib.getDocument(typedArray).promise;
