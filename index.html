@@ -1148,8 +1148,8 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.22';
-const APP_VERSION_DATE = '11.11.2026';
+const APP_VERSION = '9.0.23';
+const APP_VERSION_DATE = '12.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
 // "SPAȚIUL CORINEI" / "AUTENTIFICARE PIN" mai jos pentru detalii
@@ -1820,6 +1820,33 @@ async function authPost(path, payload, opts) {
   }
 }
 // Antet de autentificare pentru apelurile către server (parsere PDF/ODS): tokenul sesiunii curente
+// ── Număr intern + stare tipărire (import automat din email → imprimantă) ──
+function nrPrintBadge(r) {
+  if (!r || !r.nrInternLabel) return '';
+  const nr = `<span style="font-family:var(--mono);font-size:11px;font-weight:800;background:#0F2A26;color:#fff;padding:2px 8px;border-radius:5px;letter-spacing:.3px" title="Număr intern">${r.nrInternLabel}</span>`;
+  const st = r.printStatus;
+  let pr = '';
+  if (st === 'trimis') {
+    const t = r.printAt ? new Date(r.printAt).toLocaleString('ro-RO', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+    pr = `<span style="font-size:10px;color:var(--green)" title="Trimisă la imprimantă">🖨️ trimisă ${t}</span>`;
+  } else if (st === 'eroare' || st === 'neconfigurat') {
+    pr = `<button class="btn btn-sm" style="padding:1px 8px;font-size:10px;background:rgba(220,38,38,.12);color:var(--red);border:1px solid rgba(220,38,38,.4)" onclick="event.stopPropagation();retrimitePrint('${r.id}')" title="${(r.printError||'Netrimisă').replace(/"/g,'&quot;')}">🖨️ ${st==='eroare'?'EROARE – retrimite':'netrimisă – trimite'}</button>`;
+  }
+  return nr + ' ' + pr;
+}
+async function retrimitePrint(id) {
+  try {
+    const resp = await fetch(AUTH_SERVER_BASE + '/print-retry', {
+      method: 'POST',
+      headers: Object.assign({'Content-Type':'application/json'}, await serverAuthHeaders()),
+      body: JSON.stringify({docId: id})
+    });
+    const j = await resp.json().catch(()=>({}));
+    if (resp.ok && j.ok) toast('🖨️ Trimisă la imprimantă');
+    else toast('Eroare tipărire: ' + (j.message || j.error || resp.status), 'error');
+  } catch (e) { toast('Eroare tipărire: ' + e.message, 'error'); }
+}
+
 async function serverAuthHeaders() {
   const fu = firebase.auth().currentUser;
   if (!fu) throw new Error('Sesiune expirată — autentifică-te din nou');
@@ -3761,6 +3788,7 @@ function renderImportAutoCard(r) {
     <div class="card" style="margin-bottom:12px;border-color:${(r.adresaLivrareDiferita||r.esteAblageort||r.esteVecin)?'var(--red)':'rgba(232,197,71,0.3)'}" id="import-auto-card-${r.id}">
       ${adresaBadge}
       ${vecinBadge}
+      ${r.nrInternLabel ? `<div style="margin-bottom:10px">${nrPrintBadge(r)}</div>` : ''}
       ${ablageortBadge}
       <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
         <div style="width:38px;height:38px;background:var(--accent-bg);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px">⚡</div>
@@ -4128,6 +4156,7 @@ function reclItemHTML(r, compact) {
             ? `<span class="badge badge-gray" style="font-size:10px">livrat la vecin</span>`
             : `<span style="color:#fff;background:linear-gradient(135deg,#dc2626,#ea580c);padding:3px 10px;border-radius:5px;font-weight:800;font-size:11px;letter-spacing:0.4px;text-transform:uppercase;animation:pulse-red 1.5s infinite;display:inline-flex;align-items:center;gap:4px">🏠 la vecin${r.vecinNume?': '+r.vecinNume:''}</span>`
         ) : ''}
+        ${nrPrintBadge(r)}
         ${(() => {
           if (!r.termin) return '';
           // Parse termin date - format YYYY-MM-DD sau DD.MM.YYYY
@@ -12882,7 +12911,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.22</span>
+  <span id="version-badge-text">v9.0.23</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
