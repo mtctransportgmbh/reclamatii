@@ -11,15 +11,15 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
-<script src="vendor-chart.umd.js"></script>
-<script src="vendor-pdf.min.js"></script>
-<script src="vendor-xlsx.full.min.js"></script>
-<script src="vendor-qrcode.js"></script>
-<link rel="stylesheet" href="vendor-leaflet.css"/>
-<script src="vendor-leaflet.js"></script>
-<script src="vendor-leaflet.markercluster.js"></script>
-<link rel="stylesheet" href="vendor-MarkerCluster.css"/>
-<link rel="stylesheet" href="vendor-MarkerCluster.Default.css"/>
+<script src="vendor/chart.umd.js"></script>
+<script src="vendor/pdf.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/qrcode.js"></script>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css"/>
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/leaflet/leaflet.markercluster.js"></script>
+<link rel="stylesheet" href="vendor/leaflet/MarkerCluster.css"/>
+<link rel="stylesheet" href="vendor/leaflet/MarkerCluster.Default.css"/>
 <style>
 :root {
   --bg: #0a0b0f;
@@ -1148,7 +1148,7 @@ textarea{resize:vertical;min-height:80px}
 // ════════════════════════════════════════════════════════
 // VERSION
 // ════════════════════════════════════════════════════════
-const APP_VERSION = '9.0.23';
+const APP_VERSION = '9.0.25';
 const APP_VERSION_DATE = '12.11.2026';
 
 // Server-ul Python (Render) verifica acum PIN-urile — vezi sectiunea
@@ -1403,6 +1403,7 @@ let activeFilter = 'neprelucrat';
 let reclamatiUnsubscribe = null;
 let allReclamatii = [];
 let allSoferi = [];
+let allSoferiAll = [];   // toți șoferii (inclusiv grupa Corinei) — folosit doar de sincronizare
 let chartInstance = null;
 
 // ════════════════════════════════════════════════════════
@@ -2619,6 +2620,19 @@ let angDb = null, angUnsub = null, angajatiDocs = null, angFromServer = false;
 let angStatus = { state: 'off', n: 0, err: '' };
 let angLastCheck = null;
 let soferiUnsub = null, soferiLoaded = false;
+// Persoanele Corinei (rol camion, sau DPD/DHL/Hermes fără camion, sau coordonator Corina) apar DOAR în spațiul ei
+function angIsCorina(raw) {
+  raw = raw || {};
+  if (String(raw.coord || '').toLowerCase().trim() === 'corina') return true;
+  const camion = ((raw.roluri || []).join(',')).toLowerCase().includes('camion');
+  const dpd = (Array.isArray(raw.firme) ? raw.firme : []).some(f => ['DPD', 'DHL', 'HERMES'].includes(String(f).trim().toUpperCase()));
+  return camion || dpd;
+}
+function isCorinaSofer(s) {
+  if (s.grupCorina) return true;
+  const a = angajatiDocs && s.angajatId ? angajatiDocs.find(x => x.id === s.angajatId) : null;
+  return !!(a && angIsCorina(a.raw));
+}
 let _reconTimer = null, _reconRunning = false, _angToastedErr = false;
 
 function angFullName(d) {
@@ -2703,6 +2717,7 @@ function applyAngajatiDocs(list, fromServer) {
   const changed = ch !== applyAngajatiDocs._last; applyAngajatiDocs._last = ch;
   angFromServer = fromServer;
   angajatiDocs = list;
+  if (allSoferiAll.length) allSoferi = allSoferiAll.filter(x => !isCorinaSofer(x));
   angStatus = { state: 'live', n: list.length, err: '' };
   if (fromServer) angLastCheck = new Date();
   updateAngStatusUI();
@@ -2788,8 +2803,8 @@ async function reconcileAngajati(manual) {
   const stat = { created: 0, linked: 0, renamed: 0, archived: 0, restored: 0 };
   try {
     const FV = firebase.firestore.FieldValue;
-    const byAng = new Map(); allSoferi.forEach(s => { if (s.angajatId) byAng.set(s.angajatId, s); });
-    const unlinked = allSoferi.filter(s => !s.angajatId);
+    const byAng = new Map(); allSoferiAll.forEach(s => { if (s.angajatId) byAng.set(s.angajatId, s); });
+    const unlinked = allSoferiAll.filter(s => !s.angajatId);
     const updates = [], creates = [];
     const angIds = new Set(angajatiDocs.map(a => a.id));
 
@@ -2800,16 +2815,17 @@ async function reconcileAngajati(manual) {
         const cands = unlinked.filter(u => _nameKey(u.numeSofer) === key);
         if (cands.length === 1) {
           s = cands[0]; unlinked.splice(unlinked.indexOf(s), 1);
-          updates.push([s.id, Object.assign({ angajatId: a.id, numeAngajat: a.name, sursa: 'angajati' }, angDatesOf(a))]); stat.linked++;
+          updates.push([s.id, Object.assign({ angajatId: a.id, numeAngajat: a.name, sursa: 'angajati', grupCorina: angIsCorina(a.raw) }, angDatesOf(a))]); stat.linked++;
           if (s.stersDinAngajati) { updates[updates.length-1][1].stersDinAngajati = false; }
         } else {
-          creates.push([ 'ang_' + a.id, Object.assign({ angajatId: a.id, numeSofer: a.name, numeAngajat: a.name, tura: '', locatie: '', tipSofer: '', sursa: 'angajati', createdAt: FV.serverTimestamp() }, angDatesOf(a)) ]);
+          creates.push([ 'ang_' + a.id, Object.assign({ angajatId: a.id, numeSofer: a.name, numeAngajat: a.name, tura: '', locatie: '', tipSofer: '', sursa: 'angajati', grupCorina: angIsCorina(a.raw), createdAt: FV.serverTimestamp() }, angDatesOf(a)) ]);
           stat.created++;
         }
       } else {
         const patch = {};
         if (s.numeAngajat !== a.name) { patch.numeAngajat = a.name; if (!s.legatManual) patch.numeSofer = a.name; stat.renamed++; }
         if (s.stersDinAngajati) { patch.stersDinAngajati = false; patch.arhivat = false; patch.arhivatLa = null; stat.restored++; }
+        const gc = angIsCorina(a.raw); if (!!s.grupCorina !== gc) patch.grupCorina = gc;
         const dts = angDatesOf(a);
         if ((s.angStart || '') !== dts.angStart) patch.angStart = dts.angStart;
         if ((s.angEnd || '') !== dts.angEnd) patch.angEnd = dts.angEnd;
@@ -2817,7 +2833,7 @@ async function reconcileAngajati(manual) {
       }
     }
     // persoane sterse din Angajati -> arhivare (cu plasa de siguranta impotriva unei liste goale / incomplete)
-    const missing = allSoferi.filter(s => s.angajatId && !angIds.has(s.angajatId) && !s.arhivat);
+    const missing = allSoferiAll.filter(s => s.angajatId && !angIds.has(s.angajatId) && !s.arhivat);
     if (missing.length) {
       if (missing.length > Math.max(3, angajatiDocs.length * 0.3)) {
         console.warn('Sync Angajati: prea multe persoane lipsa (' + missing.length + ') — arhivare sarita ca masura de siguranta');
@@ -2864,11 +2880,11 @@ function angSyncDot(s) {
   return `<span title="${t}" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c};margin-right:6px;vertical-align:middle;flex-shrink:0"></span>`;
 }
 function angSyncSummary() {
-  const vis = allSoferi.filter(s => !s.arhivat);
+  const vis = allSoferiAll.filter(s => !s.arhivat);
   const unl = vis.filter(s => !s.angajatId && !s.ascuns);
   const del = vis.filter(s => angSyncOf(s) === 'deleted');
   const pen = vis.filter(s => angSyncOf(s) === 'pending');
-  const waiting = angajatiDocs ? angajatiDocs.filter(a => !allSoferi.some(s => s.angajatId === a.id)) : [];
+  const waiting = angajatiDocs ? angajatiDocs.filter(a => !allSoferiAll.some(s => s.angajatId === a.id)) : [];
   const linked = vis.filter(s => s.angajatId && angSyncOf(s) === 'ok').length;
   return { unl, del, pen, waiting, linked, total: angajatiDocs ? angajatiDocs.length : 0, allOk: !unl.length && !del.length && !pen.length && !waiting.length };
 }
@@ -2962,8 +2978,9 @@ async function unlinkAng(sid) {
 function loadSoferi() {
   if (soferiUnsub) return;
   soferiUnsub = db.collection('soferi').onSnapshot(snap => {
-    allSoferi = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    allSoferiAll = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => String(a.tura || '').localeCompare(String(b.tura || ''), undefined, { numeric: true }));
+    allSoferi = allSoferiAll.filter(s => !isCorinaSofer(s));   // grupa Corinei nu apare la ceilalți utilizatori
     soferiLoaded = true;
     onSoferiChanged();
   }, err => console.warn('soferi listener:', err));
@@ -3113,8 +3130,7 @@ function showTestModeMenu() {
   const existing = document.getElementById('test-mode-modal');
   if (existing) { existing.remove(); return; }
 
-  // Corina e exclusa din Mod Test — spatiul ei ramane privat, inclusiv fata de admin
-  const simulatable = USERS.filter(u => u.id !== 'admin' && u.id !== 'corina');
+  const simulatable = USERS.filter(u => u.id !== 'admin');   // inclusiv Corina (la cererea lui Paul)
 
   const m = document.createElement('div');
   m.id = 'test-mode-modal';
@@ -3156,12 +3172,12 @@ function startTestMode(userId) {
 
   renderTestModeBanner();
   updateSidebarUser();
-  const startPage = (currentUser?.role === 'operator' || isLimited(currentUser)) ? 'reclamatii' : 'dashboard';
+  const startPage = currentUser?.role === 'corina' ? 'corina-reclamatii' : (currentUser?.role === 'operator' || isLimited(currentUser)) ? 'reclamatii' : 'dashboard';
   showPage(startPage);
   loadReclamatii();
   loadSoferi();
 
-  toast('🧪 Simulezi acum: ' + targetUser.name);
+  toast('🧪 Simulezi acum: ' + targetUser.name + (targetUser.id === 'corina' ? ' — atenție: ce modifici în spațiul ei se salvează real' : ''));
 }
 
 function exitTestMode() {
@@ -9662,7 +9678,7 @@ async function extractPDFText(file) {
           return;
         }
         pdfjsLib.GlobalWorkerOptions.workerSrc =
-          'vendor-pdf.worker.min.js';
+          'vendor/pdf.worker.min.js';
 
         const typedArray = new Uint8Array(e.target.result);
         const pdf = await pdfjsLib.getDocument(typedArray).promise;
@@ -12911,7 +12927,7 @@ buildUserGrid();
 <div style="position:fixed;bottom:10px;left:10px;z-index:500;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--text3);cursor:pointer;opacity:0.7;transition:opacity 0.2s;display:flex;align-items:center;gap:5px"
   onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'"
   onclick="showVersionInfo()" id="version-badge">
-  <span id="version-badge-text">v9.0.23</span>
+  <span id="version-badge-text">v9.0.25</span>
   <span id="version-dot" style="display:none;width:7px;height:7px;background:#ef4444;border-radius:50%;animation:pulse-red 1.5s infinite"></span>
 </div>
 
